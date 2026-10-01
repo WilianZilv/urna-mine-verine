@@ -96,11 +96,13 @@ pub struct Terminal {
     stamps: [bool; 8],
     /// Tour dos Poderes (copiado de places::tour todo frame): (carimbos, minutos restantes).
     pub tour: Option<(usize, i32)>,
+    /// Mural dos guias (quem completou o tour), mais novo primeiro.
+    pub mural: Vec<String>,
 }
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8], tour: None }
+        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8], tour: None, mural: Vec::new() }
     }
 
     fn warp(&mut self, at: Vec3) {
@@ -235,7 +237,11 @@ impl Terminal {
         }
 
         text_mid("/viajar destino (5 moedas)  -  ou anda no portao", TW * 0.5, 970.0, 52.0, GOLD);
-        text_mid("/destinos lista tudo  -  moedas ficticias, passagem vai pro cofre da IA", TW * 0.5, 1008.0, 26.0, SOFT);
+        if !self.mural.is_empty() && (time / 5.0) as i32 % 2 == 1 {
+            text_mid(&fit(&format!("MURAL DOS GUIAS DA VILA:  {}", self.mural.join("  -  ")), TW - 80.0, 30.0), TW * 0.5, 1010.0, 30.0, GOLD);
+        } else {
+            text_mid("/destinos lista tudo  -  moedas ficticias, passagem vai pro cofre da IA", TW * 0.5, 1008.0, 26.0, SOFT);
+        }
         holo_fx(time, 0.0);
     }
 }
@@ -306,6 +312,7 @@ impl Place for Terminal {
             return;
         }
         let mut key = format!("{}|{}|{:?}|{:?}|{:?}", self.got, self.total, self.trips, self.stamps, self.tour);
+        key += &self.mural.join(",");
         for p in &self.portals {
             key += &format!("|{}:{}:{}", p.name, p.by, p.n);
         }

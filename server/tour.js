@@ -4,6 +4,7 @@
 //   {t:"pl",k:"tour",on,left:[ids],done:[ids],sec}   progresso privado (sec = segundos restantes)
 // Carimbo = chegar a RADIUS blocos do SPOT do lugar (c.pos, varrido a cada SCAN_MS enquanto ha tour ativo).
 // Completar paga PRIZE do cofre (1x por dia por jogador, so se o cofre fica >= RESERVE).
+//   {t:"pl",k:"tour",mural:[nomes]}            ultimos MURAL guias (join); com fin:nome quando alguem completa (fogos no Terminal)
 import { norm } from "./places.js";
 import { SPOTS } from "./layout.js";
 
@@ -14,14 +15,15 @@ const RADIUS = 8;
 export const PRIZE = 40;
 const RESERVE = 300;
 const SCAN_MS = 1000;
+const MURAL = 5;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 export class Tour {
     constructor(places, s) {
         this.pl = places;
-        // act: nome -> {until, got:[ids]}; paid: nome -> dia do ultimo premio; fin: nome -> tours completos
-        this.s = { act: {}, paid: {}, fin: {}, ...s };
+        // act: nome -> {until, got:[ids]}; paid: nome -> dia do ultimo premio; fin: nome -> tours completos; mural: nomes (mais novo primeiro)
+        this.s = { act: {}, paid: {}, fin: {}, mural: [], ...s };
         this.iv = null;
     }
 
@@ -48,6 +50,7 @@ export class Tour {
     join(c) {
         const k = norm(c.name);
         this.pl.room.send(c, this.progress(k));
+        this.pl.room.send(c, { t: "pl", k: "tour", mural: this.s.mural });
         if (this.s.act[k]) this.arm();
         else if (!this.s.fin[k]) this.pl.priv(c, "TOUR", `novo na vila? digita /tour: visita os 5 poderes em 15 min e ganha ${PRIZE} moedas ficticias do cofre`);
     }
@@ -116,9 +119,12 @@ export class Tour {
             eco.sendMe(c.name);
             note = `+${PRIZE} moedas ficticias do cofre`;
         }
+        const n = String(c.name).slice(0, 16);
+        this.s.mural = [n, ...this.s.mural.filter((x) => norm(x) !== k)].slice(0, MURAL);
         this.save();
         this.sendTo(k, `carimbo final! 5/5, ${note}`);
         this.pl.say("TOUR", `${c.name} completou o TOUR DOS PODERES`);
+        this.pl.room.broadcast({ t: "pl", k: "tour", fin: n, mural: this.s.mural });
     }
 
     expire(now) {

@@ -79,7 +79,11 @@ impl Places {
             "tv" => &mut self.tv,
             "banco" => &mut self.banco,
             "term" | "go" => &mut self.terminal,
-            "tour" => &mut self.tour,
+            "tour" => {
+                self.tour.on_msg(m);
+                self.terminal.mural.clone_from(&self.tour.mural);
+                return;
+            }
             _ => return,
         };
         p.on_msg(m);

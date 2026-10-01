@@ -1,6 +1,7 @@
 //! Tour dos Poderes (server/tour.js): enquanto o jogador tá no tour, feixe de luz alto em cada lugar que
 //! falta, rótulo só no mais perto e um check verde holográfico nos já carimbados. O servidor é quem carimba
-//! (pela posição); aqui é só o estado {t:"pl", k:"tour", on, left, done, sec}.
+//! (pela posição); aqui é só o estado {t:"pl", k:"tour", on, left, done, sec}. Quando alguém completa
+//! ({fin:nome, mural}) todo cliente vê fogos sobre o Terminal; o mural dos guias vai pro painel de partidas.
 
 use super::Place;
 use crate::batch::Batch;
@@ -30,6 +31,19 @@ pub struct Tour {
     left: f32,
     /// ?tour=1 na URL: pede o tour sozinho ao conectar (screenshot headless).
     auto: bool,
+    /// Últimos guias (quem completou), mais novo primeiro: vai pro painel do Terminal.
+    pub mural: Vec<String>,
+    /// Fogos sobre o Terminal por quem acabou de completar: (nome, idade).
+    fin: Vec<(String, f32)>,
+}
+
+const FIN_T: f32 = 6.0;
+const FIN_MAX: usize = 3;
+const SKY: Vec3 = vec3(202.5, G as f32 + 34.0, 278.5);
+const PAL: [Color; 5] = [Color::new(1.0, 0.85, 0.2, 1.0), Color::new(0.3, 1.0, 0.45, 1.0), Color::new(0.3, 0.8, 1.0, 1.0), Color::new(1.0, 0.3, 0.6, 1.0), Color::new(1.0, 1.0, 1.0, 1.0)];
+
+fn alpha(c: Color, a: f32) -> Color {
+    Color::new(c.r, c.g, c.b, a)
 }
 
 impl Tour {
@@ -38,7 +52,56 @@ impl Tour {
         let auto = crate::web::query("tour").as_deref() == Some("1");
         #[cfg(not(target_arch = "wasm32"))]
         let auto = false;
-        Tour { on: false, got: [false; 5], left: 0.0, auto }
+        Tour { on: false, got: [false; 5], left: 0.0, auto, mural: Vec::new(), fin: Vec::new() }
+    }
+
+    /// Foguetes sobem, estouram em esfera e chove confete no saguão do Terminal.
+    fn draw_fin(&self, trans: &mut Batch, labels: &mut Vec<Label>, eye: Vec3) {
+        let d = eye.distance(SKY);
+        if d > 260.0 {
+            return;
+        }
+        let id = Mat4::IDENTITY;
+        let parts = crate::quality::pick([14, 28, 48]);
+        let confetti = crate::quality::pick([8, 20, 36]);
+        for (k, (name, t)) in self.fin.iter().enumerate() {
+            for s in 0..4usize {
+                let st = t - s as f32 * 0.7;
+                if st < 0.0 {
+                    continue;
+                }
+                let c0 = SKY + vec3(((s * 7 + k * 3) % 5) as f32 * 3.0 - 6.0, (s % 2) as f32 * 4.0, ((s * 3 + k) % 5) as f32 * 3.0 - 6.0);
+                let col = PAL[(s + k) % PAL.len()];
+                if st < 0.6 {
+                    trans.glow(&id, c0 - vec3(0.0, (1.0 - st / 0.6) * 30.0, 0.0), Vec3::splat(0.4), WHITE);
+                    continue;
+                }
+                let e = st - 0.6;
+                if e > 2.2 {
+                    continue;
+                }
+                let f = 1.0 - e / 2.2;
+                let r = 9.0 * (1.0 - (-e * 2.5).exp());
+                for j in 0..parts {
+                    let y = 1.0 - 2.0 * (j as f32 + 0.5) / parts as f32;
+                    let (rad, th) = ((1.0 - y * y).sqrt(), j as f32 * 2.399_963);
+                    let p = c0 + vec3(th.cos() * rad, y, th.sin() * rad) * r - vec3(0.0, e * e * 1.5, 0.0);
+                    trans.glow(&id, p, Vec3::splat(0.1 + 0.35 * f), alpha(col, f));
+                }
+            }
+            for j in 0..confetti {
+                let y = SKY.y - 6.0 - t * 5.0 - (j % 5) as f32 * 1.5;
+                if y < G as f32 {
+                    continue;
+                }
+                let sway = (t * 3.0 + j as f32).sin() * 0.8;
+                let p = vec3(SKY.x + ((j * 37) % 30) as f32 - 15.0 + sway, y, SKY.z + ((j * 53) % 24) as f32 - 12.0);
+                trans.glow(&(Mat4::from_translation(p) * Mat4::from_rotation_y(t * 4.0 + j as f32)), Vec3::ZERO, vec3(0.35, 0.05, 0.2), PAL[j % PAL.len()]);
+            }
+            if *t < FIN_T - 1.0 && d < 140.0 {
+                labels.push(Label { pos: SKY + vec3(0.0, 12.0, 0.0), text: format!("{name} VIROU GUIA DA VILA"), size: 26.0, color: GOLD });
+            }
+        }
     }
 
     fn done(&self) -> usize {
@@ -53,6 +116,15 @@ impl Tour {
 
 impl Place for Tour {
     fn on_msg(&mut self, m: &Value) {
+        if let Some(list) = m["mural"].as_array() {
+            self.mural = list.iter().filter_map(|v| v.as_str()).take(5).map(|s| s.to_uppercase()).collect();
+        }
+        if let Some(n) = m["fin"].as_str() {
+            if self.fin.len() >= FIN_MAX {
+                self.fin.remove(0);
+            }
+            self.fin.push((n.to_uppercase().chars().take(16).collect(), 0.0));
+        }
         let Some(on) = m["on"].as_bool() else { return };
         self.on = on;
         self.left = m["sec"].as_f64().unwrap_or(0.0) as f32;
@@ -64,6 +136,10 @@ impl Place for Tour {
 
     fn update(&mut self, _p: &mut Player, dt: f32, _time: f32, online: bool, out: &mut Vec<Value>) {
         self.left = (self.left - dt).max(0.0);
+        for f in &mut self.fin {
+            f.1 += dt;
+        }
+        self.fin.retain(|f| f.1 < FIN_T);
         if self.auto && online {
             self.auto = false;
             out.push(json!({"t": "chat", "m": "/tour"}));
@@ -71,6 +147,7 @@ impl Place for Tour {
     }
 
     fn draw(&self, _b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        self.draw_fin(trans, labels, eye);
         if !self.on {
             return;
         }

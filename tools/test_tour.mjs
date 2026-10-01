@@ -33,7 +33,8 @@ clearInterval(t.iv);
 const ana = { name: "ana" }, bob = { name: "bob" };
 room.clients.set(1, ana).set(2, bob);
 const chats = (who) => sent.filter((x) => x.to === who && x.m.t === "chat").map((x) => x.m.m);
-const last = (who) => sent.filter((x) => x.to === who && x.m.k === "tour").pop()?.m;
+const last = (who) => sent.filter((x) => x.to === who && x.m.k === "tour" && "on" in x.m).pop()?.m;
+const mural = (who) => sent.filter((x) => x.to === who && x.m.k === "tour" && "mural" in x.m).pop()?.m;
 const visit = (c, id) => (c.pos = [SPOTS[id][0] + 3, 20, SPOTS[id][1] - 3]);
 
 // join: novato ganha dica + progresso vazio
@@ -79,6 +80,7 @@ assert.equal(room.eco.s.w.ana.c, 100 + PRIZE);
 assert.equal(room.eco.s.tr, 1000 - PRIZE);
 assert.deepEqual(ledger.pop(), ["ana", "completou o TOUR DOS PODERES", PRIZE, "premio do tour pago pelo cofre (1x por dia)"]);
 assert.ok(bc.some((m) => m.t === "chat" && m.m === "ana completou o TOUR DOS PODERES"));
+assert.deepEqual(bc.pop(), { t: "pl", k: "tour", fin: "ana", mural: ["ana"] });
 assert.equal(last("ana").on, false);
 assert.equal(t.s.fin.ana, 1);
 
@@ -122,6 +124,13 @@ for (const id of IDS) {
 }
 assert.equal(room.eco.s.w.bob.c, 100 + PRIZE);
 assert.equal(room.eco.s.tr, 300);
+
+// mural: mais novo primeiro, sem repetir, no maximo 5; join manda o mural
+assert.deepEqual(t.s.mural, ["bob", "ana"]);
+for (const n of ["c1", "c2", "c3", "c4"]) t.finish({ name: n }, n);
+assert.deepEqual(t.s.mural, ["c4", "c3", "c2", "c1", "bob"]);
+t.join(bob);
+assert.deepEqual(mural("bob"), { t: "pl", k: "tour", mural: ["c4", "c3", "c2", "c1", "bob"] });
 
 // tempo esgota: tour some e avisa
 t.command(2, bob, "tour", []);

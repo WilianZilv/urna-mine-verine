@@ -68,8 +68,19 @@ pub struct Escola {
     reads: i64,
     /// Últimos mods ativados: (nome, criador).
     last: Vec<(String, String)>,
+    /// Mural dos formados (mais novo primeiro): (criador, primeiro mod/portal, "dd/mm").
+    grad: Vec<(String, String, String)>,
+    /// Confete sobre a escola por formado novo: (nome, idade).
+    party: Vec<(String, f32)>,
     scr: Screen,
 }
+
+const PARTY_T: f32 = 7.0;
+/// Placas do mural na parede leste de dentro (x 128), 2 fileiras de 4, olhando pro oeste.
+const MURAL_X: f32 = 127.93;
+const MURAL_Z: [f32; 4] = [272.5, 275.5, 278.5, 281.5];
+const MURAL_Y: [f32; 2] = [FL + 5.4, FL + 3.2];
+const PAL: [Color; 4] = [YEL, CYAN, PINK, CHALK];
 
 impl Default for Escola {
     fn default() -> Self {
@@ -79,7 +90,71 @@ impl Default for Escola {
 
 impl Escola {
     pub fn new() -> Self {
-        Escola { got: false, site: "urna-mine-verine.wilianzilv.workers.dev".into(), mods: 0, portals: 0, creators: 0, reads: 0, last: vec![], scr: Screen::new() }
+        Escola { got: false, site: "urna-mine-verine.wilianzilv.workers.dev".into(), mods: 0, portals: 0, creators: 0, reads: 0, last: vec![], grad: vec![], party: vec![], scr: Screen::new() }
+    }
+
+    /// Diplomas emoldurados com selo; vaga vazia fica apagada.
+    fn mural(&self, b: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let inside = (103.0..128.0).contains(&eye.x) && (269.0..290.0).contains(&eye.z);
+        let (w, h) = (2.4, 1.7);
+        for i in 0..8 {
+            let c = vec3(MURAL_X, MURAL_Y[i / 4], MURAL_Z[i % 4]);
+            let g = self.grad.get(i);
+            let frame = if g.is_some() { rgb(0.85, 0.65, 0.25) } else { rgb(0.4, 0.35, 0.3) };
+            for (o, sz) in [
+                (vec3(0.0, h * 0.5, 0.0), vec3(0.12, 0.14, w + 0.14)),
+                (vec3(0.0, -h * 0.5, 0.0), vec3(0.12, 0.14, w + 0.14)),
+                (vec3(0.0, 0.0, -w * 0.5), vec3(0.12, h, 0.14)),
+                (vec3(0.0, 0.0, w * 0.5), vec3(0.12, h, 0.14)),
+            ] {
+                b.cube(&id, c + o, sz, frame);
+            }
+            b.cube(&id, c, vec3(0.05, h - 0.1, w - 0.1), if g.is_some() { rgb(0.95, 0.9, 0.75) } else { rgb(0.35, 0.33, 0.3) });
+            if g.is_some() {
+                let k = 0.75 + 0.25 * (time * 2.0 + i as f32).sin();
+                b.glow(&id, c + vec3(-0.05, -0.45, 0.75), vec3(0.04, 0.4, 0.4), Color::new(0.85 * k, 0.15, 0.15, 1.0));
+            }
+            if inside && eye.distance(c) < 25.0 {
+                match g {
+                    Some((n, wk, d)) => {
+                        labels.push(Label { pos: c + vec3(-0.15, 0.35, 0.0), text: n.clone(), size: 18.0, color: YEL });
+                        labels.push(Label { pos: c + vec3(-0.15, -0.15, 0.0), text: format!("1o: {wk}"), size: 13.0, color: CHALK });
+                        labels.push(Label { pos: c + vec3(-0.15, -0.5, 0.0), text: format!("formado {d}"), size: 12.0, color: DUST });
+                    }
+                    None => labels.push(Label { pos: c, text: "VAGA".into(), size: 13.0, color: DUST }),
+                }
+            }
+        }
+        let head = vec3(MURAL_X - 0.2, FL + 7.0, 277.0);
+        if inside && eye.distance(head) < 25.0 {
+            labels.push(Label { pos: head, text: "MURAL DOS FORMADOS".into(), size: 24.0, color: YEL });
+            labels.push(Label { pos: head - vec3(0.0, 0.5, 0.0), text: "primeiro mod ou portal no ar = diploma".into(), size: 14.0, color: CHALK });
+        }
+    }
+
+    /// Confete caindo sobre a escola + nome do formado.
+    fn confetti(&self, trans: &mut Batch, labels: &mut Vec<Label>, eye: Vec3) {
+        if self.party.is_empty() || eye.distance(CENTER) > 200.0 {
+            return;
+        }
+        let n = crate::quality::pick([16, 36, 60]);
+        let top = FL + 26.0;
+        for (k, (name, t)) in self.party.iter().enumerate() {
+            for j in 0..n {
+                let y = top - t * 4.0 - (j % 7) as f32 * 1.6;
+                if y < FL {
+                    continue;
+                }
+                let sway = (t * 3.0 + j as f32).sin() * 0.9;
+                let p = vec3(CENTER.x + ((j * 37 + k * 11) % 30) as f32 - 15.0 + sway, y, CENTER.z + ((j * 53 + k * 7) % 26) as f32 - 13.0);
+                let m = Mat4::from_translation(p) * Mat4::from_rotation_y(t * 4.0 + j as f32) * Mat4::from_rotation_x(t * 3.0 + j as f32);
+                trans.glow(&m, Vec3::ZERO, vec3(0.4, 0.05, 0.25), PAL[(j + k) % PAL.len()]);
+            }
+            if *t < PARTY_T - 1.0 {
+                labels.push(Label { pos: vec3(CENTER.x, top + 3.0 + k as f32 * 1.5, CENTER.z), text: format!("{name} SE FORMOU!"), size: 26.0, color: YEL });
+            }
+        }
     }
 
     fn paint(&self, time: f32) {
@@ -237,7 +312,24 @@ impl Place for Escola {
         self.creators = i(&m["creators"]);
         self.reads = i(&m["reads"]);
         self.last = m["last"].as_array().map(|a| a.iter().map(|r| (s(&r[0]), s(&r[1]))).collect()).unwrap_or_default();
+        let grad: Vec<(String, String, String)> = m["grad"].as_array().map(|a| a.iter().map(|r| (s(&r[0]), s(&r[1]), s(&r[2]))).collect()).unwrap_or_default();
+        if self.got {
+            for (n, ..) in grad.iter().filter(|g| !self.grad.iter().any(|o| o.0 == g.0)).take(3) {
+                if self.party.len() >= 3 {
+                    self.party.remove(0);
+                }
+                self.party.push((n.to_uppercase().chars().take(16).collect(), 0.0));
+            }
+        }
+        self.grad = grad;
         self.got = true;
+    }
+
+    fn update(&mut self, _p: &mut crate::player::Player, dt: f32, _time: f32, _online: bool, _out: &mut Vec<Value>) {
+        for p in &mut self.party {
+            p.1 += dt;
+        }
+        self.party.retain(|p| p.1 < PARTY_T);
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
@@ -255,6 +347,7 @@ impl Place for Escola {
             b.cube(&id, SIGN + vec3(0.0, 2.6, 0.0), vec3(2.6, 0.7, 0.1), rgb(0.08, 0.2, 0.13));
             labels.push(Label { pos: SIGN + vec3(0.0, 3.6, 0.0), text: "v ESCOLA DE AGENTES".into(), size: 18.0, color: Color::new(1.0, 0.95, 0.75, 1.0) });
         }
+        self.confetti(trans, labels, eye);
         if eye.distance(CENTER) > 130.0 {
             return;
         }
@@ -291,6 +384,7 @@ impl Place for Escola {
         }
         self.desks(b, time);
         self.prof(b, labels, time, eye);
+        self.mural(b, labels, time, eye);
         if crate::quality::tier() != crate::quality::LOW {
             for lx in [108.5, 122.5] {
                 b.glow(&id, vec3(lx, FL + 11.7, 279.0), vec3(6.0, 0.15, 0.6), Color::new(1.0, 0.97, 0.88, 1.0));
@@ -392,5 +486,22 @@ mod tests {
         }
         assert!(w.solid(GEO.c.x as i32, GEO.c.y as i32, 290), "lousa sem parede");
         assert!(!w.solid(PROF.x as i32, G, PROF.z as i32), "professor dentro da parede");
+        for y in MURAL_Y {
+            for z in MURAL_Z {
+                assert!(w.solid(128, (y + 0.9) as i32, z as i32) && w.solid(128, (y - 0.9) as i32, z as i32), "placa sem parede em {z}");
+            }
+        }
+    }
+
+    #[test]
+    fn escola_confetti_only_new_graduates() {
+        let mut e = Escola::new();
+        e.on_msg(&serde_json::json!({"k": "escola", "grad": [["Zeca", "Kong", "01/10"]]}));
+        assert!(e.party.is_empty(), "carga inicial nao e formatura");
+        e.on_msg(&serde_json::json!({"k": "escola", "grad": [["Lia", "Sapo", "01/10"], ["Zeca", "Kong", "01/10"]]}));
+        assert_eq!(e.party.len(), 1);
+        assert_eq!(e.party[0].0, "LIA");
+        e.on_msg(&serde_json::json!({"k": "escola", "grad": [["Lia", "Sapo", "01/10"], ["Zeca", "Kong", "01/10"]]}));
+        assert_eq!(e.party.len(), 1);
     }
 }

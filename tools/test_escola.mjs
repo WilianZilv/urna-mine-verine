@@ -20,7 +20,7 @@ const e = new Escola(pl, st);
 
 // sem mods/portais: snapshot zerado
 e.join({ name: "ana" });
-assert.deepEqual(sent.pop(), { t: "pl", k: "escola", site: SITE, mods: 0, portals: 0, creators: 0, reads: 0, last: [] });
+assert.deepEqual(sent.pop(), { t: "pl", k: "escola", site: SITE, mods: 0, portals: 0, creators: 0, reads: 0, last: [], grad: [] });
 
 // contadores ao vivo: mods ativos, portais verificados, criadores distintos (case-insensitive), ultimos 3 mods
 room.mods.active.set("a", mod("a", "Zeca", 1, "King Kong"));
@@ -51,8 +51,8 @@ assert.equal(e.hit(t0 + 2 * 3600 * 1000), 1);
 assert.deepEqual(st.reads, { "2026-10-01": 2, "2026-10-02": 1 });
 assert.equal(e.reads(t0), 2);
 assert.equal(saves.at(-1)[0], "escola");
-assert.deepEqual(Object.keys(saves.at(-1)[1]), ["reads"]);
-for (const v of Object.values(st.reads)) assert.equal(typeof v, "number");
+for (const v of Object.values(saves.at(-1)[1].reads)) assert.equal(typeof v, "number");
+assert.ok(!/ip|agent|ua\b/i.test(JSON.stringify(Object.keys(saves.at(-1)[1]))));
 assert.equal(e.pt, null); // ninguem online: sem push agendado
 
 // so guarda os ultimos 14 dias
@@ -86,4 +86,41 @@ assert.ok(LANDMARKS.some(([x0, x1, z0, z1]) => x0 === 98 && x1 === 132 && z0 ===
 assert.deepEqual(SPOTS.escola, [115, 279]);
 assert.ok(blocked([110, 20, 270], [112, 22, 272]));
 assert.ok(blocked([115, 20, 250], [115, 22, 250])); // trilha
+// MURAL DOS FORMADOS: primeira varredura so registra (sem anunciar); depois, formado novo = fala global
+{
+    const said = [];
+    const groom = { clients: new Map(), send() { }, broadcast() { }, mods: { active: new Map() }, hub: { s: { p: {} } } };
+    const gpl = { room: groom, save() { }, priv() { }, say: (from, m) => said.push(`${from}: ${m}`) };
+    const gs = {};
+    const g = new Escola(gpl, gs);
+    groom.mods.active.set("kong", mod("kong", "Zeca", 1, "King Kong"));
+    g.graduate(1000);
+    assert.equal(said.length, 0);
+    assert.equal(gs.seeded, true);
+    assert.deepEqual(Object.keys(gs.grad), ["zeca"]);
+    groom.mods.active.set("sapo", mod("sapo", "Lia", 5, "Sapo"));
+    groom.mods.active.set("sapo2", mod("sapo2", "lia", 3, "Sapo Velho"));
+    groom.mods.active.set("kong2", mod("kong2", "Zeca", 6, "Kong 2"));
+    g.graduate(2000);
+    assert.deepEqual(said, ["ESCOLA: lia se formou! primeiro mod: Sapo Velho"]);
+    g.graduate(3000);
+    assert.equal(said.length, 1);
+    groom.hub.s.p = { corrida: portal("corrida", "Bia"), off: portal("off", "Rui", false) };
+    g.graduate(4000);
+    assert.deepEqual(said[1], "ESCOLA: Bia se formou! primeiro portal: corrida");
+    const snap = g.snap();
+    assert.deepEqual(snap.grad.map((r) => r[0]), ["Bia", "lia", "Zeca"]);
+    assert.match(snap.grad[0][2], /^\d\d\/\d\d$/);
+    // mod desativado: continua formado
+    groom.mods.active.clear();
+    assert.equal(g.snap().grad.length, 3);
+    // so os ultimos 8 no mural
+    for (let i = 0; i < 12; i++) groom.mods.active.set(`m${i}`, mod(`m${i}`, `C${i}`, i));
+    g.graduate(5000);
+    assert.equal(g.snap().grad.length, 8);
+    // DO reinicia com estado salvo: ninguem e reanunciado
+    said.length = 0;
+    new Escola(gpl, gs).graduate(6000);
+    assert.equal(said.length, 0);
+}
 console.log("test_escola OK");

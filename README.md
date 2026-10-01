@@ -24,8 +24,8 @@ criar um mod, conectar teu jogo ao Hub ou só jogar, e faz o resto (`server/skil
 cargo run --release
 ```
 
-4. Clique na janela para capturar o mouse. Você nasce no topo da torre de observação
-   (sul da vila): **clube à esquerda**, **briga no centro**, **urna à direita**.
+4. Clique na janela para capturar o mouse. Você nasce na **praça central** (fonte + placar);
+   ruas em cruz + anel levam a **arena** (N), **clube** (O), **ciência** (L), casas/torre/skate (S).
 5. Wolverine cai do céu aos 20s (ou aperte `K`).
 
 Primeiro build: ~30s. Depois: instantâneo.
@@ -156,12 +156,12 @@ hotbar escolhe bloco. Entra em tela cheia no primeiro toque.
 ## O que tem na tela
 
 ### Estilo Minecraft
-- Mundo 128×48×128 em chunks 16×16, face culling, **ambient occlusion por vértice**,
+- Mundo 320×48×320 em chunks 16×16, face culling, **ambient occlusion por vértice**,
   sombreamento por face (topo claro, laterais e base mais escuras).
 - Atlas 16×16 procedural (`FilterMode::Nearest`): grama, terra, pedra, tábua, tronco,
   folha, pedregulho (Voronoi), vidro, tijolo, cascalho, lã, neon, bedrock, parede do clube.
-- Terreno plano na vila, colinas com árvores em volta, 8 casas com telhado escalonado,
-  janelas de vidro e porta virada pra praça. Caminhos de cascalho e praça de pedregulho.
+- Terreno plano na cidade, colinas/floresta nas bordas, 10 casas com telhado escalonado na
+  rua residencial. Ruas de pedra com meio-fio, postes e placas de bairro; praça com fonte e bancos.
 - Sol, nuvens andando, mira, hotbar, quebrar/colocar bloco, física AABB do jogador.
 
 ### Clube de house (oeste)
@@ -236,13 +236,13 @@ Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (v
 Os três humanos têm **atributos idênticos** (100 HP, mesma velocidade e dano). Só o
 Wolverine é diferente.
 
-### Urna eletrônica (anda pelo mapa inteiro)
+### Urna eletrônica (arena ao norte)
 - Caricata: corpo bege, tela vira **rosto** (olhos seguem o alvo, sobrancelha brava, boca
   abre ao carregar), teclado numérico, `BRANCO` / `CORRIGE` / `CONFIRMA`, faixa JUSTIÇA ELEITORAL.
 - **Braços e pernas procedurais com peso**: IK de dois ossos, pé plantado no terreno a cada
   passo (tremor + som de pisada), corpo em mola amortecida (balança, inclina, coice no tiro),
   luvas de boxe socando o ar e apontando pro alvo quando carrega.
-- Anda pra pontos aleatórios do mapa (fora do escudo) destruindo tudo.
+- Anda pra pontos aleatórios da arena aberta (fora do escudo) destruindo tudo.
 - Ciclo: escolhe alvo → gira → carrega (olho vermelho cresce) → dispara.
 - Alvos: lutadores, pontos aleatórios da vila, o clube (sempre refletido pelo escudo),
   villagers andando e, depois de 30s, ocasionalmente o jogador.
@@ -365,8 +365,19 @@ tools/
 
 ### Coordenadas
 - `Y` pra cima, chão da vila em `y = 20` (`world::G`).
-- Clube: `x 8..36`, `z 48..80`. Praça: centro `(64, 64)`, raio 13.
-  Urna: `(108, 28, 64.5)`. Torre/spawn: `(64, 30, 105.5)`.
+- Todas as posições de marcos ficam em `src/layout.rs` (espelho no servidor: `server/layout.js`).
+- Praça: centro `(160, 160)`, raio 24, anel viário r62. Spawn `(160.5, 21, 178.5)`.
+  Clube ~`(60, 160)`, lab `(253, 160)` (mods ao N, hub ao S), arena `(160, 58)`,
+  torre `(160, 265)` + avenida GTA, skate `(228..272, 244..280)`.
+
+```
+            ARENA (urna x kaiju)
+                    |
+  CLUBE ---- ( PRAÇA + anel ) ---- CIÊNCIA (mods/lab/hub)
+                    |
+   CASAS ------ TORRE + avenida ---- SKATE
+        floresta/colinas nas bordas
+```
 - Yaw dos modelos: frente local `+Z`, `yaw = atan2(dir.x, dir.z)`.
 
 ---

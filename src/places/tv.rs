@@ -40,13 +40,71 @@ pub struct Tv {
     sp: Vec<(String, String, f64)>,
     /// PLANTAO URGENTE: (texto, fim em get_time, início).
     urg: Option<(String, f64, f64)>,
+    /// MOMENTO DO DIA: itens (categoria, valor, nome), fim e início em get_time.
+    mom: Option<(Vec<(String, String, String)>, f64, f64)>,
     pad: f32,
     cool: f32,
 }
 
 impl Tv {
     pub fn new() -> Self {
-        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, pad: 0.0, cool: 0.0 }
+        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, pad: 0.0, cool: 0.0 }
+    }
+
+    fn mom_now(&self) -> Option<&(Vec<(String, String, String)>, f64, f64)> {
+        self.mom.as_ref().filter(|m| m.1 > get_time() && !m.0.is_empty())
+    }
+
+    /// Item do MOMENTO DO DIA na tela agora: (índice, fração do tempo dele já passada).
+    fn mom_item(n: usize, start: f64, end: f64, now: f64) -> (usize, f32) {
+        let per = ((end - start) / n as f64).max(1.0);
+        let k = ((now - start).max(0.0) / per) as usize;
+        (k.min(n - 1), (((now - start).max(0.0) % per) / per) as f32)
+    }
+
+    /// Tela dourada do MOMENTO DO DIA: categoria, valor gigante e nome, um recorde por vez.
+    fn paint_mom(&self, time: f32, items: &[(String, String, String)], end: f64, start: f64, now: f64) {
+        let (i, f) = Self::mom_item(items.len(), start, end, now);
+        let (cat, v, name) = &items[i];
+        let dark = Color::new(0.07, 0.045, 0.0, 1.0);
+        draw_rectangle(0.0, 0.0, TW, 1024.0, dark);
+        for k in 0..14 {
+            let a = time * 0.25 + k as f32 * PI / 7.0;
+            let c = vec2(TW * 0.5, 600.0);
+            draw_triangle(c, c + vec2(a.cos(), a.sin()) * 1500.0, c + vec2((a + 0.12).cos(), (a + 0.12).sin()) * 1500.0, Color::new(1.0, 0.8, 0.25, 0.06));
+        }
+        let pulse = 0.75 + 0.25 * (time * 3.0).sin();
+        let gold = Color::new(GOLD.r * pulse, GOLD.g * pulse, GOLD.b * pulse + 0.05, 1.0);
+        for (x, y, w, h) in [(0.0, 0.0, TW, 26.0), (0.0, 998.0, TW, 26.0), (0.0, 0.0, 26.0, 1024.0), (TW - 26.0, 0.0, 26.0, 1024.0)] {
+            draw_rectangle(x, y, w, h, gold);
+        }
+        draw_rectangle_lines(44.0, 44.0, TW - 88.0, 936.0, 6.0, Color::new(1.0, 0.85, 0.3, 0.6));
+        for (x, y) in [(44.0, 44.0), (TW - 44.0, 44.0), (44.0, 980.0), (TW - 44.0, 980.0)] {
+            draw_poly(x, y, 4, 34.0, time * 40.0, GOLD);
+        }
+        draw_rectangle(300.0, 70.0, TW - 600.0, 170.0, Color::new(0.35, 0.22, 0.0, 0.9));
+        draw_rectangle(300.0, 232.0, TW - 600.0, 8.0, GOLD);
+        text_mid("MOMENTO DO DIA", TW * 0.5, 200.0, 150.0, gold);
+        // Entrada do item: desliza da direita e acende nos primeiros instantes
+        let e = (f * 8.0).clamp(0.0, 1.0);
+        let dx = (1.0 - e) * (1.0 - e) * 900.0;
+        let a = e;
+        text_mid(&fit(cat, TW - 240.0, 100.0), TW * 0.5 + dx, 380.0, 100.0, Color::new(1.0, 1.0, 1.0, a));
+        text_mid(&fit(v, TW - 240.0, 260.0), TW * 0.5 + dx, 650.0, 260.0, Color::new(GOLD.r, GOLD.g, GOLD.b, a));
+        draw_rectangle(TW * 0.5 - 600.0 + dx, 720.0, 1200.0, 140.0, Color::new(0.5, 0.03, 0.06, 0.9 * a));
+        text_mid(&fit(name, 1150.0, 110.0), TW * 0.5 + dx, 830.0, 110.0, Color::new(1.0, 1.0, 1.0, a));
+        let n = items.len() as f32;
+        for k in 0..items.len() {
+            let x = TW * 0.5 + (k as f32 - (n - 1.0) * 0.5) * 70.0;
+            if k == i {
+                draw_circle(x, 925.0, 20.0, GOLD);
+            } else {
+                draw_circle_lines(x, 925.0, 18.0, 4.0, GOLD);
+            }
+        }
+        text_right(&format!("{:.0}s", (end - now).max(0.0)), TW - 80.0, 950.0, 56.0, SOFT);
+        draw_text("TV URNA - recordes da vila de hoje", 80.0, 950.0, 40.0, SOFT);
+        holo_fx(time, (1.0 - f * 10.0).clamp(0.0, 1.0) * 0.4);
     }
 
     fn air_now(&self) -> Option<&(String, String, f64, f64)> {
@@ -83,6 +141,9 @@ impl Tv {
         let now = get_time();
         if let Some((text, end, _)) = self.urg_now() {
             return self.paint_urg(time, text, *end, now);
+        }
+        if let Some((items, end, start)) = self.mom_now() {
+            return self.paint_mom(time, items, *end, *start, now);
         }
         let flash = (1.0 - (now - self.fl_t) as f32 / 2.0).clamp(0.0, 1.0);
         // Cabeçalho
@@ -263,6 +324,16 @@ impl Place for Tv {
             };
             (s(&u["text"]), now + u["left"].as_f64().unwrap_or(0.0), start)
         });
+        let mo = &m["mom"];
+        self.mom = mo.is_object().then(|| {
+            let items: Vec<(String, String, String)> = mo["items"].as_array().map(|v| v.iter().map(|x| (s(&x["cat"]), s(&x["v"]), s(&x["n"]))).collect()).unwrap_or_default();
+            let left = mo["left"].as_f64().unwrap_or(0.0);
+            let start = match &self.mom {
+                Some((old, _, st)) if *old == items => *st,
+                _ => now + left - 30.0,
+            };
+            (items, now + left, start)
+        });
         self.sp = m["sp"].as_array().map(|v| v.iter().map(|x| (s(&x["text"]), s(&x["by"]), now + x["left"].as_f64().unwrap_or(0.0))).collect()).unwrap_or_default();
     }
 
@@ -283,7 +354,8 @@ impl Place for Tv {
     fn render(&mut self, time: f32, eye: Vec3) {
         let air = self.air_now().map(|a| a.0.clone()).unwrap_or_default();
         let urg = self.urg_now().map(|u| u.0.as_str()).unwrap_or("");
-        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg));
+        let mom = self.mom_now().map(|m| m.0.len()).unwrap_or(0);
+        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom));
         if self.scr.begin(time, eye, &geo(), key, true) {
             self.paint(time);
             self.scr.end();

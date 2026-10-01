@@ -3,6 +3,7 @@
 // So fatos DO JOGO (ledger, cofre, obras da IA, lab, hub, quem ta online). Nada de noticia real.
 import { norm, amount, txt } from "./places.js";
 import { safe } from "./economy.js";
+import { resolve } from "./terminal.js";
 
 const BULLETIN_MS = 6 * 60 * 1000;
 const NEWS_CD = 90 * 1000;
@@ -15,7 +16,20 @@ const URG_MS = 25 * 1000;
 const URG_CD = 60 * 1000;
 const URG_OLD = 90 * 1000;
 const WATCH_MS = 3 * 1000;
+const MOM_EVERY = 8 * 60 * 1000;
+const MOM_MS = 30 * 1000;
+const MOM_CD = 60 * 1000;
+const MOM_MAX = 5;
+const HIT_MS = 250;
+const TRIP_MS = 1500;
 const FROM = "TV URNA";
+// g/i do golpe ("a"), mesma ordem do bolsa.js
+const PUNCHED = { "0:0": "LULA", "0:1": "FLAVIO", "0:2": "RENAN", "0:3": "WOLVERINE", 4: "URNA GIGANTE", 9: "GODZILHA" };
+
+/// Dia local da vila (horario de Brasilia, UTC-3): recordes do MOMENTO DO DIA zeram na virada.
+export const today = (t = Date.now()) => new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 10);
+const freshRec = (d) => ({ d, drop: null, rally: null, law: null, don: null, rich: null, trips: {}, hits: {} });
+const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 
 const SYS = `Voce e a ancora-robo da TV URNA NEWS, telejornal SATIRICO do jogo URNA-MINE-VERINE (vila voxel, moedas FICTICIAS).
 So noticie os FATOS DO JOGO recebidos; nunca invente noticia do mundo real nem cite pessoa real fora do que veio nos dados.
@@ -80,7 +94,12 @@ export const urgent = (e) => {
 export class Tv {
     constructor(places, s) {
         this.pl = places;
-        this.s = { h: [], tk: "", a: "", n: 0, at: 0, sp: [], qi: 0, ...s };
+        this.s = { h: [], tk: "", a: "", n: 0, at: 0, sp: [], qi: 0, mn: 0, ...s };
+        if (this.s.rec?.d !== today()) this.s.rec = freshRec(today());
+        this.mom = null;
+        this.momAt = Date.now();
+        this.momLast = 0;
+        this.dirty = false;
         this.air = null;
         this.cd = new Map();
         this.busy = false;
@@ -111,6 +130,7 @@ export class Tv {
             air: this.air ? { name: this.air.name, q: this.air.q, left: left(this.air.until) } : null,
             sp: this.s.sp.filter((x) => x.until > now).map((x) => ({ text: x.text, by: x.by, left: left(x.until) })),
             urg: this.urg && this.urg.until > now ? { text: this.urg.text, left: left(this.urg.until) } : null,
+            mom: this.mom && this.mom.until > now ? { left: left(this.mom.until), items: this.mom.items } : null,
         };
     }
 
@@ -134,8 +154,13 @@ export class Tv {
             this.urg = null;
             this.push();
         }
+        if (this.mom && this.mom.until <= now) {
+            this.mom = null;
+            this.push();
+        }
         for (const e of this.room.eco?.s?.led || []) {
             if (!(e?.t > this.seenT)) continue;
+            this.record(e, now);
             const u = urgent(e);
             if (u && (!this.pend || u[0] >= this.pend.p)) this.pend = { p: u[0], text: u[1], t: e.t };
         }
@@ -150,6 +175,10 @@ export class Tv {
             if (this.sibK[k] !== undefined && this.sibK[k] !== x && (!this.pend || 4 >= this.pend.p)) this.pend = { p: 4, text: x, t: now };
             this.sibK[k] = x;
         }
+        if (this.dirty) {
+            this.dirty = false;
+            this.pl.save("tv", this.s);
+        }
         if (!this.pend || now - this.urgAt < URG_CD) return;
         const p = this.pend;
         this.pend = null;
@@ -162,6 +191,7 @@ export class Tv {
     }
 
     tick(now, online) {
+        if (online) this.sample(now);
         this.watch(now);
         const n = this.s.sp.length;
         this.s.sp = this.s.sp.filter((x) => x.until > now);
@@ -170,6 +200,100 @@ export class Tv {
             if (online) this.push();
         }
         if (online && now - this.s.at >= BULLETIN_MS) this.bulletin(null);
+        else if (online && this.pl.online().length && !this.mom && !this.urg && now - this.momAt >= MOM_EVERY) this.momento(now);
+    }
+
+    // ------------------------------------------------ MOMENTO DO DIA (recordes do dia local)
+    rec(now) {
+        const d = today(now);
+        if (this.s.rec?.d !== d) {
+            this.s.rec = freshRec(d);
+            this.dirty = true;
+        }
+        return this.s.rec;
+    }
+
+    best(now, key, v, n) {
+        const r = this.rec(now);
+        if (!(v > 0) || !n || (r[key] && r[key].v >= v)) return;
+        r[key] = { v, n: String(n) };
+        this.dirty = true;
+    }
+
+    bump(now, key, k, n) {
+        const r = this.rec(now);
+        const x = (r[key][k] ??= { n: String(n), c: 0 });
+        x.c++;
+        this.dirty = true;
+    }
+
+    /// Lancamento novo do ledger -> recordes (doacao, lei, viagem paga).
+    record(e, now) {
+        const who = String(e?.who ?? ""), what = String(e?.what ?? ""), amt = +e?.amt || 0;
+        let m;
+        if (/^doou/i.test(what)) this.best(now, "don", amt, who);
+        else if (/^viajou pra/i.test(what) && norm(who)) this.bump(now, "trips", norm(who), who);
+        else if (/^congresso$/i.test(who) && (m = /^aprovou lei: (.+)$/i.exec(what))) this.best(now, "law", parseInt(/^(\d+) voto/.exec(String(e?.why ?? ""))?.[1], 10) || 1, m[1]);
+    }
+
+    /// Amostra a cada tick: maior queda/alta da bolsa (variacao de 10 min) e o mais rico online.
+    sample(now) {
+        const b = this.pl.bolsa;
+        for (const S of Object.keys(b?.s?.p || {})) {
+            let d;
+            try {
+                d = Number(b.delta(S));
+            } catch (e) { }
+            if (!Number.isFinite(d)) continue;
+            if (d < 0) this.best(now, "drop", -d, S);
+            else this.best(now, "rally", d, S);
+        }
+        let top;
+        try {
+            const on = new Set(this.pl.online());
+            top = this.pl.banco?.rich?.()?.find((r) => on.has(r.k));
+        } catch (e) { }
+        if (top) this.best(now, "rich", Number(top.t) || 0, top.n);
+    }
+
+    items(now) {
+        const r = this.rec(now);
+        const out = [];
+        const add = (cat, v, n) => {
+            const t = clean(String(n).toUpperCase(), 28);
+            if (t) out.push({ cat, v, n: t });
+        };
+        if (r.drop) add("MAIOR TOMBO DA BOLSA", `-${r.drop.v}%`, r.drop.n);
+        if (r.rally) add("MAIOR ALTA DA BOLSA", `+${r.rally.v}%`, r.rally.n);
+        if (r.law) add("LEI MAIS VOTADA", plural(r.law.v, "VOTO", "VOTOS"), r.law.n);
+        if (r.don) add("MAIOR DOACAO", plural(r.don.v, "MOEDA", "MOEDAS"), r.don.n);
+        const tr = Object.values(r.trips).sort((a, b) => b.c - a.c)[0];
+        if (tr) add("RATO DE TERMINAL", plural(tr.c, "VIAGEM", "VIAGENS"), tr.n);
+        if (r.rich) add("MAGNATA DO DIA", plural(r.rich.v, "MOEDA", "MOEDAS"), r.rich.n);
+        const h = Object.entries(r.hits).sort((a, b) => b[1].c - a[1].c)[0];
+        if (h) add("SACO DE PANCADA DO DIA", plural(h[1].c, "PORRADA", "PORRADAS"), h[0]);
+        if (out.length > MOM_MAX) {
+            const k = this.s.mn % out.length;
+            out.push(...out.splice(0, k));
+            out.length = MOM_MAX;
+        }
+        const pad = [
+            ["COFRE DA IA", plural(Number(this.room.eco?.s?.tr) || 0, "MOEDA", "MOEDAS"), "FICTICIAS, GRACAS A DEUS"],
+            ["BOLETINS NO AR", `#${this.s.n}`, "URNA-BOT, ANCORA DO ANO"],
+            ["RECORDE DO DIA", "NENHUM", "A VILA TA DE FOLGA HOJE"],
+        ];
+        for (const p of pad) if (out.length < 3) add(...p);
+        return out;
+    }
+
+    momento(now) {
+        const items = this.items(now);
+        this.s.mn++;
+        this.momAt = this.momLast = now;
+        this.mom = { items, until: now + MOM_MS };
+        this.dirty = true;
+        this.push();
+        this.pl.say(FROM, `MOMENTO DO DIA: ${items.map((x) => `${x.cat}: ${x.n} (${x.v})`).join(" | ")}`);
     }
 
     // ------------------------------------------------ fatos do jogo -> boletim
@@ -257,7 +381,7 @@ export class Tv {
                 if (args.some((a) => /^https?:/i.test(a))) return false;
                 if (!this.s.h.length) return this.pl.priv(c, FROM, "sem boletim ainda, o robo ta passando base"), true;
                 this.s.h.forEach((h, i) => this.pl.priv(c, FROM, `${i + 1}. ${h}`));
-                this.pl.priv(c, FROM, `boletim #${this.s.n} | ancora: ${this.s.a} | /noticia (${NEWS_COST}) /manchete texto n | pisa no AO VIVO do estudio`);
+                this.pl.priv(c, FROM, `boletim #${this.s.n} | ancora: ${this.s.a} | /noticia (${NEWS_COST}) /manchete texto n /momento | pisa no AO VIVO do estudio`);
                 return true;
             case "noticia": {
                 const now = Date.now();
@@ -277,6 +401,14 @@ export class Tv {
             case "manchete":
                 this.sponsor(c, args);
                 return true;
+            case "momento": {
+                const now = Date.now();
+                if (this.mom && this.mom.until > now) return this.pl.priv(c, FROM, "MOMENTO DO DIA ja ta no telao, olha pra cima"), true;
+                if (this.urg && this.urg.until > now) return this.pl.priv(c, FROM, "PLANTAO no ar, o momento fica pra depois"), true;
+                if (now - this.momLast < MOM_CD) return this.pl.priv(c, FROM, `produtora descansando, MOMENTO DO DIA em ${Math.ceil((MOM_CD - (now - this.momLast)) / 1000)}s`), true;
+                this.momento(now);
+                return true;
+            }
         }
         return false;
     }
@@ -335,10 +467,25 @@ export class Tv {
             });
     }
 
+    /// Golpe num lutador/urna/kaiju: conta pro SACO DE PANCADA DO DIA (KO nao chega no servidor).
+    onHit(c, m) {
+        if (!["pf", "hit", "npc"].includes(m?.k) || !c?.name) return;
+        const g = Number(m.g);
+        const who = PUNCHED[g === 0 ? `0:${Number(m.i)}` : g];
+        const now = Date.now();
+        if (!who || now - (c.tvHitAt || 0) < HIT_MS) return;
+        c.tvHitAt = now;
+        this.bump(now, "hits", who, who);
+    }
+
     // ------------------------------------------------ AO VIVO (pisou no pad do estudio)
     onMsg(id, c, m) {
-        if (m?.k !== "tv_aovivo" || !c.name) return;
         const now = Date.now();
+        if (m?.k === "term_trip" && c.name && typeof m.d === "string" && resolve(m.d) === m.d && now - (c.tvTripAt || 0) >= TRIP_MS) {
+            c.tvTripAt = now;
+            this.bump(now, "trips", norm(c.name), c.name);
+        }
+        if (m?.k !== "tv_aovivo" || !c.name) return;
         const name = clean(c.name, 16) || "anon";
         if (this.air && this.air.until > now) {
             if (this.air.name !== name) this.pl.priv(c, FROM, `ja tem gente no ar: ${this.air.name} (${left(this.air.until)}s)`);

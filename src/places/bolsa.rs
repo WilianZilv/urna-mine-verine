@@ -2,7 +2,7 @@
 //! Pregão aberto a oeste com o painel holográfico virado pra avenida; salão a leste com letreiro LED
 //! rolando em cima da porta (textura só repinta quando a cotação muda; o rolar é UV) e touro de neon.
 
-use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, wrap};
+use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, text_mid, wrap};
 use crate::batch::Batch;
 use crate::extras::Label;
 use crate::lab::panel::{CYAN, DIM, GOLD, PINK, SOFT, fit, frame, frame_at, holo_fx, mipmaps, text_right};
@@ -59,7 +59,19 @@ struct Tk {
     c: String,
 }
 
+/// IPO no ar: takeover do painel + confete na porta até `until` (get_time).
+struct Ipo {
+    s: String,
+    n: String,
+    c: String,
+    p: f32,
+    until: f64,
+    slots: i64,
+    dl_until: f64,
+}
+
 pub struct Bolsa {
+    ipo: Option<Ipo>,
     tk: Vec<Tk>,
     /// Ações de mods listados (página MODS do painel, alterna com a principal).
     mk: Vec<Tk>,
@@ -81,6 +93,7 @@ pub struct Bolsa {
 impl Bolsa {
     pub fn new() -> Self {
         Bolsa {
+            ipo: None,
             tk: Vec::new(),
             mk: Vec::new(),
             top: Vec::new(),
@@ -121,7 +134,42 @@ impl Bolsa {
         draw_text("/bolsa mods", rx + 24.0, 740.0, 34.0, CYAN);
     }
 
+    fn live_ipo(&self) -> Option<&Ipo> {
+        self.ipo.as_ref().filter(|i| get_time() < i.until)
+    }
+
+    fn paint_ipo(&self, ip: &Ipo, time: f32) {
+        draw_rectangle(0.0, 0.0, TW, TH, Color::new(0.14, 0.09, 0.0, 0.85));
+        for i in 0..70u32 {
+            let speed = 140.0 + rnd(i, 2) * 220.0;
+            let y = (time * speed + rnd(i, 3) * TH).rem_euclid(TH + 40.0) - 20.0;
+            let x = rnd(i, 1) * TW + 30.0 * (time * 2.0 + i as f32).sin();
+            draw_rectangle(x, y, 16.0, 9.0, confetti_color(i));
+        }
+        let blink = (time * 2.0).fract() < 0.6;
+        text_mid("IPO HOJE", TW * 0.5, 270.0, 230.0, if blink { GOLD } else { WHITE });
+        text_mid(&fit(&ip.n, TW - 120.0, 130.0), TW * 0.5, 450.0, 130.0, WHITE);
+        let by = if ip.c.is_empty() { String::new() } else { format!("  -  mod de {}", ip.c) };
+        text_mid(&format!("{} a {:.2}{by}", ip.s, ip.p), TW * 0.5, 560.0, 64.0, CYAN);
+        let secs = (ip.dl_until - get_time()).max(0.0).ceil();
+        let (deal, dc) = if ip.slots > 0 && secs > 0.0 {
+            (format!("3 PRIMEIRAS COMPRAS COM 10% OFF  -  restam {} ({secs}s)", ip.slots), PINK)
+        } else {
+            ("desconto de IPO esgotado. agora e preco de mercado".to_string(), SOFT)
+        };
+        text_mid(&deal, TW * 0.5, 690.0, 58.0, dc);
+        text_mid(&format!("/investir {} n", ip.s), TW * 0.5, 830.0, 96.0, GOLD);
+        text_mid("acao ficticia de mod, moeda ficticia. isso nao e conselho financeiro", TW * 0.5, 960.0, 32.0, DIM);
+        let a = if blink { 1.0 } else { 0.4 };
+        draw_rectangle_lines(10.0, 10.0, TW - 20.0, TH - 20.0, 16.0, Color::new(1.0, 0.8, 0.2, a));
+    }
+
     fn paint(&self, time: f32) {
+        if let Some(ip) = self.live_ipo() {
+            self.paint_ipo(ip, time);
+            holo_fx(time, self.flash);
+            return;
+        }
         let mods = self.mods_page(time);
         draw_text(if mods { "BOLSA DE VALORES DA VILA  -  ACOES DE MODS" } else { "BOLSA DE VALORES DA VILA  -  ACOES FICTICIAS" }, 40.0, 84.0, 70.0, CYAN);
         let blink = (time * 1.5).fract() < 0.7;
@@ -307,6 +355,32 @@ fn spark(x: f32, y: f32, w: f32, h: f32, v: &[f32], col: Color, time: f32) {
     draw_circle(e.x, e.y, 6.0 + 3.0 * (time * 4.0).sin().abs(), WHITE);
 }
 
+/// Pseudo-aleatório estável em [0, 1] (confete sem estado).
+fn rnd(i: u32, k: u32) -> f32 {
+    let mut h = i.wrapping_mul(0x9E37_79B9) ^ k.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0xFFFF) as f32 / 65535.0
+}
+
+fn confetti_color(i: u32) -> Color {
+    [Color::new(1.0, 0.84, 0.2, 1.0), Color::new(1.0, 0.95, 0.55, 1.0), Color::new(0.85, 0.6, 0.1, 1.0), Color::new(1.0, 1.0, 0.85, 1.0)][(i % 4) as usize]
+}
+
+/// Chuva de confete dourado na frente da porta do salão (IPO).
+fn confetti(b: &mut Batch, time: f32, n: u32) {
+    let top = G as f32 + 13.0;
+    for i in 0..n {
+        let speed = 1.2 + rnd(i, 2) * 1.8;
+        let y = top - (time * speed + rnd(i, 3) * 12.0).rem_euclid(12.0);
+        let x = 251.0 + rnd(i, 1) * 6.5 + 0.3 * (time * 1.7 + i as f32).sin();
+        let z = 94.0 + rnd(i, 4) * 8.0 + 0.3 * (time * 1.3 + i as f32).cos();
+        let m = Mat4::from_translation(vec3(x, y, z)) * Mat4::from_rotation_y(time * 3.0 + i as f32) * Mat4::from_rotation_x(time * 4.0 + i as f32 * 0.7);
+        b.glow(&m, Vec3::ZERO, vec3(0.2, 0.03, 0.13), confetti_color(i));
+    }
+}
+
 /// Touro de neon dourado investindo pra oeste (cabeça em -x), e a seta do humor do mercado em cima.
 fn bull(b: &mut Batch, trans: &mut Batch, time: f32, mood: f32, hi: bool) {
     let m = Mat4::from_translation(BULL);
@@ -409,6 +483,19 @@ impl Place for Bolsa {
         };
         self.tk = tks(&m["tk"]);
         self.mk = tks(&m["mk"]);
+        let ip = &m["ipo"];
+        if ip.is_object() {
+            let now = get_time();
+            self.ipo = Some(Ipo {
+                s: s(&ip["s"]),
+                n: s(&ip["n"]),
+                c: s(&ip["c"]),
+                p: f(&ip["p"]),
+                until: now + ip["left"].as_f64().unwrap_or(0.0).clamp(0.0, 20.0),
+                slots: ip["slots"].as_i64().unwrap_or(0),
+                dl_until: now + ip["dl"].as_f64().unwrap_or(0.0).clamp(0.0, 120.0),
+            });
+        }
         self.top = arr(&m["top"]).iter().map(|e| (s(&e[0]), e[1].as_i64().unwrap_or(0))).collect();
         self.hot = s(&m["hot"]);
         self.ix = f(&m["ix"]);
@@ -476,6 +563,10 @@ impl Place for Bolsa {
         }
         if eye.distance(vec3(LX, G as f32 + 10.0, LZ)) < 70.0 {
             labels.push(Label { pos: vec3(LX - 0.5, G as f32 + 10.5, LZ), text: "BOLSA DE VALORES DA VILA".into(), size: 24.0, color: GOLD });
+        }
+        if let Some(ip) = self.live_ipo() {
+            confetti(b, time, crate::quality::pick([40, 90, 130]));
+            labels.push(Label { pos: vec3(LX - 0.5, G as f32 + 12.5, LZ), text: format!("IPO HOJE: {} ({})", ip.n, ip.s), size: 22.0, color: GOLD });
         }
         if eye.distance(BULL) < 60.0 {
             let (text, color) = if self.ix < 0.0 {

@@ -39,6 +39,10 @@ const MOD_GROUP = 8; // grupo das entidades de mod no golpe (npc.rs MODS), indic
 const HYST = 20; // vantagem de quem ja esta listado no ranking (evita entra-e-sai)
 const HYPE_MS = 60 * 60 * 1000;
 const IDLE = 15; // ticks sem porrada/compra = esquecido
+const IPO_MS = 20 * 1000; // takeover do painel
+const IPO_DISC_MS = 2 * 60 * 1000;
+const IPO_SLOTS = 3;
+const IPO_OFF = 0.1;
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const clampP = (v) => Math.min(1000, Math.max(5, v));
@@ -86,7 +90,8 @@ export class Bolsa {
 
     find(q) {
         const u = norm(q).toUpperCase();
-        return u ? this.tickers().find((t) => t.s === u || (u.length >= 3 && t.n.startsWith(u))) : null;
+        const all = this.tickers();
+        return u ? all.find((t) => t.s === u) || (u.length >= 3 ? all.find((t) => t.n.startsWith(u)) : null) : null;
     }
 
     modTk() {
@@ -129,12 +134,27 @@ export class Bolsa {
         const S = modSymbol(modName(a), new Set(this.tickers().map((t) => t.s)));
         if (!S) return;
         const n = modName(a) || S;
-        this.s.m[S] = { id: a.id, n, c: String(a.creator || "").slice(0, 16), v: a.v, at: now, idle: 0 };
+        this.s.m[S] = { id: a.id, n, c: String(a.creator || "").slice(0, 16), v: a.v, at: now, idle: 0, ipo: { until: now + IPO_DISC_MS, b: [] } };
         this.s.p[S] = MOD_BASE;
         this.s.h[S] = [MOD_BASE];
         this.s.why[S] = "IPO na bolsa";
         this.imp[S] = { hit: 0, trade: 0, kill: 0, news: 0 };
-        this.pl.say("BOLSA", `${n} (${S}) estreou na bolsa a ${MOD_BASE.toFixed(2)} - /investir ${S} n`);
+        this.pl.say("BOLSA", `IPO de ${n} (${S}) a ${MOD_BASE.toFixed(2)} - /investir ${S} n`);
+    }
+
+    /// IPO mais recente ainda no takeover do painel (20 s), com as vagas de desconto.
+    ipo(now) {
+        const e = Object.entries(this.s.m).filter(([, m]) => now - m.at < IPO_MS).sort((x, y) => y[1].at - x[1].at)[0];
+        if (!e) return null;
+        const [S, m] = e;
+        const slots = m.ipo && now < m.ipo.until ? IPO_SLOTS - m.ipo.b.length : 0;
+        return { s: S, n: m.n, c: m.c, p: this.s.p[S], left: Math.ceil((m.at + IPO_MS - now) / 1000), slots, dl: slots ? Math.ceil((m.ipo.until - now) / 1000) : 0 };
+    }
+
+    /// Manchete pra TV (plantao quando muda).
+    news() {
+        const e = Object.entries(this.s.m).filter(([, m]) => Date.now() - m.at < 10 * 60 * 1000).sort((x, y) => y[1].at - x[1].at)[0];
+        return e ? [`IPO na bolsa: ${e[1].n} (${e[0]}) estreia a ${MOD_BASE.toFixed(2)}`] : [];
     }
 
     /// Tira o ticker do pregao pagando o ultimo preco aos donos (do cofre, so acima da reserva).
@@ -200,7 +220,7 @@ export class Bolsa {
             .slice(0, 5);
         const tk = TK.map((t) => ({ s: t.s, n: t.n, p: this.s.p[t.s], d: this.delta(t.s), h: this.s.h[t.s], w: this.s.why[t.s] }));
         const a = Date.now() < this.alert.until ? this.alert : { mood: 0, text: "" };
-        return { t: "pl", k: "bolsa", tk, mk: this.modTk(), top, hot: this.hot(), ix: this.index(), mood: a.mood, alert: a.text };
+        return { t: "pl", k: "bolsa", tk, mk: this.modTk(), ipo: this.ipo(Date.now()), top, hot: this.hot(), ix: this.index(), mood: a.mood, alert: a.text };
     }
 
     push() {
@@ -392,7 +412,9 @@ export class Bolsa {
         const w = eco.wallet(c.name);
         const k = norm(c.name);
         const S = t.s;
-        const p = this.s.p[S];
+        const ipo = t.id ? this.s.m[S].ipo : null;
+        const off = dir > 0 && ipo && Date.now() < ipo.until && ipo.b.length < IPO_SLOTS && !ipo.b.includes(k);
+        const p = off ? r2(this.s.p[S] * (1 - IPO_OFF)) : this.s.p[S];
         const pos = this.s.pos[k] || {};
         const have = pos[S] || 0;
         const gross = Math.round(p * n);
@@ -406,8 +428,9 @@ export class Bolsa {
             eco.s.tr += cost;
             pos[S] = have + n;
             imp.trade = Math.min(0.05, imp.trade + 0.003 * n);
-            eco.entry(c.name, `investiu ${n} ${S} a ${p.toFixed(2)}`, cost, WHY);
-            this.pl.priv(c, "BOLSA", `comprou ${n} ${S} por ${cost} (taxa ${fee}). agora tens ${pos[S]}`);
+            if (off) ipo.b.push(k);
+            eco.entry(c.name, `investiu ${n} ${S} a ${p.toFixed(2)}${off ? " (IPO -10%)" : ""}`, cost, WHY);
+            this.pl.priv(c, "BOLSA", `comprou ${n} ${S} por ${cost} (taxa ${fee})${off ? ` com desconto de IPO 10% (${ipo.b.length}/${IPO_SLOTS})` : ""}. agora tens ${pos[S]}`);
         } else {
             if (have < n) return this.pl.priv(c, "BOLSA", `tens so ${have} ${S}`);
             if (eco.s.tr - gross < RESERVE) return this.pl.priv(c, "BOLSA", "cofre sem liquidez, tenta depois");

@@ -207,13 +207,15 @@ pub fn punch(sr: u32) -> Vec<f32> {
 }
 
 pub fn slash(sr: u32) -> Vec<f32> {
-    let mut lp = 0.0;
-    render(sr, 0.28, move |t, r| {
+    let (mut lp, mut lp2) = (0.0, 0.0);
+    render(sr, 0.32, move |t, r| {
         let n = r.f();
-        lp += (n - lp) * 0.5;
-        let hiss = (n - lp) * (-t / 0.05).exp();
-        let ring = ((TAU * 3100.0 * t).sin() + (TAU * 4700.0 * t).sin() * 0.7 + (TAU * 6900.0 * t).sin() * 0.5) * (-t / 0.08).exp();
-        (hiss * 0.9 + ring * 0.3).clamp(-1.0, 1.0)
+        lp += (n - lp) * 0.12;
+        lp2 += (lp - lp2) * 0.12;
+        let swoosh = lp2 * 4.0 * (-t / 0.06).exp();
+        let ring = ((TAU * 620.0 * t).sin() + (TAU * 930.0 * t).sin() * 0.5) * (-t / 0.07).exp();
+        let thud = (TAU * (48.0 + 90.0 * (-t / 0.025).exp()) * t).sin() * (-t / 0.1).exp();
+        (swoosh + ring * 0.15 + thud * 1.2).tanh() * 0.9
     })
 }
 

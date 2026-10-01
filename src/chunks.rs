@@ -14,6 +14,7 @@ struct GpuVertex {
     pos: [f32; 3],
     uv: [f32; 2],
     color: [u8; 4],
+    rect: [f32; 4],
 }
 
 struct Part {
@@ -34,11 +35,20 @@ pub struct Chunks {
     list: Vec<Chunk>,
 }
 
+// UV em highp quando der: mediump (fp16 no celular) erra ~1/4 de texel no atlas de 512 px.
+// `rect` prende o UV no tile: com MSAA a aresta é amostrada fora do triângulo (UV extrapolado).
 const VERTEX: &str = r#"#version 100
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+#define UVP highp
+#else
+#define UVP mediump
+#endif
 attribute vec3 position;
 attribute vec2 texcoord;
 attribute vec4 color0;
-varying mediump vec2 uv;
+attribute vec4 rect0;
+varying UVP vec2 uv;
+varying UVP vec4 rect;
 varying lowp vec4 color;
 varying lowp vec4 fog;
 uniform mat4 Mvp;
@@ -48,16 +58,23 @@ void main() {
     gl_Position = Mvp * vec4(position, 1.0);
     color = color0 / 255.0;
     uv = texcoord;
+    rect = rect0;
     fog = vec4(Fog.rgb, clamp((distance(position.xz, Eye.xz) - Eye.w) * Fog.a, 0.0, 1.0));
 }"#;
 
 const FRAGMENT: &str = r#"#version 100
-varying mediump vec2 uv;
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+#define UVP highp
+#else
+#define UVP mediump
+#endif
+varying UVP vec2 uv;
+varying UVP vec4 rect;
 varying lowp vec4 color;
 varying lowp vec4 fog;
 uniform sampler2D Texture;
 void main() {
-    lowp vec4 c = color * texture2D(Texture, uv);
+    lowp vec4 c = color * texture2D(Texture, clamp(uv, rect.xy, rect.zw));
     gl_FragColor = vec4(mix(c.rgb, fog.rgb, fog.a), c.a);
 }"#;
 
@@ -93,7 +110,7 @@ impl Chunks {
         let shader = ctx.new_shader(ShaderSource::Glsl { vertex: VERTEX, fragment: FRAGMENT }, meta).expect("shader do mundo");
         let pipeline = ctx.new_pipeline(
             &[BufferLayout::default()],
-            &[VertexAttribute::new("position", VertexFormat::Float3), VertexAttribute::new("texcoord", VertexFormat::Float2), VertexAttribute::new("color0", VertexFormat::Byte4)],
+            &[VertexAttribute::new("position", VertexFormat::Float3), VertexAttribute::new("texcoord", VertexFormat::Float2), VertexAttribute::new("color0", VertexFormat::Byte4), VertexAttribute::new("rect0", VertexFormat::Float4)],
             shader,
             PipelineParams {
                 depth_test: Comparison::LessOrEqual,
@@ -145,7 +162,7 @@ impl Chunks {
                 .map(|v| {
                     ylo = ylo.min(v.position.y);
                     yhi = yhi.max(v.position.y);
-                    GpuVertex { pos: v.position.to_array(), uv: v.uv.to_array(), color: v.color }
+                    GpuVertex { pos: v.position.to_array(), uv: v.uv.to_array(), color: v.color, rect: v.normal.to_array() }
                 })
                 .collect();
             let vb = ctx.new_buffer(BufferType::VertexBuffer, BufferUsage::Immutable, BufferSource::slice(&verts));

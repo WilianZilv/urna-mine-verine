@@ -616,14 +616,11 @@ impl World {
                 0 => (fz, 1.0 - fy),
                 _ => (fx, 1.0 - fy),
             };
-            verts.push(Vertex::new(
-                x as f32 + fx,
-                y as f32 + fy,
-                z as f32 + fz,
-                u0 + (u1 - u0) * tu,
-                v0 + (v1 - v0) * tv,
-                Color::new(l, l, l, 1.0),
-            ));
+            // normal = retângulo UV do tile (o shader do chunk prende o UV nele)
+            verts.push(Vertex {
+                normal: vec4(u0, v0, u1, v1),
+                ..Vertex::new(x as f32 + fx, y as f32 + fy, z as f32 + fz, u0 + (u1 - u0) * tu, v0 + (v1 - v0) * tv, Color::new(l, l, l, 1.0))
+            });
         }
         if (aos[0] as u16 + aos[2] as u16) >= (aos[1] as u16 + aos[3] as u16) {
             idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

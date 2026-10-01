@@ -5,6 +5,12 @@ use macroquad::prelude::*;
 pub const TILE: usize = 16;
 pub const COLS: usize = 16;
 pub const ROWS: usize = 2;
+/// Borda de cada tile com os pixels da beirada repetidos: com MSAA o fragmento da aresta é
+/// amostrado fora do triângulo e pegava o tile vizinho (linha branca entre blocos).
+const PAD: usize = 8;
+const CELL: usize = TILE + 2 * PAD;
+const W: usize = CELL * COLS;
+const H: usize = CELL * ROWS;
 
 pub const T_GRASS_TOP: usize = 0;
 pub const T_GRASS_SIDE: usize = 1;
@@ -208,41 +214,40 @@ fn pixel(tile: usize, x: i32, y: i32) -> [u8; 3] {
 }
 
 pub fn build() -> Atlas {
-    let w = TILE * COLS;
-    let h = TILE * ROWS;
-    let mut bytes = vec![255u8; w * h * 4];
+    let mut bytes = vec![255u8; W * H * 4];
     let mut avg = Vec::with_capacity(N_TILES);
     for t in 0..N_TILES {
-        let ox = (t % COLS) * TILE;
-        let oy = (t / COLS) * TILE;
+        let ox = (t % COLS) * CELL;
+        let oy = (t / COLS) * CELL;
         let mut sum = [0f32; 3];
-        for y in 0..TILE {
-            for x in 0..TILE {
-                let p = pixel(t, x as i32, y as i32);
-                let i = ((oy + y) * w + ox + x) * 4;
-                bytes[i] = p[0];
-                bytes[i + 1] = p[1];
-                bytes[i + 2] = p[2];
-                bytes[i + 3] = 255;
+        for cy in 0..CELL {
+            for cx in 0..CELL {
+                let x = (cx as i32 - PAD as i32).clamp(0, TILE as i32 - 1);
+                let y = (cy as i32 - PAD as i32).clamp(0, TILE as i32 - 1);
+                let p = pixel(t, x, y);
+                let i = ((oy + cy) * W + ox + cx) * 4;
+                bytes[i..i + 4].copy_from_slice(&[p[0], p[1], p[2], 255]);
+                let inside = (PAD..PAD + TILE).contains(&cx) && (PAD..PAD + TILE).contains(&cy);
                 for k in 0..3 {
-                    sum[k] += p[k] as f32;
+                    sum[k] += if inside { p[k] as f32 } else { 0.0 };
                 }
             }
         }
         let n = (TILE * TILE) as f32 * 255.0;
         avg.push(Color::new(sum[0] / n, sum[1] / n, sum[2] / n, 1.0));
     }
-    let tex = Texture2D::from_rgba8(w as u16, h as u16, &bytes);
+    let tex = Texture2D::from_rgba8(W as u16, H as u16, &bytes);
     tex.set_filter(FilterMode::Nearest);
     Atlas { tex, avg }
 }
 
-/// Retângulo UV (u0, v0, u1, v1) do tile, com pequeno inset contra bleeding.
+/// Retângulo em pixels do tile dentro do atlas (sem a borda).
+pub fn px_rect(tile: usize) -> Rect {
+    Rect::new(((tile % COLS) * CELL + PAD) as f32, ((tile / COLS) * CELL + PAD) as f32, TILE as f32, TILE as f32)
+}
+
+/// Retângulo UV (u0, v0, u1, v1) do tile.
 pub fn uv(tile: usize) -> (f32, f32, f32, f32) {
-    let tw = 1.0 / COLS as f32;
-    let th = 1.0 / ROWS as f32;
-    let tx = (tile % COLS) as f32;
-    let ty = (tile / COLS) as f32;
-    let e = 0.0005;
-    (tx * tw + e, ty * th + e, (tx + 1.0) * tw - e, (ty + 1.0) * th - e)
+    let r = px_rect(tile);
+    (r.x / W as f32, r.y / H as f32, (r.x + r.w) / W as f32, (r.y + r.h) / H as f32)
 }

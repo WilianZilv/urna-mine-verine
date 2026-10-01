@@ -363,7 +363,7 @@ pub fn draw_icon(atlas: &Atlas, it: Item, x: f32, y: f32, s: f32) {
             WHITE,
             DrawTextureParams {
                 dest_size: Some(vec2(d, d)),
-                source: Some(Rect::new(((t % atlas::COLS) * atlas::TILE) as f32, ((t / atlas::COLS) * atlas::TILE) as f32, atlas::TILE as f32, atlas::TILE as f32)),
+                source: Some(atlas::px_rect(t)),
                 ..Default::default()
             },
         );

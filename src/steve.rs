@@ -14,10 +14,12 @@ use crate::npc;
 use crate::player::Player;
 use crate::urna::{self, Fx, Particle};
 use crate::world::*;
+use macroquad::miniquad::PassAction;
 use macroquad::prelude::*;
 use macroquad::rand::gen_range;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
 pub const MAX_HP: f32 = 20.0;
 /// Valor de "by" no tiro da explosão de TNT.
@@ -25,6 +27,8 @@ pub const BY: u64 = 3;
 const FUSE: f32 = 4.0;
 const FIRE_LIFE: f32 = 6.0;
 const REACH: f32 = 4.5;
+/// Ângulo do braço direito dos Steves remotos (Pose.arm_r no main): o item segue esse braço.
+const REMOTE_ARM: f32 = -0.2;
 
 /// Entrada do frame (mouse + botões do celular).
 pub struct Input {
@@ -79,6 +83,11 @@ pub struct Steve {
     cracks: Vec<Texture2D>,
     toast: Option<(String, f32)>,
     last_sel: usize,
+    /// 1 -> 0 ao trocar de item (a mão desce e sobe).
+    equip: f32,
+    /// Atlas próprio pros cubos texturizados (TNT acesa, bloco na mão dos outros).
+    tex: Texture2D,
+    tm: TexMesh,
 }
 
 fn crack_textures() -> Vec<Texture2D> {
@@ -159,6 +168,9 @@ impl Steve {
             cracks: crack_textures(),
             toast: None,
             last_sel: 0,
+            equip: 0.0,
+            tex: crate::atlas::build().tex,
+            tm: TexMesh::new(),
         }
     }
 
@@ -400,6 +412,9 @@ impl Steve {
             }
             _ => self.mine = None,
         }
+        if inp.mine && pick.is_some() && self.swing <= 0.0 {
+            self.swing = 1.0;
+        }
 
         // Usar: põe bloco, acende TNT/fogo, puxa o arco
         if inp.use_press {
@@ -449,6 +464,7 @@ impl Steve {
     pub fn tick(&mut self, world: &World, player: &mut Player, active: bool, is_host: bool, my_id: u64, targets: &[Target], others: &[(u64, Vec3)], dt: f32, fx: &mut Fx) {
         self.active = active;
         self.swing = (self.swing - dt * 4.0).max(0.0);
+        self.equip = (self.equip - dt * 6.0).max(0.0);
         self.hurt_flash = (self.hurt_flash - dt * 2.0).max(0.0);
         if let Some((_, t)) = self.toast.as_mut() {
             *t -= dt;
@@ -460,6 +476,7 @@ impl Steve {
         }
         if active && player.sel != self.last_sel {
             self.last_sel = player.sel;
+            self.equip = 1.0;
             let n = items::name(self.inv.slots[player.sel].0);
             if !n.is_empty() {
                 self.toast = Some((n.to_string(), 1.5));
@@ -590,67 +607,116 @@ impl Steve {
         }
     }
 
-    /// Flechas, TNT acesa, fogo, item na mão (meu e dos outros Steves).
+    /// Flechas, TNT acesa, fogo e item na mão dos outros Steves (o meu vai no `draw_hud`, em viewmodel).
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_world(&self, b: &mut Batch, time: f32, eye: Vec3, fw: Vec3, me_steve: bool, sel: usize, remotes: impl Iterator<Item = (u64, Vec3, f32, u8)>, avg: &[Color]) {
-        let wood = Color::new(0.55, 0.38, 0.2, 1.0);
+    pub fn draw_world(&mut self, b: &mut Batch, time: f32, _eye: Vec3, _fw: Vec3, _me_steve: bool, _sel: usize, remotes: impl Iterator<Item = (u64, Vec3, f32, u8)>, _avg: &[Color]) {
+        // Flecha = sprite cruzado em X, alinhado com a velocidade (cravada guarda a direção do impacto)
         for a in &self.arrows {
-            let d = a.vel.normalize_or(Vec3::Y);
-            let m = Mat4::from_rotation_translation(Quat::from_rotation_arc(Vec3::Y, d), a.pos - d * 0.35);
-            b.cube(&m, vec3(0.0, 0.0, 0.0), vec3(0.04, 0.7, 0.04), wood);
-            b.cube(&m, vec3(0.0, 0.33, 0.0), vec3(0.07, 0.08, 0.07), Color::new(0.35, 0.35, 0.38, 1.0));
-            b.cube(&m, vec3(0.0, -0.3, 0.0), vec3(0.12, 0.12, 0.015), WHITE);
+            let d = a.vel.normalize_or(Vec3::NEG_Y);
+            let tip = if a.stuck > 0.0 { a.pos + d * 0.12 } else { a.pos };
+            let base = Mat4::from_rotation_translation(Quat::from_rotation_arc(Vec3::X, d), tip - d * 0.27) * Mat4::from_scale(Vec3::splat(0.5));
+            for roll in [0.0, FRAC_PI_2] {
+                items::draw_model(b, &mut self.tm, &(base * Mat4::from_rotation_x(roll) * Mat4::from_rotation_z(-FRAC_PI_4)), ARROW, 0);
+            }
         }
+        // TNT acesa: pisca branco a cada 0,25 s e incha no fim do pavio
         for f in &self.fuses {
-            let blink = (f.t * if f.t < 1.0 { 10.0 } else { 3.5 }).fract() > 0.5;
-            let s = 1.0 + (1.0 - f.t).max(0.0) * 0.18;
-            let c = f.p.as_vec3() + Vec3::splat(0.5);
-            if blink {
-                b.glow(&Mat4::IDENTITY, c, Vec3::splat(s), WHITE);
-            } else {
-                b.cube(&Mat4::IDENTITY, c, Vec3::splat(s), Color::new(0.8, 0.18, 0.14, 1.0));
-                b.cube(&Mat4::IDENTITY, c, vec3(s + 0.01, s * 0.38, s + 0.01), Color::new(0.92, 0.92, 0.88, 1.0));
+            let k = (1.0 - f.t / 0.5).clamp(0.0, 1.0).powi(4);
+            let m = Mat4::from_scale_rotation_translation(Vec3::splat(1.0 + k * 0.3), Quat::IDENTITY, f.p.as_vec3() + Vec3::splat(0.5));
+            self.tm.block(&m, TNT, WHITE);
+            if (f.t * 4.0) as i32 % 2 == 0 {
+                self.tm.cube(&(m * Mat4::from_scale(Vec3::splat(1.004))), |_| crate::atlas::T_WHITE, Color::new(1.0, 1.0, 1.0, 0.7));
             }
         }
+        // Fogo: 4 planos cruzados de línguas de chama que tremulam
         for (p, _) in &self.fires {
-            for k in 0..4 {
-                let h = crate::atlas::hash2(p.x * 3 + k, p.z, p.y as u32);
-                let fl = ((time * 9.0 + h * 20.0).sin() * 0.5 + 0.5) * 0.35;
-                let c = p.as_vec3() + vec3(0.25 + (k % 2) as f32 * 0.5, 0.3 + fl * 0.5, 0.25 + (k / 2) as f32 * 0.5);
-                b.glow(&Mat4::IDENTITY, c, vec3(0.3, 0.5 + fl, 0.3), Color::new(1.0, 0.45 + h * 0.4, 0.05, 1.0));
+            let base = p.as_vec3() + vec3(0.5, 0.0, 0.5);
+            for pl in 0..4 {
+                let m = Mat4::from_translation(base) * Mat4::from_rotation_y(pl as f32 * FRAC_PI_4);
+                for c in 0..5 {
+                    let h0 = crate::atlas::hash2(p.x * 7 + pl * 5 + c, p.z * 3 + p.y, 61);
+                    let fl = 0.5 + 0.5 * (time * (8.0 + h0 * 7.0) + h0 * 40.0).sin();
+                    let h = (0.4 + 0.55 * fl) * (1.0 - (c as f32 - 2.0).abs() * 0.2);
+                    let x = (c as f32 - 2.0) * 0.18 + (time * 5.0 + h0 * 9.0).sin() * 0.015;
+                    for (lo, hi, col) in [(0.0, 0.45, Color::new(1.0, 0.92, 0.35, 1.0)), (0.45, 0.8, Color::new(1.0, 0.55, 0.08, 1.0)), (0.8, 1.0, Color::new(0.85, 0.2, 0.04, 1.0))] {
+                        b.glow(&m, vec3(x, h * (lo + hi) * 0.5, 0.0), vec3(0.17, h * (hi - lo), 0.02), col);
+                    }
+                }
             }
         }
+        // Item na mão direita dos outros Steves, preso no braço (mesmo ângulo do braço do draw_humanoid)
         for (id, pos, yaw, ch) in remotes {
-            if ch != 0 {
-                continue;
-            }
-            if let Some(&it) = self.held.get(&id) {
-                let m = root(pos, yaw, 0.0, 0.0) * Mat4::from_translation(vec3(-6.0 * U, 10.0 * U, 2.0 * U)) * Mat4::from_rotation_x(0.9);
-                items::draw_held(b, &m, it, avg);
-            }
-        }
-        if me_steve && self.dead <= 0.0 && !self.inv_open {
-            let right = fw.cross(Vec3::Y).normalize_or_zero();
-            let upv = right.cross(fw);
-            let sw = (self.swing * std::f32::consts::PI).sin();
-            let pos = eye + fw * 0.6 + right * 0.28 - upv * (0.3 - self.charge * 0.04) + fw * sw * 0.08;
-            let basis = Mat4::from_cols(right.extend(0.0), upv.extend(0.0), (-fw).extend(0.0), pos.extend(1.0)) * Mat4::from_scale(Vec3::splat(0.45));
-            let it = self.inv.slots[sel].0;
-            let m = if it == BOW { basis * Mat4::from_rotation_y(-0.3) } else { basis * Mat4::from_rotation_x(-0.5 - sw * 0.9) * Mat4::from_rotation_z(0.35) };
-            items::draw_held(b, &m, it, avg);
+            let Some(&it) = self.held.get(&id).filter(|_| ch == 0) else { continue };
+            let hand = root(pos, yaw, 0.0, 0.0) * Mat4::from_translation(vec3(-6.0 * U, 22.0 * U, 0.0)) * Mat4::from_rotation_x(REMOTE_ARM) * Mat4::from_translation(vec3(0.0, -8.5 * U, 0.0));
+            let m = if is_block(it) {
+                hand * Mat4::from_translation(vec3(0.0, -1.0 * U, 2.5 * U)) * Mat4::from_scale(Vec3::splat(0.25))
+            } else {
+                // Ferramenta: cabeça pra frente/cima; arco em pé com a flecha apontando pra frente
+                let turn = if it == BOW { Mat4::from_rotation_x(FRAC_PI_4) * Mat4::from_rotation_y(FRAC_PI_2) } else { Mat4::from_rotation_x(0.4) * Mat4::from_rotation_y(-FRAC_PI_2) };
+                hand * turn * Mat4::from_scale(Vec3::splat(0.7)) * Mat4::from_translation(-items::grip(it))
+            };
+            items::draw_model(b, &mut self.tm, &m, it, 0);
         }
     }
 
-    /// Rachadura no bloco sendo minerado (depois do flush do batch, por cima da malha).
-    pub fn draw_crack(&self) {
+    /// Depois do flush do batch: cubos texturizados (TNT acesa, blocos na mão) e rachadura do bloco minerado.
+    pub fn draw_crack(&mut self) {
+        self.tm.flush(&self.tex);
         if let Some((p, k)) = self.mine {
             let stage = ((k * 8.0) as usize).min(7);
             draw_cube(p.as_vec3() + Vec3::splat(0.5), Vec3::splat(1.004), Some(&self.cracks[stage]), WHITE);
         }
     }
 
+    /// Item na mão em primeira pessoa: câmera própria na origem, depth limpo (não entra na parede nem
+    /// pega neblina/portal). Transformações do Minecraft (braço, golpe, arco puxado, display do item).
+    fn draw_viewmodel(&self, atlas: &Atlas, it: Item) {
+        if self.dead > 0.0 || self.inv_open {
+            return;
+        }
+        // Cena girada pra luz fixa do Batch vir de trás/esquerda da câmera (face do item iluminada)
+        let w = Mat4::from_quat(Quat::from_rotation_arc(vec3(-0.7, 0.3, 0.65).normalize(), vec3(0.4, 1.0, 0.3).normalize()));
+        set_camera(&Camera3D { position: Vec3::ZERO, target: w.transform_vector3(Vec3::NEG_Z), up: w.transform_vector3(Vec3::Y), fovy: 70f32.to_radians(), ..Default::default() });
+        let gl = unsafe { get_internal_gl() };
+        gl.quad_context.begin_default_pass(PassAction::Clear { color: None, depth: Some(1.0), stencil: None });
+        gl.quad_context.end_render_pass();
+        let t = Mat4::from_translation;
+        let (rx, ry, rz) = (|d: f32| Mat4::from_rotation_x(d.to_radians()), |d: f32| Mat4::from_rotation_y(d.to_radians()), |d: f32| Mat4::from_rotation_z(d.to_radians()));
+        let s = if self.swing > 0.0 { 1.0 - self.swing } else { 0.0 };
+        let sq = s.sqrt();
+        let swing = w * t(vec3(-0.4 * (sq * PI).sin(), 0.2 * (sq * TAU).sin(), -0.2 * (s * PI).sin()));
+        let arm = t(vec3(0.56, -0.52 - 0.6 * self.equip, -0.72));
+        let attack = ry(45.0 - (s * s * PI).sin() * 20.0) * rz(-(sq * PI).sin() * 20.0) * rx(-(sq * PI).sin() * 80.0) * ry(-45.0);
+        let (mut b, mut tm) = (Batch::new(), TexMesh::new());
+        let drawing = it == BOW && self.charge > 0.0;
+        let m = if drawing {
+            let f = (self.charge * self.charge + self.charge * 2.0) / 3.0;
+            let shake = if f > 0.9 { (get_time() as f32 * 40.0).sin() * 0.004 } else { 0.0 };
+            w * arm * t(vec3(-0.2785682, 0.18344387 + shake, 0.15731531)) * rx(-13.935) * ry(35.3) * rz(-9.785) * t(vec3(0.0, 0.0, f * 0.04)) * Mat4::from_scale(vec3(1.0, 1.0, 1.0 + f * 0.2)) * ry(-45.0)
+        } else {
+            swing * arm * attack
+        };
+        match it {
+            NONE => {
+                // Mão vazia: braço do Steve saindo do canto
+                let m = swing * t(vec3(0.38, -0.32 - 0.6 * self.equip, -0.7)) * rx(-(sq * PI).sin() * 30.0) * Mat4::from_quat(Quat::from_rotation_arc(Vec3::NEG_Y, vec3(0.35, -0.5, 0.8).normalize()));
+                b.cube(&m, vec3(0.0, -0.375, 0.0), vec3(0.25, 0.75, 0.25), Color::new(0.86, 0.66, 0.52, 1.0));
+            }
+            _ if is_block(it) => tm.block(&(m * ry(45.0) * Mat4::from_scale(Vec3::splat(0.4))), it as u8, WHITE),
+            _ => {
+                let pull = if drawing { 1 + (self.charge * 2.99) as u8 } else { 0 };
+                let m = m * t(vec3(1.13, 3.2, 1.13) / 16.0) * ry(if it == BOW { -90.0 } else { 90.0 }) * rz(25.0) * Mat4::from_scale(Vec3::splat(0.68));
+                items::draw_model(&mut b, &mut tm, &m, it, pull);
+            }
+        }
+        b.flush(&atlas.tex);
+        tm.flush(&atlas.tex);
+        set_default_camera();
+    }
+
     /// HUD: hotbar, corações, carga do arco, nome do item.
     pub fn draw_hud(&self, atlas: &Atlas, sel: usize, sw: f32, sh: f32, slot: f32, mobile: bool) {
+        self.draw_viewmodel(atlas, self.inv.slots[sel].0);
         if self.hurt_flash > 0.0 {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.8, 0.0, 0.0, 0.25 * self.hurt_flash));
         }

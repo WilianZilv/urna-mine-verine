@@ -37,10 +37,37 @@
     const clipMime = typeof MediaRecorder !== "undefined" && HTMLCanvasElement.prototype.captureStream
         ? ["video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp8,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) : null;
     const weakDevice = navigator.maxTouchPoints > 0 && ((navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4);
-    let clipTier = -1, older = null, newer = null, clipBusy = false, videoTrack = null, audioTap = null;
+    const CAPTION = "olha isso na URNA-MINE-VERINE: https://urna-mine-verine.wilianzilv.workers.dev";
+    let clipTier = -1, older = null, newer = null, clipBusy = false, videoTrack = null, audioTap = null, captionOk = false;
     const rolling = () => !!clipMime && clipTier > 0 && !weakDevice && !clipBusy && document.visibilityState === "visible";
+    // Marca d'água: grava de um canvas 2D que copia o jogo a cada quadro, só enquanto há trilha viva
+    // (qualidade BAIXA grava o canvas direto, sem a cópia).
+    function makeVideoTrack() {
+        const gl = document.getElementById("glcanvas");
+        if (clipTier <= 0) return gl.captureStream(30).getVideoTracks()[0];
+        const c = document.createElement("canvas"), g = c.getContext("2d", { alpha: false });
+        const track = c.captureStream(30).getVideoTracks()[0];
+        const draw = () => {
+            if (track.readyState !== "live") return;
+            const s = Math.min(1, 1280 / gl.width), w = gl.width * s | 0, h = gl.height * s | 0;
+            if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+            g.drawImage(gl, 0, 0, w, h);
+            const px = Math.max(12, h * 0.028 | 0);
+            g.font = `bold ${px}px monospace`;
+            g.textAlign = "right";
+            g.lineWidth = Math.max(2, px / 5);
+            g.strokeStyle = "rgba(0,0,0,0.7)";
+            g.fillStyle = "rgba(255,255,255,0.85)";
+            g.strokeText("urna-mine-verine.workers.dev", w - px * 0.6, h - px * 0.6);
+            g.fillText("urna-mine-verine.workers.dev", w - px * 0.6, h - px * 0.6);
+            requestAnimationFrame(draw);
+        };
+        // Depois do rAF do macroquad no mesmo quadro: o buffer WebGL ainda tem a imagem nova.
+        setTimeout(() => requestAnimationFrame(draw));
+        return track;
+    }
     function clipTracks() {
-        if (!videoTrack || videoTrack.readyState === "ended") videoTrack = document.getElementById("glcanvas").captureStream(30).getVideoTracks()[0];
+        if (!videoTrack || videoTrack.readyState === "ended") videoTrack = makeVideoTrack();
         const t = [videoTrack];
         if (ctx.state === "running" && ctx.createMediaStreamDestination) {
             if (!audioTap) { audioTap = ctx.createMediaStreamDestination(); master.connect(audioTap); }
@@ -81,11 +108,14 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-        clipMsgs.push(`CLIPE SALVO: ${name} - posta onde quiser`);
+        clipMsgs.push(`CLIPE SALVO: ${name} - ${captionOk ? "legenda copiada, " : ""}posta onde quiser`);
     }
     function clipSave() {
         if (!clipMime) return clipMsgs.push("CLIPE: esse navegador nao grava video");
         if (clipBusy) return clipMsgs.push("CLIPE: calma, ainda gravando o anterior");
+        // Clipboard exige gesto recente: este é o quadro logo após a tecla/toque.
+        captionOk = false;
+        try { navigator.clipboard.writeText(CAPTION).then(() => { captionOk = true; }, () => { }); } catch (e) { }
         const seg = older || newer;
         if (seg) {
             older = seg === older ? newer : null;

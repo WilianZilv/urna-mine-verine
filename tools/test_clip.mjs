@@ -45,6 +45,7 @@ const cmd = (method, params = {}, sessionId) => new Promise((r) => {
 });
 
 await cmd("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dir });
+await cmd("Browser.grantPermissions", { origin: `http://127.0.0.1:${HTTP}`, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
 const { targetId } = await cmd("Target.createTarget", { url: "about:blank" });
 const { sessionId } = await cmd("Target.attachToTarget", { targetId, flatten: true });
 await cmd("Page.enable", {}, sessionId);

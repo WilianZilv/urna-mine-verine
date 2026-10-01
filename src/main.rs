@@ -2,6 +2,7 @@
 //! briga generalizada e uma urna eletrônica gigante soltando laser.
 
 mod actors;
+mod arena_panel;
 mod atlas;
 #[cfg_attr(target_arch = "wasm32", path = "audio_web.rs")]
 mod audio;
@@ -418,6 +419,7 @@ async fn main() {
     let relogio = eleicao::Relogio::new();
     let lab = extras::Lab::new();
     let mut lab_info = lab::LabInfo::new();
+    let mut arena_board = arena_panel::ArenaPanel::new();
     let mut hub = hub::Hub::new();
     let mut club_k = 0.0f32;
     let mut vibe = club::Vibe::new();
@@ -1732,6 +1734,8 @@ async fn main() {
         };
         prof.mark(prof::MISC);
         lab_info.render(time, eye, npcs.guard());
+        let in_ring = remotes.values().map(|r| (r.name.as_str(), r.pos)).chain([(my_name.as_str(), player.pos)]);
+        arena_board.render(time, eye, &fighters, &npcs, mario.visible().then_some(mario.body.pos), urna.pos, in_ring);
         prof.mark(prof::LAB_RT);
         clear_background(sky);
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
@@ -1891,6 +1895,7 @@ async fn main() {
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
+        arena_panel::draw_frame(&mut opaque, &mut trans, time, eye);
         mods.draw(&mut opaque, &mut trans, &mut labels, time, eye, &npcs);
         hub.draw(&mut opaque, &mut trans, &mut labels, time, eye);
         eco.draw_world(&mut opaque, &mut labels, eye, time);
@@ -1941,6 +1946,7 @@ async fn main() {
             }
         }
         lab_info.draw_dome(time, npcs.guard().flash.max(fx.dome_flash[0]), eye);
+        arena_board.draw_screen(time, eye);
         shield::draw_hub(time, fx.dome_flash[1]);
 
         prof.mark(prof::FLUSH);

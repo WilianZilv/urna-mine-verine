@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::f32::consts::FRAC_PI_2;
 
 #[path = "lab_panel.rs"]
-mod panel;
+pub(crate) mod panel;
 
 pub const DOME_R: f32 = 16.0;
 const PANEL: Vec3 = crate::layout::lab(vec3(86.0, 0.0, 64.5));

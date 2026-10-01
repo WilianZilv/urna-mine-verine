@@ -787,7 +787,7 @@ impl Mario {
         }
     }
 
-    fn visible(&self) -> bool {
+    pub fn visible(&self) -> bool {
         self.spawned || self.net.is_some()
     }
 

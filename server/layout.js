@@ -8,6 +8,8 @@ export const PLAZA = [160, 160];
 export const PLAZA_R = 24;
 export const RING_R = 62;
 export const ARENA = { x0: 112, x1: 208, z0: 24, z1: 92 };
+// Placar holografico da arena (src/arena_panel.rs): pilares em x 108..110, z 45..71.
+export const ARENA_BOARD = { x0: 107, x1: 111, z0: 44, z1: 72 };
 export const CLUB = { x0: 46, x1: 74, z0: 144, z1: 176, shield: [60, 22, 160], r: 22 };
 export const LAB = { x0: 244, x1: 262, z0: 148, z1: 172, dome: [253.5, G, 160.5], r: 16, panelX: 236 };
 export const MODZ = { x0: 245, x1: 261, z0: 111, z1: 127 };
@@ -24,12 +26,13 @@ export const BILLBOARDS = [[136, 136], [184, 136], [136, 184], [184, 184], [112,
 // Missao "visitar"
 export const SPOTS = { praca: PLAZA, clube: [60, 160], lab: [253, 160], torre: [160, 265], arena: [160, 58], skate: [250, 262], casas: [100, 240] };
 
-// [x0, x1, z0, z1]: nenhuma obra da IA (pedido de jogador ou autonoma) cobre clube, lab+domo+painel, zona de mods ou hub.
+// [x0, x1, z0, z1]: nenhuma obra da IA (pedido de jogador ou autonoma) cobre clube, lab+domo+painel, zona de mods, hub ou placar da arena.
 export const LANDMARKS = [
     [CLUB.x0 - 2, CLUB.x1 + 2, CLUB.z0 - 2, CLUB.z1 + 2],
     [LAB.panelX - 1, LAB.x1 + 8, LAB.z0 - 4, LAB.z1 + 5],
     [MODZ.x0 - 2, MODZ.x1 + 2, MODZ.z0 - 2, MODZ.z1 + 2],
     [HUB.x0 - 2, HUB.x1 + 2, HUB.z0 - 3, HUB.z1 + 4],
+    [ARENA_BOARD.x0, ARENA_BOARD.x1, ARENA_BOARD.z0, ARENA_BOARD.z1],
 ];
 
 // Onde a IA nao constroi sozinha: marcos + ruas, trilhas, casas, torre, skate, arena, placar, outdoors.

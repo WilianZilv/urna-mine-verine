@@ -15,13 +15,13 @@ const PW: f32 = 20.0;
 const PH: f32 = 10.0;
 const PY: f32 = G as f32 + 8.5;
 
-const CYAN: Color = Color::new(0.45, 1.0, 1.0, 1.0);
-const DIM: Color = Color::new(0.45, 1.0, 1.0, 0.35);
-const PINK: Color = Color::new(1.0, 0.55, 0.85, 1.0);
-const GOLD: Color = Color::new(1.0, 0.85, 0.3, 1.0);
-const SOFT: Color = Color::new(0.75, 0.9, 0.95, 1.0);
+pub(crate) const CYAN: Color = Color::new(0.45, 1.0, 1.0, 1.0);
+pub(crate) const DIM: Color = Color::new(0.45, 1.0, 1.0, 0.35);
+pub(crate) const PINK: Color = Color::new(1.0, 0.55, 0.85, 1.0);
+pub(crate) const GOLD: Color = Color::new(1.0, 0.85, 0.3, 1.0);
+pub(crate) const SOFT: Color = Color::new(0.75, 0.9, 0.95, 1.0);
 
-fn fit(t: &str, w: f32, size: f32) -> String {
+pub(crate) fn fit(t: &str, w: f32, size: f32) -> String {
     if measure_text(t, None, size as u16, 1.0).width <= w {
         return t.to_string();
     }
@@ -52,7 +52,7 @@ fn wrap_px(t: &str, w: f32, size: f32, max: usize) -> Vec<String> {
     lines
 }
 
-fn text_right(t: &str, x: f32, y: f32, size: f32, col: Color) {
+pub(crate) fn text_right(t: &str, x: f32, y: f32, size: f32, col: Color) {
     let w = measure_text(t, None, size as u16, 1.0).width;
     draw_text(t, x - w, y, size, col);
 }
@@ -63,7 +63,7 @@ fn text_mid(t: &str, x: f32, y: f32, size: f32, col: Color) {
 }
 
 /// Caixa de gráfico com título.
-fn frame(x: f32, y: f32, w: f32, h: f32, title: &str) {
+pub(crate) fn frame(x: f32, y: f32, w: f32, h: f32, title: &str) {
     draw_rectangle(x, y, w, h, Color::new(0.05, 0.35, 0.45, 0.22));
     draw_rectangle_lines(x, y, w, h, 3.0, DIM);
     draw_rectangle(x, y, 26.0, 4.0, CYAN);
@@ -81,6 +81,27 @@ fn ring(cx: f32, cy: f32, r0: f32, r1: f32, a0: f32, a1: f32, col: Color) {
         draw_triangle(p(t0, r0), p(t0, r1), p(t1, r1), col);
         draw_triangle(p(t0, r0), p(t1, r1), p(t1, r0), col);
     }
+}
+
+/// Efeito holograma: linhas de varredura, faixa correndo e borda que pisca com dado novo.
+pub(crate) fn holo_fx(time: f32, flash: f32) {
+    let mut y = 0.0;
+    while y < TH {
+        draw_rectangle(0.0, y, TW, 2.0, Color::new(0.0, 0.0, 0.0, 0.07));
+        y += 8.0;
+    }
+    let band = (time * 140.0) % (TH + 200.0) - 100.0;
+    draw_rectangle(0.0, band, TW, 60.0, Color::new(0.45, 1.0, 1.0, 0.05));
+    draw_rectangle_lines(4.0, 4.0, TW - 8.0, TH - 8.0, 6.0, Color::new(0.45, 1.0, 1.0, 0.4 + 0.6 * flash));
+}
+
+/// Mipmaps: texto continua legível (sem serrilhado) de 15-25 blocos.
+pub(crate) fn mipmaps(rt: &RenderTarget) {
+    let mut gl = unsafe { get_internal_gl() };
+    gl.flush();
+    let id = rt.texture.raw_miniquad_id();
+    gl.quad_context.texture_set_min_filter(id, MqFilter::Linear, MipmapFilterMode::Linear);
+    gl.quad_context.texture_generate_mipmaps(id);
 }
 
 fn ease(t: f32) -> f32 {
@@ -134,12 +155,7 @@ impl LabInfo {
         clear_background(Color::new(0.0, 0.05, 0.09, 0.85));
         self.paint(time, guard);
         set_default_camera();
-        // Mipmaps: texto continua legível (sem serrilhado) de 15-25 blocos.
-        let mut gl = unsafe { get_internal_gl() };
-        gl.flush();
-        let id = rt.texture.raw_miniquad_id();
-        gl.quad_context.texture_set_min_filter(id, MqFilter::Linear, MipmapFilterMode::Linear);
-        gl.quad_context.texture_generate_mipmaps(id);
+        mipmaps(&rt);
     }
 
     fn paint(&self, time: f32, guard: &Vida) {
@@ -264,15 +280,7 @@ impl LabInfo {
         }
         draw_text("DOE DIRETO PRA QUEM PESQUISA:  bbrfoundation.org/donate  |  idor.org", x1, 1004.0, 32.0, GOLD);
 
-        // Efeito holograma: linhas de varredura, faixa correndo e borda que pisca com dado novo
-        let mut y = 0.0;
-        while y < TH {
-            draw_rectangle(0.0, y, TW, 2.0, Color::new(0.0, 0.0, 0.0, 0.07));
-            y += 8.0;
-        }
-        let band = (time * 140.0) % (TH + 200.0) - 100.0;
-        draw_rectangle(0.0, band, TW, 60.0, Color::new(0.45, 1.0, 1.0, 0.05));
-        draw_rectangle_lines(4.0, 4.0, TW - 8.0, TH - 8.0, 6.0, Color::new(0.45, 1.0, 1.0, 0.4 + 0.6 * self.flash));
+        holo_fx(time, self.flash);
     }
 
     /// Quad da tela no mundo (depth test do passe 3D: paredes e gente na frente tampam).
@@ -299,50 +307,55 @@ impl LabInfo {
     }
 }
 
-/// Estrutura física: pilares com faixas de luz, emissor em cima, barra de base, moldura e halo.
 pub fn draw_frame(b: &mut Batch, trans: &mut Batch, time: f32, flash: f32) {
-    let id = Mat4::IDENTITY;
+    frame_at(b, trans, &Mat4::from_translation(vec3(PANEL_X, 0.0, PANEL_Z)), (PW, PH, PY), time, flash);
+}
+
+/// Estrutura física: pilares com faixas de luz, emissor em cima, barra de base, moldura e halo.
+/// `m` põe a origem no pé do painel (tela virada pra -x local); tamanho = (largura, altura, centro y).
+pub(crate) fn frame_at(b: &mut Batch, trans: &mut Batch, m: &Mat4, (pw, ph, py): (f32, f32, f32), time: f32, flash: f32) {
+    let id = *m;
     let metal = rgb(0.2, 0.22, 0.26);
     let dark = rgb(0.1, 0.11, 0.13);
     let k = 0.7 + 0.3 * (time * 2.0).sin() + 0.5 * flash;
     let glow = Color::new(0.3 * k, 0.95 * k.min(1.0), 1.0, 1.0);
-    let top = PY + PH * 0.5;
-    let bot = PY - PH * 0.5;
+    let top = py + ph * 0.5;
+    let bot = py - ph * 0.5;
     let g = G as f32;
     for side in [-1.0f32, 1.0] {
-        let z = PANEL_Z + side * (PW * 0.5 + 0.7);
+        let z = side * (pw * 0.5 + 0.7);
         let h = top + 1.2 - g;
-        b.cube(&id, vec3(PANEL_X, g + 0.3, z), vec3(2.2, 0.6, 2.2), dark);
-        b.glow(&id, vec3(PANEL_X, g + 0.62, z), vec3(1.6, 0.06, 1.6), glow);
-        b.cube(&id, vec3(PANEL_X, g + h * 0.5, z), vec3(1.0, h, 1.0), metal);
-        b.glow(&id, vec3(PANEL_X - 0.52, g + h * 0.5, z), vec3(0.04, h - 1.0, 0.25), glow);
+        b.cube(&id, vec3(0.0, g + 0.3, z), vec3(2.2, 0.6, 2.2), dark);
+        b.glow(&id, vec3(0.0, g + 0.62, z), vec3(1.6, 0.06, 1.6), glow);
+        b.cube(&id, vec3(0.0, g + h * 0.5, z), vec3(1.0, h, 1.0), metal);
+        b.glow(&id, vec3(-0.52, g + h * 0.5, z), vec3(0.04, h - 1.0, 0.25), glow);
         for i in 0..6 {
             let y = g + 1.0 + ((time * 0.6 + i as f32 / 6.0).fract()) * (h - 1.5);
-            b.glow(&id, vec3(PANEL_X - 0.53, y, z), vec3(0.04, 0.3, 0.4), WHITE);
+            b.glow(&id, vec3(-0.53, y, z), vec3(0.04, 0.3, 0.4), WHITE);
         }
-        b.cube(&id, vec3(PANEL_X, g + h + 0.25, z), vec3(1.3, 0.5, 1.3), dark);
+        b.cube(&id, vec3(0.0, g + h + 0.25, z), vec3(1.3, 0.5, 1.3), dark);
     }
     // Emissor em cima com lentes, barra de base flutuando acima da cabeça
-    let span = PW + 2.4;
-    b.cube(&id, vec3(PANEL_X, top + 0.75, PANEL_Z), vec3(1.4, 0.9, span), metal);
-    b.glow(&id, vec3(PANEL_X - 0.2, top + 0.27, PANEL_Z), vec3(0.8, 0.06, span - 1.0), glow);
+    let span = pw + 2.4;
+    b.cube(&id, vec3(0.0, top + 0.75, 0.0), vec3(1.4, 0.9, span), metal);
+    b.glow(&id, vec3(-0.2, top + 0.27, 0.0), vec3(0.8, 0.06, span - 1.0), glow);
     for i in 0..9 {
-        let z = PANEL_Z - PW * 0.5 + 1.25 + i as f32 * (PW - 2.5) / 8.0;
+        let z = -pw * 0.5 + 1.25 + i as f32 * (pw - 2.5) / 8.0;
         let p = 0.5 + 0.5 * (time * 3.0 + i as f32 * 0.7).sin();
-        b.glow(&id, vec3(PANEL_X - 0.72, top + 0.75, z), vec3(0.05, 0.4, 0.4), Color::new(0.5 + 0.5 * p, 1.0, 1.0, 1.0));
+        b.glow(&id, vec3(-0.72, top + 0.75, z), vec3(0.05, 0.4, 0.4), Color::new(0.5 + 0.5 * p, 1.0, 1.0, 1.0));
     }
-    b.cube(&id, vec3(PANEL_X, bot - 0.35, PANEL_Z), vec3(0.7, 0.35, span), metal);
-    b.glow(&id, vec3(PANEL_X - 0.36, bot - 0.35, PANEL_Z), vec3(0.04, 0.12, span - 1.0), glow);
+    b.cube(&id, vec3(0.0, bot - 0.35, 0.0), vec3(0.7, 0.35, span), metal);
+    b.glow(&id, vec3(-0.36, bot - 0.35, 0.0), vec3(0.04, 0.12, span - 1.0), glow);
     // Moldura de luz e halo atrás da tela
     let edge = Color::new(0.45, 1.0, 1.0, 0.55 + 0.45 * flash);
     for (c, s) in [
-        (vec3(PANEL_X - 0.04, top, PANEL_Z), vec3(0.06, 0.12, PW + 0.12)),
-        (vec3(PANEL_X - 0.04, bot, PANEL_Z), vec3(0.06, 0.12, PW + 0.12)),
-        (vec3(PANEL_X - 0.04, PY, PANEL_Z - PW * 0.5), vec3(0.06, PH, 0.12)),
-        (vec3(PANEL_X - 0.04, PY, PANEL_Z + PW * 0.5), vec3(0.06, PH, 0.12)),
+        (vec3(-0.04, top, 0.0), vec3(0.06, 0.12, pw + 0.12)),
+        (vec3(-0.04, bot, 0.0), vec3(0.06, 0.12, pw + 0.12)),
+        (vec3(-0.04, py, -pw * 0.5), vec3(0.06, ph, 0.12)),
+        (vec3(-0.04, py, pw * 0.5), vec3(0.06, ph, 0.12)),
     ] {
         trans.glow(&id, c, s, edge);
     }
-    trans.glow(&id, vec3(PANEL_X + 0.2, PY, PANEL_Z), vec3(0.05, PH + 1.2, PW + 1.2), Color::new(0.2, 0.8, 1.0, 0.1 + 0.1 * flash));
-    trans.glow(&id, vec3(PANEL_X - 0.5, top + 0.1, PANEL_Z), vec3(0.6, 0.3, PW), Color::new(0.4, 1.0, 1.0, 0.18));
+    trans.glow(&id, vec3(0.2, py, 0.0), vec3(0.05, ph + 1.2, pw + 1.2), Color::new(0.2, 0.8, 1.0, 0.1 + 0.1 * flash));
+    trans.glow(&id, vec3(-0.5, top + 0.1, 0.0), vec3(0.6, 0.3, pw), Color::new(0.4, 1.0, 1.0, 0.18));
 }

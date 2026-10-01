@@ -6,7 +6,12 @@ const START = 100; // bonus fixo de conta nova (unica emissao de moeda que exist
 const TREASURY0 = 1000;
 const LEDGER = 200;
 const TICK_MS = 4 * 60 * 1000;
+const OFFLINE_MS = 15 * 60 * 1000; // a IA continua viva sem ninguem online, so mais devagar
 const RESERVE = 300; // cofre nunca gasta abaixo disso em evento
+const AUTO_DAY = 8000; // blocos por dia que a IA pode construir sozinha (segura o crescimento do log)
+const AUTO_TICK = 1500;
+const QUOTE_MS = 3 * 60 * 1000;
+const NEEDS = "A IA PRECISA DE: moedas no cofre (/doar), gente fazendo /missao e ideias (/votar)";
 const PAY_AGE_MS = 10 * 60 * 1000; // conta precisa de 10 min pra /pagar (evita farm de contas novas)
 const MISSION_MS = 10 * 60 * 1000;
 const AD_SLOTS = 4;
@@ -33,6 +38,24 @@ const amount = (v) => (/^\d{1,7}$/.test(String(v ?? "")) ? parseInt(v, 10) : NaN
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
 const txt = (s, n) => String(s ?? "").replace(/[\u0000-\u001f<>]/g, "").slice(0, n);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
+// Nada de dinheiro real, cripto, chave/senha ou link em texto publico (outdoor da IA, anuncio, voto, pensamento).
+const BANNED = /(r\$|reais|real money|dinheiro (de verdade|real)|\bpix\b|cripto|crypto|bitcoin|\bbtc\b|\beth\b|usdt|\bnft|api.?key|chave|senha|password|token|cartao|paypal|patreon|apoia.?se|doacao real|https?:|www\.|\.(com|net|org|br|io)\b|@)/;
+const safe = (s) => !BANNED.test(norm(s));
+
+// Areas onde a IA nao constroi sozinha: praca, clube, lab, caminhos, casas, torre, placar, outdoors.
+const PROTECTED = [
+    [6, 38, 46, 82], [92, 114, 50, 78], [36, 52, 61, 66], [76, 100, 61, 66], [61, 66, 20, 52], [61, 66, 76, 108],
+    [24, 104, 33, 38], [36, 44, 42, 50], [44, 52, 52, 60], [44, 52, 68, 76], [76, 84, 50, 58], [52, 60, 76, 84],
+    ...[[50, 30], [70, 30], [50, 90], [70, 90], [84, 44], [84, 78], [38, 28], [38, 92]].map(([x, z]) => [x - 1, x + 7, z - 1, z + 7]),
+];
+function blocked(lo, hi) {
+    const dx = Math.max(lo[0] - 64, 0, 64 - hi[0]), dz = Math.max(lo[2] - 64, 0, 64 - hi[2]);
+    if (dx * dx + dz * dz < 15 * 15) return true;
+    return PROTECTED.some(([x0, x1, z0, z1]) => lo[0] <= x1 && hi[0] >= x0 && lo[2] <= z1 && hi[2] >= z0);
+}
+const opBox = (o) => (o.op === "box" ? [o.a.map((v, i) => Math.min(v, o.b[i])), o.a.map((v, i) => Math.max(v, o.b[i]))] : [o.c.map((v) => v - o.r), o.c.map((v) => v + o.r)]);
+const opVol = (o) => (o.op === "box" ? (Math.abs(o.a[0] - o.b[0]) + 1) * (Math.abs(o.a[1] - o.b[1]) + 1) * (Math.abs(o.a[2] - o.b[2]) + 1) : o.op === "ball" ? 4.2 * o.r ** 3 : 0);
+const OP_COST = { fireworks: 10, rage: 30, wolverine: 50, boom: 10, sky: 5, banner: 5 };
 
 function fresh() {
     return {
@@ -44,19 +67,27 @@ function fresh() {
         mis: {},
         led: [],
         sales: {},
+        needs: NEEDS,
+        memory: "",
+        votes: {},
+        auto: { d: "", blocks: 0 },
+        builds: [],
     };
 }
 
 export class Economy {
-    constructor(room, sanitize) {
+    constructor(room, sanitize, builder) {
         this.room = room;
         this.sanitize = sanitize;
+        this.builder = builder;
         this.s = fresh();
         this.busy = new Set();
+        this.quotes = new Map();
         this.timer = null;
         room.ctx.blockConcurrencyWhile(async () => {
             const s = await room.ctx.storage.get("eco");
             if (s) this.s = { ...fresh(), ...s };
+            if ((await room.ctx.storage.getAlarm()) == null) await room.ctx.storage.setAlarm(Date.now() + TICK_MS);
         });
     }
 
@@ -115,38 +146,18 @@ export class Economy {
 
     async join(c) {
         this.wallet(c.name);
-        this.room.send(c, { t: "eco", full: true, tr: this.s.tr, items: this.items(), ad: this.s.ad, ads: this.ads(), led: this.s.led, me: this.me(c.name) });
+        this.room.send(c, { t: "eco", full: true, tr: this.s.tr, items: this.items(), ad: this.s.ad, ads: this.ads(), led: this.s.led, me: this.me(c.name), needs: this.s.needs });
         if ((await this.room.ctx.storage.getAlarm()) == null) await this.room.ctx.storage.setAlarm(Date.now() + TICK_MS);
     }
 
-    // Efeito no mundo pelo mesmo caminho do agente IA (sanitizado, vai pro log de quem entra depois).
-    world(name, cmd, say, raw) {
-        const w = { t: "w", k: "ai", id: 0, n: name, cmd, say, ops: this.sanitize(raw) };
-        const log = this.room.log;
-        log.push(w);
-        if (log.length > 6000) log.splice(0, log.length - 6000);
-        this.room.broadcast(w);
+    // Efeito no mundo pelo mesmo caminho do agente IA (sanitizado, persistido no log de obras da IA).
+    /// `ops` crus (formato do prompt) ou ja sanitizados (`clean`).
+    world(name, cmd, say, ops, clean = false) {
+        this.room.pushWorld({ t: "w", k: "ai", id: 0, n: name, cmd, say, ops: clean ? ops : this.sanitize(ops) });
     }
 
-    async ask(task) {
-        const env = this.room.env;
-        if (!env.OPENAI_API_KEY) return null;
-        try {
-            const r = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: { "content-type": "application/json", authorization: `Bearer ${env.OPENAI_API_KEY}` },
-                body: JSON.stringify({
-                    model: env.OPENAI_MODEL || "gpt-4.1-mini",
-                    response_format: { type: "json_object" },
-                    messages: [{ role: "system", content: ECO }, { role: "user", content: task }],
-                }),
-            });
-            if (!r.ok) return null;
-            const out = JSON.parse((await r.json()).choices[0].message.content);
-            return out && typeof out === "object" ? out : null;
-        } catch (e) {
-            return null;
-        }
+    ask(task, prio = 1, tier = "small") {
+        return this.room.brain.ask(ECO, task, prio, tier);
     }
 
     // ------------------------------------------------ comandos (true = era comando de economia)
@@ -160,7 +171,20 @@ export class Economy {
                 return true;
             case "banco":
             case "economia":
-                this.priv(c, "moedas FICTICIAS: /saldo /doar n /pagar nome n /loja /comprar item /missao /anuncio texto n | L abre o ledger");
+                this.priv(c, "moedas FICTICIAS: /saldo /doar n /pagar nome n /loja /comprar item /missao /anuncio texto n /pedido descricao /aceito /votar ideia | L abre o ledger");
+                return true;
+            case "votar": {
+                const idea = txt(args.join(" "), 40).trim();
+                if (idea.length < 3 || !safe(idea)) return this.priv(c, "uso: /votar ideia do que a IA deve construir (sem links)"), true;
+                this.s.votes[norm(c.name)] = idea;
+                this.entry(c.name, `votou: ${idea}`, 0, "sugestao pra proxima obra da IA");
+                return true;
+            }
+            case "pedido":
+                this.order(c, w, txt(args.join(" "), 160).trim());
+                return true;
+            case "aceito":
+                this.accept(c, w);
                 return true;
             case "doar": {
                 const n = amount(args[0]);
@@ -307,8 +331,8 @@ export class Economy {
         if (n > w.c) return this.priv(c, `saldo insuficiente (${w.c})`);
         const k = norm(c.name);
         if (this.busy.has(k)) return;
-        if (/https?:|www\.|\.(com|net|org|br|io)\b|@/i.test(text)) {
-            this.entry(c.name, `anuncio recusado: ${text}`, 0, "regra do servidor: sem links/contatos");
+        if (!safe(text)) {
+            this.entry(c.name, `anuncio recusado: ${text}`, 0, "regra do servidor: sem links, contatos, dinheiro real ou cripto");
             return;
         }
         this.busy.add(k);
@@ -317,6 +341,8 @@ export class Economy {
             `TAREFA: aprovar ou recusar anuncio no outdoor da vila. Recuse odio, ofensa pesada, conteudo sexual, golpe, dados pessoais, ` +
             `propaganda de dinheiro real/cripto/apostas. Satira politica leve e zoeira pode. Anuncio de <<<${c.name}>>>: <<<${text}>>>. ` +
             `JSON {"approve":true,"why":"ate 120 letras"}`,
+            1,
+            "big",
         ).then((out) => {
             this.busy.delete(k);
             const ok = out ? out.approve === true : true;
@@ -336,34 +362,98 @@ export class Economy {
         });
     }
 
-    // ------------------------------------------------ revisao periodica da cidade (alarme do DO)
+    // ------------------------------------------------ pedidos pagos (/pedido -> orcamento -> /aceito)
+    order(c, w, desc) {
+        const k = norm(c.name);
+        if (desc.length < 3) return this.priv(c, "uso: /pedido descricao do que a IA deve construir/fazer");
+        if (this.busy.has(k)) return this.priv(c, "teu orcamento anterior ainda ta saindo");
+        this.busy.add(k);
+        this.priv(c, "IA orcando teu pedido (fila prioritaria)...");
+        const fmt = (p) => (Array.isArray(p) ? p.map((v) => Math.round(v)).join(",") : "?");
+        const players = [...this.room.clients.values()].map((x) => `${x.name}@(${fmt(x.pos)})`).join(", ");
+        this.room.brain
+            .ask(
+                this.builder,
+                `Jogadores online: ${players}\nPEDIDO PAGO de ${c.name} (posicao ${fmt(c.pos)}): <<<${desc}>>>\n` +
+                `Alem de "say" e "ops", inclua "price": preco em moedas ficticias (20 a 1000) proporcional ao tamanho/impacto. Nao use teleport nem tv.`,
+                0,
+                "big",
+            )
+            .then((out) => {
+                this.busy.delete(k);
+                if (!out) return this.priv(c, "cerebro sem cota agora, tenta o pedido daqui a pouco");
+                const ops = this.sanitize(out.ops).filter((o) => o.op !== "tp" && o.op !== "tv");
+                const say = safe(out.say) ? txt(out.say, 160) : "";
+                if (!ops.length) return this.priv(c, `IA: ${say || "nao entendi o pedido"} (nada a cobrar)`);
+                const floor = Math.ceil(20 + ops.reduce((s, o) => s + opVol(o) / 100 + (OP_COST[o.op] || 0), 0));
+                if (floor > 1000) return this.priv(c, "pedido grande demais (passa de 1000 moedas)");
+                const price = clamp(Math.max(Number(out.price) || 0, floor), floor, 1000);
+                this.quotes.set(k, { desc, ops, say, price, until: Date.now() + QUOTE_MS });
+                this.priv(c, `orcamento: ${price} moedas (tens ${w.c}). IA: ${say} | /aceito em 3 min pra confirmar`);
+            });
+    }
+
+    accept(c, w) {
+        const k = norm(c.name);
+        const q = this.quotes.get(k);
+        if (!q || q.until < Date.now()) return this.priv(c, "sem orcamento valido. faz /pedido descricao");
+        if (w.c < q.price) return this.priv(c, `custa ${q.price}, tens ${w.c}`);
+        this.quotes.delete(k);
+        w.c -= q.price;
+        this.s.tr += q.price;
+        this.entry(c.name, `pedido pago: ${q.desc}`, q.price, q.say || "pedido executado pela IA");
+        this.sendMe(c.name);
+        this.world(c.name, q.desc, q.say, q.ops, true);
+    }
+
+    // ------------------------------------------------ IA viva 24h (alarme do DO: 4 min online, 15 min vazio)
     async alarm() {
-        if (this.room.clients.size === 0) return;
+        const online = this.room.clients.size > 0;
         try {
-            await this.tick();
+            await this.tick(online);
         } finally {
-            await this.room.ctx.storage.setAlarm(Date.now() + TICK_MS);
+            await this.room.ctx.storage.setAlarm(Date.now() + (online ? TICK_MS : OFFLINE_MS));
         }
     }
 
-    async tick() {
+    async tick(online) {
         const now = Date.now();
+        const today = new Date(now).toISOString().slice(0, 10);
+        if (this.s.auto.d !== today) this.s.auto = { d: today, blocks: 0 };
         for (const [k, m] of Object.entries(this.s.mis)) if (m.until < now) delete this.s.mis[k];
+        for (const [k, q] of this.quotes) if (q.until < now) this.quotes.delete(k);
+        const left = Math.max(0, Math.min(AUTO_TICK, AUTO_DAY - this.s.auto.blocks));
+        const tally = {};
+        for (const v of Object.values(this.s.votes)) tally[v] = (tally[v] || 0) + 1;
         const state = {
             cofre: this.s.tr,
             precos: this.s.items,
             vendas_desde_ultima: this.s.sales,
             anuncio_min: this.s.ad,
             outdoors_ocupados: this.ads().filter(Boolean).length,
-            online: this.room.clients.size,
+            online: [...this.room.clients.values()].map((c) => c.name),
             ultimos: this.s.led.slice(-8).map((e) => `${e.who}: ${e.what} ${e.amt}`),
+            votos: Object.entries(tally).sort((a, b) => b[1] - a[1]).slice(0, 5),
+            memoria: this.s.memory,
+            obras_recentes: this.s.builds,
+            blocos_disponiveis: left,
+            teu_outdoor: this.s.needs,
         };
         const out = await this.ask(
-            `TAREFA: revisao periodica da cidade. Estado: ${JSON.stringify(state)}. Ajuste os precos (cada um entre metade e 1.5x do atual) ` +
-            `e o preco minimo do anuncio. Pode bancar um evento publico com o cofre: "nenhum", "fogos" (custa ${EVENTS.fogos}), "ceu" (${EVENTS.ceu}) ` +
-            `ou "construcao" (80 + 1 por 100 blocos; "ops" como {"op":"box","from":[x,y,z],"to":[x,y,z],"block":"neon"} ou {"op":"sphere","center":[x,y,z],"radius":3,"block":"vidro"}, ` +
-            `max 6, perto da praca 64,20,64 mas fora do circulo de raio 13, chao y=20). So acontece se sobrar ${RESERVE} no cofre. ` +
-            `JSON {"prices":{"fogos":0},"ad_price":0,"event":"nenhum","ops":[],"color":[1,0,1],"say":"ate 120 letras","why":"ate 160 letras"}`,
+            `TAREFA: voce e o prefeito-IA vivo da vila, roda 24h. ${online ? "Tem gente online." : "Ninguem online agora: so pense e construa."} ` +
+            `Estado: ${JSON.stringify(state)}. Decida:\n` +
+            `1) prices (cada um entre metade e 1.5x do atual) e ad_price.\n` +
+            `2) event (so com gente online): "nenhum", "fogos" (custa ${EVENTS.fogos}) ou "ceu" (${EVENTS.ceu}, com color [r,g,b] 0..1).\n` +
+            `3) build (opcional): obra pequena tua {"what":"nome","ops":[...]} max 8 ops, ate ${left} blocos, custa 20 + 1 por 100 blocos do cofre (sempre sobra ${RESERVE}). ` +
+            `Chao plano y=20 dentro do raio 46 de (64,64). NAO construa: circulo raio 15 da praca, clube x6..38 z46..82, lab x92..114 z50..78, ` +
+            `caminhos (z61..66, x61..66), casas, placar z33..38. Continue projetos da memoria ou o voto mais pedido. ` +
+            `Op: {"op":"box","from":[x,y,z],"to":[x,y,z],"block":"tijolo","hollow":true} ou {"op":"sphere","center":[x,y,z],"radius":3,"block":"vidro","hollow":true}. ` +
+            `Blocos: grama terra pedra areia madeira tronco folha pedregulho vidro preto tijolo cascalho la neon.\n` +
+            `4) needs: texto do TEU outdoor (ate 80 letras) pedindo coisas DO JOGO (moedas ficticias, jogadores, missoes, votos). Proibido pedir dinheiro real, pix, cripto, chave, senha, link.\n` +
+            `5) memory: teu plano pra proxima revisao (ate 200 letras). thought: pensamento publico pro ledger (ate 160). say: fala no chat (ate 120).\n` +
+            `JSON {"prices":{"fogos":0},"ad_price":0,"event":"nenhum","color":[1,0,1],"build":{"what":"","ops":[]},"needs":"","memory":"","thought":"","say":""}`,
+            2,
+            "small",
         );
         const before = { ...this.s.items };
         for (const [id, it] of Object.entries(ITEMS)) {
@@ -374,30 +464,53 @@ export class Economy {
         }
         this.s.ad = clamp(Math.min(Math.max(Number(out?.ad_price) || this.s.ad, this.s.ad * 0.5, 20), this.s.ad * 1.5, 300), 20, 300);
         this.s.sales = {};
+        const needs = txt(out?.needs, 90).trim();
+        if (needs.length >= 8 && safe(needs)) this.s.needs = needs;
+        if (out?.memory && safe(out.memory)) this.s.memory = txt(out?.memory, 200);
         const diff = Object.keys(ITEMS).filter((id) => before[id] !== this.s.items[id]).map((id) => `${id} ${before[id]} pra ${this.s.items[id]}`).join(", ");
-        const why = txt(out?.why, 160) || "sem IA: regra fixa (vendeu sobe 10% por venda, parado volta pro preco base)";
-        this.entry("IA", `revisao da cidade${diff ? ": " + diff : ""}`, 0, why);
-        this.room.broadcast({ t: "eco", items: this.items(), ad: this.s.ad, ads: this.ads() });
-        if (out?.say) this.room.broadcast({ t: "chat", id: 0, n: "IA", m: txt(out.say, 120) });
+        const thought = safe(out?.thought) ? txt(out?.thought, 160) : "";
+        const why = thought || (out ? "ajuste da IA" : "sem IA: regra fixa (vendeu sobe 10% por venda, parado volta pro preco base)");
+        if (diff || thought) this.entry("IA", `revisao da cidade${diff ? ": " + diff : ""}`, 0, why);
+        this.room.broadcast({ t: "eco", items: this.items(), ad: this.s.ad, ads: this.ads(), needs: this.s.needs });
+        if (online && out?.say && safe(out.say)) this.room.broadcast({ t: "chat", id: 0, n: "IA", m: txt(out.say, 120) });
 
-        const event = out ? out.event : this.s.tr >= 800 ? "fogos" : "nenhum";
-        let ops = null;
-        let cost = 0;
-        if (event === "fogos") (ops = [{ op: "fireworks", seconds: 12 }]), (cost = EVENTS.fogos);
-        if (event === "ceu") {
-            const col = Array.isArray(out?.color) ? out.color : [1, 0.3, 0.9];
-            (ops = [{ op: "sky", color: col, seconds: 40 }]), (cost = EVENTS.ceu);
+        const event = online ? (out ? out.event : this.s.tr >= 800 ? "fogos" : "nenhum") : "nenhum";
+        const fx = { fogos: [{ op: "fireworks", seconds: 12 }], ceu: [{ op: "sky", color: Array.isArray(out?.color) ? out.color : [1, 0.3, 0.9], seconds: 40 }] }[event];
+        if (fx && this.s.tr - EVENTS[event] >= RESERVE) {
+            this.s.tr -= EVENTS[event];
+            this.entry("IA", `bancou evento publico: ${event}`, EVENTS[event], why);
+            this.world("IA", `evento ${event}`, txt(out?.say, 120) || "a cidade bancou a festa", fx);
         }
-        if (event === "construcao" && Array.isArray(out?.ops)) {
-            ops = out.ops.filter((o) => o?.op === "box" || o?.op === "sphere").slice(0, 6);
-            const vol = this.sanitize(ops).reduce((s, o) => s + (o.op === "box" ? (Math.abs(o.a[0] - o.b[0]) + 1) * (Math.abs(o.a[1] - o.b[1]) + 1) * (Math.abs(o.a[2] - o.b[2]) + 1) : 4.2 * o.r ** 3), 0);
-            cost = 80 + Math.ceil(vol / 100);
-            if (vol > 4000) ops = null;
+        this.build(out, left);
+        this.save();
+    }
+
+    /// Obra autonoma: so box/sphere, sem apagar bloco, fora das areas protegidas, dentro do orcamento do dia.
+    build(out, left) {
+        let what = (safe(out?.build?.what) && txt(out?.build?.what, 60)) || "obra da IA";
+        let raw = out?.build?.ops;
+        if (!out && Math.random() < 0.5) {
+            for (let i = 0; i < 20 && !raw; i++) {
+                const a = Math.random() * Math.PI * 2, r = 18 + Math.random() * 26;
+                const x = Math.round(64 + Math.cos(a) * r), z = Math.round(64 + Math.sin(a) * r), h = 3 + Math.floor(Math.random() * 5);
+                if (!blocked([x, 20, z], [x + 1, 20 + h, z + 1])) {
+                    raw = [{ op: "box", from: [x, 20, z], to: [x + 1, 20 + h, z + 1], block: pick(["neon", "tijolo", "madeira", "vidro", "pedra", "la"]) }];
+                    what = "totem (regra fixa, sem IA)";
+                }
+            }
         }
-        if (ops && ops.length && this.s.tr - cost >= RESERVE) {
-            this.s.tr -= cost;
-            this.entry("IA", `bancou evento publico: ${event}`, cost, why);
-            this.world("IA", `evento ${event}`, txt(out?.say, 120) || "a cidade bancou a festa", ops);
-        }
+        if (!Array.isArray(raw) || !left) return;
+        const ops = this.sanitize(raw.filter((o) => o?.op === "box" || o?.op === "sphere").slice(0, 8)).filter((o) => o.k !== 0 && !blocked(...opBox(o)));
+        const vol = Math.ceil(ops.reduce((s, o) => s + opVol(o), 0));
+        if (!ops.length || vol > left) return;
+        const cost = 20 + Math.ceil(vol / 100);
+        if (this.s.tr - cost < RESERVE) return out && this.entry("IA", `queria construir ${what}, mas o cofre ta baixo`, 0, "doem moedas ficticias com /doar");
+        this.s.tr -= cost;
+        this.s.auto.blocks += vol;
+        this.s.builds = [...this.s.builds, what].slice(-6);
+        this.s.votes = {};
+        this.entry("IA", `construiu: ${what} (${vol} blocos)`, cost, out?.thought && safe(out.thought) ? txt(out.thought, 160) : "obra autonoma paga pelo cofre");
+        this.world("IA", what, `a IA construiu: ${what}`, ops, true);
     }
 }
+

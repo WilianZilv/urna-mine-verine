@@ -2,6 +2,7 @@
 // Primeiro jogador vira host (simula lutadores/urna); eventos de mundo ficam num log pra quem entra depois.
 import { DurableObject } from "cloudflare:workers";
 import { Economy } from "./economy.js";
+import { Brain } from "./brain.js";
 
 export default {
     async fetch(req, env) {
@@ -108,11 +109,34 @@ export class Room extends DurableObject {
         this.tv = null;
         this.queue = [];
         this.busy = false;
-        this.eco = new Economy(this, sanitize);
+        this.brain = new Brain(env, ctx.storage);
+        this.eco = new Economy(this, sanitize, SYSTEM);
+        // Obras da IA ("w" k:"ai") sobrevivem ao DO dormir: viram o comeco do log quando ele acorda.
+        this.aiLog = [];
+        this.aiSave = null;
+        ctx.blockConcurrencyWhile(async () => {
+            this.aiLog = (await ctx.storage.get("ailog")) || [];
+            this.log = [...this.aiLog];
+        });
     }
 
     alarm() {
         return this.eco.alarm();
+    }
+
+    pushWorld(w) {
+        this.log.push(w);
+        if (this.log.length > MAX_LOG) this.log.splice(0, this.log.length - MAX_LOG);
+        this.broadcast(w);
+        if (w.k !== "ai") return;
+        this.aiLog.push(w);
+        while (this.aiLog.length > 400 || (this.aiLog.length > 1 && JSON.stringify(this.aiLog).length > 900000)) this.aiLog.shift();
+        if (!this.aiSave) {
+            this.aiSave = setTimeout(() => {
+                this.aiSave = null;
+                this.ctx.storage.put("ailog", this.aiLog);
+            }, 1000);
+        }
     }
 
     sys(text) {
@@ -121,7 +145,6 @@ export class Room extends DurableObject {
 
     enqueue(id, c, text) {
         if (!text) return this.sys("manda /alguma coisa. ex: /constroi uma piramide de neon na praca");
-        if (!this.env.OPENAI_API_KEY) return this.sys("to sem cerebro: falta OPENAI_API_KEY no servidor");
         if (this.queue.some((q) => q.id === id)) return this.sys(`${c.name}, calma, teu comando anterior ainda ta na fila`);
         if (this.queue.length >= MAX_QUEUE) return this.sys("fila cheia, tenta daqui a pouco");
         this.queue.push({ id, name: c.name, text: text.slice(0, 200), pos: c.pos });
@@ -146,30 +169,17 @@ export class Room extends DurableObject {
     async run(job) {
         const fmt = (p) => (Array.isArray(p) ? p.map((v) => Math.round(v)).join(",") : "?");
         const players = [...this.clients.values()].map((x) => `${x.name}@(${fmt(x.pos)})`).join(", ");
-        const r = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "content-type": "application/json", authorization: `Bearer ${this.env.OPENAI_API_KEY}` },
-            body: JSON.stringify({
-                model: this.env.OPENAI_MODEL || "gpt-4.1-mini",
-                response_format: { type: "json_object" },
-                messages: [
-                    { role: "system", content: SYSTEM },
-                    { role: "user", content: `Jogadores online: ${players}\nPedido de ${job.name} (posicao ${fmt(job.pos)}): ${job.text}` },
-                ],
-            }),
-        });
-        if (!r.ok) throw new Error(`OpenAI ${r.status} ${(await r.text()).slice(0, 80)}`);
-        const out = JSON.parse((await r.json()).choices[0].message.content);
+        const out = (await this.brain.ask(SYSTEM, `Jogadores online: ${players}\nPedido de ${job.name} (posicao ${fmt(job.pos)}): ${job.text}`, 1, "big")) || {
+            say: "cerebro sem cota agora, toma fogos de consolacao",
+            ops: [{ op: "fireworks", seconds: 5 }, { op: "banner", text: job.text.slice(0, 60) }],
+        };
         const ops = sanitize(out.ops);
         const tv = ops.find((o) => o.op === "tv");
         if (tv) {
             this.tv = tv.url;
             this.broadcast({ t: "tv", id: 0, n: "IA", u: tv.url });
         }
-        const w = { t: "w", k: "ai", id: 0, n: job.name, cmd: job.text, say: String(out.say || "").slice(0, 160), ops: ops.filter((o) => o.op !== "tv") };
-        this.log.push(w);
-        if (this.log.length > MAX_LOG) this.log.splice(0, this.log.length - MAX_LOG);
-        this.broadcast(w);
+        this.pushWorld({ t: "w", k: "ai", id: 0, n: job.name, cmd: job.text, say: String(out.say || "").slice(0, 160), ops: ops.filter((o) => o.op !== "tv") });
     }
 
     async fetch() {
@@ -234,8 +244,11 @@ export class Room extends DurableObject {
             }
             case "w":
                 this.eco.onWorld(c, m);
-                if (m.k === "reset") this.log = [];
-                else {
+                if (m.k === "reset") {
+                    this.log = [];
+                    this.aiLog = [];
+                    this.ctx.storage.put("ailog", []);
+                } else {
                     this.log.push(m);
                     if (this.log.length > MAX_LOG) this.log.splice(0, this.log.length - MAX_LOG);
                 }

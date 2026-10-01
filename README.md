@@ -114,6 +114,15 @@ Estado fica no Durable Object (`server/economy.js`): cofre da IA, carteira por n
   proporcional e ≤ 10% do cofre, nunca move carteira sem comando do dono). Sem `OPENAI_API_KEY`
   usa preços/missões por regra fixa.
 - No jogo: saldo e missão no topo, `L` (celular: `BANCO`) abre o ledger, movimentos aparecem no chat.
+- `/pedido descricao`: a IA orça em moedas (mín. 20 + 1 por 100 blocos, máx. 1000); `/aceito` paga o
+  cofre e executa (fila prioritária). `/votar ideia` sugere a próxima obra da IA.
+- **Cérebro grátis**: sem chave, usa Workers AI (binding `AI` no `wrangler.toml`; `llama-3.3-70b` pra
+  construir/moderar, `llama-3.1-8b` pro fundo). Com `OPENAI_API_KEY` usa OpenAI. Tudo passa por
+  `server/brain.js`: fila com prioridade, 8 chamadas/min, ~8000 neurons/dia; se falhar, regra fixa.
+- **IA viva 24h**: alarme do DO roda a cada 4 min (online) / 15 min (vazio). Ela ajusta preços, escreve
+  pensamentos no ledger, atualiza o **outdoor da IA** (ao lado do clube) e constrói obras pequenas
+  pagas pelo cofre (até 8000 blocos/dia, fora da praça/clube/lab/caminhos). Obras da IA ficam salvas.
+  Texto público passa por filtro: nada de dinheiro real, pix, cripto, chave, senha ou link.
 
 **Celular** (abre o link no navegador, deita o celular): metade esquerda = joystick, arrastar na
 direita = olhar, botões `PULA` / `BATE` / `POE` / `VOA`, `CHAT` e `TELAO` no canto, toque na

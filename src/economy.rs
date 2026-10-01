@@ -10,6 +10,8 @@ use serde_json::Value;
 const LEDGER: usize = 200;
 /// Outdoors (x, z) em volta da praça e do caminho do clube, todos virados pro centro (64, 64).
 const SPOTS: [(f32, f32); 4] = [(48.0, 56.0), (48.0, 72.0), (80.0, 54.0), (56.0, 80.0)];
+/// Outdoor da própria IA, do lado do clube.
+const AI_SPOT: (f32, f32) = (40.0, 46.0);
 
 struct Entry {
     who: String,
@@ -37,6 +39,7 @@ pub struct Economy {
     ledger: Vec<Entry>,
     ads: Vec<Option<Ad>>,
     mission: Option<Mission>,
+    needs: String,
     pub show: bool,
 }
 
@@ -55,7 +58,7 @@ fn fit(t: &str, w: f32, size: f32) -> String {
 
 impl Economy {
     pub fn new() -> Self {
-        Economy { coins: None, treasury: 0, ledger: Vec::new(), ads: Vec::new(), mission: None, show: false }
+        Economy { coins: None, treasury: 0, ledger: Vec::new(), ads: Vec::new(), mission: None, needs: String::new(), show: false }
     }
 
     /// Mensagem {t:"eco"} do servidor: campos presentes substituem o estado; "led" acrescenta (ou troca, se "full").
@@ -69,6 +72,9 @@ impl Economy {
             self.coins = me["c"].as_i64();
             let x = &me["mis"];
             self.mission = x.is_object().then(|| Mission { text: s(&x["text"]), got: x["got"].as_i64().unwrap_or(0), n: x["n"].as_i64().unwrap_or(1), left: x["left"].as_f64().unwrap_or(0.0) as f32 });
+        }
+        if let Some(n) = m["needs"].as_str() {
+            self.needs = n.to_string();
         }
         if let Some(a) = m["ads"].as_array() {
             self.ads = a.iter().map(|x| x.is_object().then(|| Ad { text: s(&x["text"]), by: s(&x["by"]), left: x["s"].as_f64().unwrap_or(0.0) as f32 })).collect();
@@ -116,6 +122,48 @@ impl Economy {
                 }
                 None => labels.push(Label { pos: mid, text: "ANUNCIE AQUI: /anuncio texto moedas".into(), size: 18.0, color: Color::new(0.8, 0.8, 0.85, 1.0) }),
             }
+        }
+        self.draw_ai_board(b, labels, eye, time);
+    }
+
+    /// Outdoor da IA: o texto de "necessidades" que ela mesma escreve (filtrado no servidor).
+    fn draw_ai_board(&self, b: &mut Batch, labels: &mut Vec<Label>, eye: Vec3, time: f32) {
+        if self.needs.is_empty() {
+            return;
+        }
+        let (x, z) = AI_SPOT;
+        let to = vec3(64.0 - x, 0.0, 64.0 - z);
+        let m = Mat4::from_translation(vec3(x, G as f32, z)) * Mat4::from_rotation_y(to.x.atan2(to.z));
+        let dark = Color::new(0.08, 0.06, 0.1, 1.0);
+        b.cube(&m, vec3(-3.6, 2.5, 0.0), vec3(0.3, 5.0, 0.3), dark);
+        b.cube(&m, vec3(3.6, 2.5, 0.0), vec3(0.3, 5.0, 0.3), dark);
+        b.cube(&m, vec3(0.0, 6.5, 0.0), vec3(8.4, 3.6, 0.25), Color::new(0.04, 0.02, 0.08, 1.0));
+        let k = 0.5 + 0.5 * (time * 2.0).sin();
+        let edge = Color::new(0.4 + 0.6 * k, 0.3, 1.0 - 0.5 * k, 1.0);
+        for y in [4.6, 8.4] {
+            b.glow(&m, vec3(0.0, y, 0.0), vec3(8.6, 0.18, 0.35), edge);
+        }
+        let mid = m.transform_point3(vec3(0.0, 6.5, 0.0));
+        if mid.distance(eye) > 70.0 {
+            return;
+        }
+        labels.push(Label { pos: m.transform_point3(vec3(0.0, 9.1, 0.0)), text: "OUTDOOR DA IA".into(), size: 20.0, color: Color::new(1.0, 0.4, 0.9, 1.0) });
+        let mut lines: Vec<String> = vec![String::new()];
+        for w in self.needs.split_whitespace() {
+            let cur = lines.last_mut().unwrap();
+            if !cur.is_empty() && cur.len() + w.len() > 34 {
+                lines.push(String::new());
+            }
+            let cur = lines.last_mut().unwrap();
+            if !cur.is_empty() {
+                cur.push(' ');
+            }
+            cur.push_str(w);
+        }
+        let n = lines.len().min(3);
+        for (i, l) in lines.into_iter().take(3).enumerate() {
+            let y = 6.5 + (n as f32 - 1.0) * 0.5 - i as f32;
+            labels.push(Label { pos: m.transform_point3(vec3(0.0, y, 0.0)), text: l, size: 22.0, color: Color::new(0.7, 1.0, 1.0, 1.0) });
         }
     }
 

@@ -16,6 +16,8 @@ const ALLOW_MAX = 8;
 const HOLD_MAX = 999;
 const IDEM_MAX = 1500;
 const CTOK_S = 3600;
+// Reacoes da presenca (overlay do Urna em volta de qualquer jogo + SDK): ids fixos, o cliente desenha.
+const EMOTES = ["wave", "laugh", "love", "fire", "clap", "wow", "dance", "gg"];
 
 const enc = new TextEncoder();
 const norm = (s) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
@@ -223,34 +225,46 @@ export class Universe {
         for (const sid of r.keys()) if (!ses.get(sid)?.ready) n++;
         return n;
     }
+    /// sdk = o jogo tem o SDK conectado (senao o jogador so existe pelo overlay do Urna em volta do iframe).
     pub(m) {
-        return { sid: m.sid, name: m.name, color: m.color, character: m.character, avatar: m.avatar, s: m.s };
+        return { sid: m.sid, name: m.name, color: m.color, character: m.character, avatar: m.avatar, s: m.s, sdk: [...m.socks.values()].includes("game") };
     }
-    relay(room, from, obj) {
+    /// Manda pra todos os sockets da sala menos `skip` (socket) e, se `others`, menos os do proprio membro.
+    relay(room, from, obj, skip = null, others = true) {
         const s = JSON.stringify(obj);
-        for (const m of room.values()) if (m !== from) try { m.ws.send(s); } catch (e) { }
+        for (const m of room.values()) if (!others || m !== from) for (const w of m.socks.keys()) if (w !== skip) try { w.send(s); } catch (e) { }
     }
+    // Um membro por sessao (sid) com ate 1 socket "game" (SDK no iframe) + 1 "overlay" (?via=overlay: a pagina do Urna).
     async presence(req, pid) {
         if (req.headers.get("Upgrade") !== "websocket") return fail(426, "upgrade", "use WebSocket: wss://<site>/api/portals/:id/presence?token=<session token>");
-        const t = await this.hub.check(new URL(req.url).searchParams.get("token"));
+        const q = new URL(req.url).searchParams;
+        const t = await this.hub.check(q.get("token"));
         if (!t || t.pid !== pid) return fail(401, "unauthorized", "token invalido/expirado ou de outro portal");
         if (!this.portal(pid)) return fail(410, "gone", "portal fora do ar");
+        const via = q.get("via") === "overlay" ? "overlay" : "game";
         let room = this.rooms.get(pid);
         if (!room) this.rooms.set(pid, (room = new Map()));
         if (room.size >= PRESENCE_MAX && !room.has(t.sid)) return fail(429, "full", `max ${PRESENCE_MAX} jogadores na presenca desse portal`);
-        const old = room.get(t.sid);
-        if (old) {
-            room.delete(t.sid);
-            try { old.ws.close(4000, "replaced"); } catch (e) { }
+        let me = room.get(t.sid);
+        const fresh = !me;
+        if (me) for (const [w, v] of me.socks) if (v === via) {
+            me.socks.delete(w);
+            try { w.close(4000, "replaced"); } catch (e) { }
         }
         const [client, ws] = Object.values(new WebSocketPair());
         ws.accept();
-        const me = { ws, sid: t.sid, name: t.sub, color: t.player?.color || "#ffffff", character: t.player?.character || "steve", avatar: t.player?.avatar || null, s: {}, tokens: RATE, at: Date.now(), dropped: 0 };
-        room.set(t.sid, me);
-        ws.send(JSON.stringify({ t: "welcome", you: this.pub(me), players: [...room.values()].filter((m) => m !== me).map((m) => this.pub(m)), limits: { rate_hz: RATE, state_bytes: STATE_BYTES, max_players: PRESENCE_MAX } }));
-        this.relay(room, me, { t: "join", player: this.pub(me) });
-        this.hub.changed();
+        if (!me) {
+            me = { socks: new Map(), sid: t.sid, name: t.sub, color: t.player?.color || "#ffffff", character: t.player?.character || "steve", avatar: t.player?.avatar || null, s: {}, tokens: RATE, at: Date.now(), dropped: 0, fx: 0, say: 0 };
+            room.set(t.sid, me);
+        }
+        const sdk0 = this.pub(me).sdk;
+        me.socks.set(ws, via);
+        ws.send(JSON.stringify({ t: "welcome", you: this.pub(me), players: [...room.values()].filter((m) => m !== me).map((m) => this.pub(m)), emotes: EMOTES, limits: { rate_hz: RATE, state_bytes: STATE_BYTES, max_players: PRESENCE_MAX } }));
+        if (fresh || this.pub(me).sdk !== sdk0) this.relay(room, me, { t: "join", player: this.pub(me) });
+        if (fresh) this.hub.changed();
         const bye = () => {
+            if (!me.socks.delete(ws)) return;
+            if (me.socks.size) return void (via === "game" && this.relay(room, me, { t: "join", player: this.pub(me) }));
             if (room.get(me.sid) !== me) return;
             room.delete(me.sid);
             if (!room.size) this.rooms.delete(pid);
@@ -272,6 +286,16 @@ export class Universe {
                 if (!s) return void me.dropped++;
                 me.s = s;
                 this.relay(room, me, { t: "u", sid: me.sid, s });
+            } else if (m?.t === "fx") {
+                if (!EMOTES.includes(m.e) || now - me.fx < 700) return void me.dropped++;
+                me.fx = now;
+                this.relay(room, me, { t: "fx", sid: me.sid, e: m.e }, ws, false);
+            } else if (m?.t === "say") {
+                const text = clean(m.m, 80);
+                if (!text || now - me.say < 1500) return void me.dropped++;
+                if (!safe(text)) return void ws.send(JSON.stringify({ t: "err", error: "filtered", message: "mensagem recusada pelo filtro (sem link/dinheiro real/chave)" }));
+                me.say = now;
+                this.relay(room, me, { t: "say", sid: me.sid, m: text }, ws, false);
             } else if (m?.t === "ping") ws.send(JSON.stringify({ t: "pong", dropped: me.dropped }));
         });
         return new Response(null, { status: 101, webSocket: client });

@@ -37,6 +37,21 @@ const DESTS: [Dest; 8] = [
     d("tv", "TV URNA NEWS", (62.5, 262.5), FRAC_PI_2, (1.0, 0.25, 0.35)),
 ];
 
+/// Carimbos da vila (server/terminal.js VILLAGE): os 8 destinos + banco + o próprio terminal.
+const STAMPS: [(&str, Color); 10] = [
+    (DESTS[0].id, DESTS[0].col),
+    (DESTS[1].id, DESTS[1].col),
+    (DESTS[2].id, DESTS[2].col),
+    (DESTS[3].id, DESTS[3].col),
+    (DESTS[4].id, DESTS[4].col),
+    (DESTS[5].id, DESTS[5].col),
+    (DESTS[6].id, DESTS[6].col),
+    (DESTS[7].id, DESTS[7].col),
+    ("banco", Color::new(0.3, 1.0, 0.6, 1.0)),
+    ("terminal", Color::new(0.3, 1.0, 1.0, 1.0)),
+];
+const NS: usize = STAMPS.len();
+
 const HUB_GATE: usize = 4;
 /// Plano dos portões (encostados na parede sul, véu virado pro saguão).
 const GZ: f32 = 291.0;
@@ -44,6 +59,10 @@ const BOARD: Geo = Geo { c: vec3(200.5, G as f32 + 10.5, 265.8), n: vec3(0.0, 0.
 const CENTER: Vec3 = vec3(202.5, G as f32, 280.5);
 const CHEGADAS: Vec3 = vec3(193.5, G as f32, 269.5);
 const TOWER: Vec3 = vec3(218.0, G as f32 + 25.0, 269.0);
+/// Cabine do passaporte: quiosque na parede oeste entre o check-in e o portão 01; pisar no pad liga o holograma.
+const KIOSK: Vec3 = vec3(185.7, G as f32, 283.5);
+const PAD: Vec3 = vec3(189.0, G as f32, 283.5);
+const POP_T: f32 = 0.45;
 
 fn gate(i: usize) -> Vec3 {
     vec3(202.5 + (i as f32 - 3.5) * 4.2, G as f32, GZ)
@@ -92,8 +111,16 @@ pub struct Terminal {
     arrivals: Vec<Arrival>,
     /// Redemoinho de partida: (onde, idade).
     warps: Vec<(Vec3, f32)>,
-    /// Carimbos do passaporte: destinos visitados nesta sessão.
-    stamps: [bool; 8],
+    /// Carimbos da vila (ordem de STAMPS): do servidor quando online, senão só desta sessão.
+    stamps: [bool; NS],
+    /// Carimbos de portais do Hub ("hub:<id>") e se já veio a lista do servidor.
+    hubs: usize,
+    srv: bool,
+    /// Carimbo novo ainda não visto na cabine; idade do "tum" (negativa = espera a vez, None = parado).
+    unseen: [bool; NS],
+    pop: [Option<f32>; NS],
+    /// Holograma da cabine (0..1, sobe quando o jogador está no pad).
+    booth: f32,
     /// Tour dos Poderes (copiado de places::tour todo frame): (carimbos, minutos restantes).
     pub tour: Option<(usize, i32)>,
     /// Mural dos guias (quem completou o tour), mais novo primeiro.
@@ -102,7 +129,7 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8], tour: None, mural: Vec::new() }
+        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; NS], hubs: 0, srv: false, unseen: [false; NS], pop: [None; NS], booth: 0.0, tour: None, mural: Vec::new() }
     }
 
     fn warp(&mut self, at: Vec3) {
@@ -123,8 +150,103 @@ impl Terminal {
 
     fn travel(&mut self, p: &mut Player, i: usize) {
         arrive(p, i);
-        self.stamps[i] = true;
+        if !self.srv {
+            self.set_stamp(i);
+        }
         self.cool = 2.0;
+    }
+
+    fn set_stamp(&mut self, i: usize) {
+        if !self.stamps[i] {
+            self.stamps[i] = true;
+            self.unseen[i] = true;
+        }
+    }
+
+    fn on_pad(p: &Player) -> bool {
+        let r = p.pos - PAD;
+        r.x.abs() < 0.9 && r.z.abs() < 0.9 && r.y > -0.5 && r.y < 1.5
+    }
+
+    fn update_booth(&mut self, p: &Player, dt: f32) {
+        let on = Self::on_pad(p);
+        self.booth = (self.booth + if on { dt * 3.0 } else { -dt * 1.5 }).clamp(0.0, 1.0);
+        if on && self.booth >= 1.0 {
+            let mut k = 0.0;
+            for i in 0..NS {
+                if std::mem::take(&mut self.unseen[i]) {
+                    self.pop[i] = Some(-k);
+                    k += 0.25;
+                }
+            }
+        }
+        for t in self.pop.iter_mut() {
+            if let Some(a) = t {
+                *a += dt;
+                if *a > POP_T {
+                    *t = None;
+                }
+            }
+        }
+    }
+
+    /// Quiosque + pad sempre; grade de carimbos (brilho = tem, cinza = falta) e N/M só com o holograma ligado.
+    fn draw_booth(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        if eye.distance(KIOSK) > 60.0 {
+            return;
+        }
+        let id = Mat4::IDENTITY;
+        let white = rgb(0.9, 0.92, 0.95);
+        let dark = rgb(0.1, 0.11, 0.13);
+        let k = 0.7 + 0.3 * (time * 2.0).sin();
+        b.cube(&id, KIOSK + vec3(0.0, 0.6, 0.0), vec3(0.9, 1.2, 1.4), white);
+        b.cube(&id, KIOSK + vec3(0.1, 1.45, 0.0), vec3(0.6, 0.5, 1.2), dark);
+        b.glow(&id, KIOSK + vec3(0.42, 1.45, 0.0), vec3(0.04, 0.38, 1.0), Color::new(0.2 * k, 0.8 * k, 1.0 * k, 1.0));
+        b.glow(&id, KIOSK + vec3(0.0, 1.75, 0.0), vec3(1.0, 0.08, 1.5), CYAN);
+        b.glow(&id, KIOSK + vec3(0.0, 1.95, 0.0), vec3(0.5, 0.25, 0.5), GOLD);
+        let pad = Color::new(0.3, 1.0, 1.0, 0.35 + 0.25 * k + 0.3 * self.booth);
+        trans.glow(&id, PAD + vec3(0.0, 0.04, 0.0), vec3(1.6, 0.05, 1.6), pad);
+        for (dx, dz) in [(-0.8, 0.0), (0.8, 0.0), (0.0, -0.8), (0.0, 0.8)] {
+            let s = if dx != 0.0 { vec3(0.06, 0.07, 1.66) } else { vec3(1.66, 0.07, 0.06) };
+            b.glow(&id, PAD + vec3(dx, 0.04, dz), s, GOLD);
+        }
+        if eye.distance(KIOSK) < 25.0 && self.booth <= 0.0 {
+            labels.push(Label { pos: KIOSK + vec3(0.0, 2.6, 0.0), text: "CABINE DO PASSAPORTE".into(), size: 18.0, color: GOLD });
+            labels.push(Label { pos: KIOSK + vec3(0.0, 2.25, 0.0), text: "pisa no pad pra ver teus carimbos".into(), size: 13.0, color: SOFT });
+        }
+        let f = self.booth;
+        if f <= 0.0 {
+            return;
+        }
+        let base = KIOSK + vec3(0.3, 3.4, 0.0);
+        trans.glow(&id, KIOSK + vec3(0.15, 2.6, 0.0), vec3(0.3 * f, 1.4, 2.0 * f), Color::new(0.3, 1.0, 1.0, 0.1 * f));
+        trans.glow(&id, base, vec3(0.05, 1.5 * f, 3.6 * f), Color::new(0.2, 0.8, 1.0, 0.12 * f));
+        for (i, s) in STAMPS.iter().enumerate() {
+            let (col, row) = ((i % 5) as f32, (i / 5) as f32);
+            let c = base + vec3(0.0, (0.5 - row) * 0.66 * f, (col - 2.0) * 0.68 * f);
+            let pop = self.pop[i].map_or(1.0, |a| if a < 0.0 { 0.0 } else { 1.0 + 1.3 * (1.0 - a / POP_T).powi(2) });
+            let sz = 0.42 * f * pop;
+            if sz <= 0.0 {
+                continue;
+            }
+            let m = Mat4::from_translation(c) * Mat4::from_rotation_y(time * 0.8 + i as f32 * 0.6);
+            if self.stamps[i] {
+                b.glow(&m, Vec3::ZERO, Vec3::splat(sz), s.1);
+                trans.glow(&m, Vec3::ZERO, Vec3::splat(sz * 1.35), Color::new(s.1.r, s.1.g, s.1.b, 0.25 * f));
+                if let Some(a) = self.pop[i].filter(|&a| a >= 0.0) {
+                    let r = 0.5 + a / POP_T * 1.6;
+                    trans.glow(&id, c, vec3(0.04, r, r), Color::new(1.0, 1.0, 1.0, 0.6 * (1.0 - a / POP_T)));
+                }
+            } else {
+                trans.glow(&m, Vec3::ZERO, Vec3::splat(sz * 0.8), Color::new(0.5, 0.52, 0.55, 0.35 * f));
+            }
+        }
+        let n = self.stamps.iter().filter(|&&s| s).count();
+        let hubs = if self.hubs > 0 { format!(" +{} PORTAIS", self.hubs) } else { String::new() };
+        let col = if n == NS { GOLD } else { CYAN };
+        labels.push(Label { pos: base + vec3(0.0, 0.95, 0.0), text: format!("TEU PASSAPORTE: {n}/{NS}{hubs}"), size: 20.0, color: alpha(col, f) });
+        let hint = if n == NS { "VILA COMPLETA. carimbado, autenticado e com firma reconhecida" } else { "/passaporte diz o que falta" };
+        labels.push(Label { pos: base + vec3(0.0, -0.75, 0.0), text: hint.into(), size: 13.0, color: alpha(SOFT, f) });
     }
 
     fn draw_fx(&self, trans: &mut Batch, labels: &mut Vec<Label>, eye: Vec3) {
@@ -221,13 +343,14 @@ impl Terminal {
             draw_text("plugue o teu: /hub.txt", x1 + 30.0, 320.0, 34.0, DIM);
         }
         let n = self.stamps.iter().filter(|&&s| s).count();
-        draw_text(&format!("TEU PASSAPORTE: {n}/8 CARIMBOS"), x1 + 30.0, 862.0, 36.0, if n == 8 { GOLD } else { CYAN });
-        for (i, d) in DESTS.iter().enumerate() {
-            let x = x1 + w1 - 40.0 - (8 - i) as f32 * 40.0;
+        let hubs = if self.hubs > 0 { format!(" +{} PORTAIS", self.hubs) } else { String::new() };
+        draw_text(&format!("TEU PASSAPORTE: {n}/{NS}{hubs}"), x1 + 30.0, 862.0, 34.0, if n == NS { GOLD } else { CYAN });
+        for (i, s) in STAMPS.iter().enumerate() {
+            let x = x1 + w1 - 40.0 - (NS - i) as f32 * 32.0;
             if self.stamps[i] {
-                draw_rectangle(x, 834.0, 32.0, 32.0, d.col);
+                draw_rectangle(x, 838.0, 26.0, 26.0, s.1);
             } else {
-                draw_rectangle_lines(x, 834.0, 32.0, 32.0, 3.0, DIM);
+                draw_rectangle_lines(x, 838.0, 26.0, 26.0, 3.0, DIM);
             }
         }
         draw_text(&format!("embarque no portao GAME HUB ({:02})", HUB_GATE + 1), x1 + 30.0, 898.0, 30.0, GOLD);
@@ -258,6 +381,19 @@ impl Place for Terminal {
             }
             return;
         }
+        if let Some(list) = m["stamps"].as_array() {
+            let first = !self.srv;
+            self.srv = true;
+            for (i, s) in STAMPS.iter().enumerate() {
+                let has = list.iter().any(|v| v == s.0);
+                if has && !self.stamps[i] && !first {
+                    self.unseen[i] = true;
+                }
+                self.stamps[i] = has;
+            }
+            self.hubs = list.iter().filter(|v| v.as_str().is_some_and(|s| s.starts_with("hub:"))).count();
+            return;
+        }
         for (i, d) in DESTS.iter().enumerate() {
             self.trips[i] = m["trips"][d.id].as_i64().unwrap_or(0);
         }
@@ -285,10 +421,14 @@ impl Place for Terminal {
             w.1 += dt;
         }
         self.warps.retain(|w| w.1 < WARP_T);
+        self.update_booth(p, dt);
         if let Some(i) = self.go.take() {
             self.warp(p.pos);
             self.travel(p, i);
             return;
+        }
+        if !self.srv && p.pos.distance(CENTER) < 8.0 {
+            self.set_stamp(NS - 1);
         }
         if self.cool > 0.0 || p.pos.distance(CENTER) > 30.0 {
             return;
@@ -311,7 +451,7 @@ impl Place for Terminal {
         if eye.distance(BOARD.c) > 110.0 {
             return;
         }
-        let mut key = format!("{}|{}|{:?}|{:?}|{:?}", self.got, self.total, self.trips, self.stamps, self.tour);
+        let mut key = format!("{}|{}|{:?}|{:?}|{}|{:?}", self.got, self.total, self.trips, self.stamps, self.hubs, self.tour);
         key += &self.mural.join(",");
         for p in &self.portals {
             key += &format!("|{}:{}:{}", p.name, p.by, p.n);
@@ -389,6 +529,7 @@ impl Place for Terminal {
         if eye.distance(BOARD.c) < 90.0 {
             labels.push(Label { pos: BOARD.c + vec3(0.0, 7.6, -0.5), text: "TERMINAL INTERDIMENSIONAL".into(), size: 28.0, color: CYAN });
         }
+        self.draw_booth(b, trans, labels, time, eye);
         let check = vec3(189.5, G as f32 + 1.8, 277.5);
         if eye.distance(check) < 25.0 {
             labels.push(Label { pos: check, text: "CHECK-IN: nao precisa, ninguem confere nada".into(), size: 14.0, color: SOFT });
@@ -499,5 +640,36 @@ mod tests {
             }
         }
         assert!(!w.solid(200, G, 266) && !w.solid(200, G + 1, 266), "porta fechada");
+    }
+
+    #[test]
+    fn terminal_booth_pad_free() {
+        let w = World::generate();
+        let (x, z) = (PAD.x.floor() as i32, PAD.z.floor() as i32);
+        assert!(!w.solid(x, G, z) && !w.solid(x, G + 1, z) && w.solid(x, G - 1, z), "pad bloqueado");
+        for i in 0..DESTS.len() {
+            let g = gate(i);
+            assert!(vec2(g.x - PAD.x, g.z - PAD.z).length() > 4.0 && vec2(g.x - KIOSK.x, g.z - KIOSK.z).length() > 4.0, "cabine em cima do portao {i}");
+        }
+    }
+
+    #[test]
+    fn terminal_booth_pops_new_stamps() {
+        let mut t = Terminal::new();
+        t.on_msg(&json!({"t": "pl", "k": "term", "stamps": ["praca", "hub:demo"]}));
+        assert!(t.stamps[0] && t.hubs == 1 && !t.unseen.iter().any(|&u| u), "carga inicial nao e carimbo novo");
+        t.on_msg(&json!({"t": "pl", "k": "term", "stamps": ["praca", "hub:demo", "terminal"]}));
+        assert!(t.unseen[NS - 1] && !t.unseen[0]);
+        let mut p = Player::new();
+        p.pos = PAD + vec3(0.0, 0.1, 0.0);
+        for _ in 0..30 {
+            t.update_booth(&p, 0.02);
+        }
+        assert!(t.booth >= 1.0 && !t.unseen[NS - 1]);
+        assert!(t.pop[NS - 1].is_some());
+        for _ in 0..40 {
+            t.update_booth(&p, 0.02);
+        }
+        assert!(t.pop.iter().all(|a| a.is_none()));
     }
 }

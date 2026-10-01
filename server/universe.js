@@ -1,6 +1,7 @@
 // Universo: identidade do jogador que atravessa jogos (docs em /universe.txt e docs/UNIVERSE.md).
 // - Guarda-roupa: skin = mod kind "avatar", escolhida por nome de jogador, carimbada no "p" pelo servidor.
-// - Passaporte: GET /api/passport?token= devolve jogador + pacote do avatar + carteira + itens.
+// - Passaporte: GET /api/passport?token= devolve jogador + pacote do avatar + carteira + itens + carimbos
+//   ("stamps": ids da vila tipo "arena" e "hub:<portal>", server/terminal.js).
 // - Presenca: WebSocket por portal (/api/portals/:id/presence?token=); o servidor so repassa, com limites.
 // - Itens/moedas entre jogos: grant (pedido do jogo, orcamento/dia, allowlist, idempotencia) e spend (so com
 //   o token de confirmacao que vai pra NOSSA pagina, nunca pro iframe).
@@ -120,6 +121,7 @@ export class Universe {
     async onSession(c, t) {
         const ctok = await this.sign({ k: "cfm", sub: t.sub, pid: t.pid, sid: t.sid, exp: Math.floor(Date.now() / 1000) + CTOK_S });
         this.room.send(c, { t: "uv_ctok", p: t.pid, sid: t.sid, ctok });
+        this.room.places?.terminal?.portal(c, t.pid);
     }
 
     onMsg(id, c, m) {
@@ -354,6 +356,7 @@ export class Universe {
             avatar,
             wallet: { coins: w.c, currency: "moeda ficticia (sem valor real)" },
             inventory: this.bagView(t.sub),
+            stamps: this.room.places?.terminal?.stampsOf(t.sub) || [],
             limits: this.limitsFor(t.pid, t.sub),
             exp: t.exp,
         });

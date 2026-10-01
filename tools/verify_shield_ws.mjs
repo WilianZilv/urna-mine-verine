@@ -20,3 +20,4 @@ console.log("w echoed:", echoed);
 console.log("types:", got.map((m) => m.t).join(" "));
 console.log("chat:", got.filter((m) => m.t === "chat").map((m) => `${m.n}: ${m.m}`));
 ws.close();
+process.exit(0);

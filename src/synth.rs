@@ -155,6 +155,18 @@ pub fn boom(sr: u32) -> Vec<f32> {
     })
 }
 
+pub fn gun(sr: u32) -> Vec<f32> {
+    let mut lp = 0.0;
+    render(sr, 0.35, move |t, r| {
+        let n = r.f();
+        lp += (n - lp) * 0.25;
+        let crack = (n - lp * 0.5) * (-t / 0.012).exp();
+        let body = lp * 2.5 * (-t / 0.09).exp();
+        let thump = (TAU * (90.0 + 120.0 * (-t / 0.01).exp()) * t).sin() * (-t / 0.04).exp();
+        ((crack + body + thump) * 1.4).tanh() * 0.8
+    })
+}
+
 pub fn laser(sr: u32) -> Vec<f32> {
     let mut ph = 0.0;
     render(sr, 0.45, move |t, _| {

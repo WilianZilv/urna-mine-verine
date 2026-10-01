@@ -38,7 +38,7 @@ const FALAS: [&str; 10] = [
 /// Eu: guardião gigante de seis braços flutuando sobre o clube, cada mão sustentando o escudo
 /// com um feixe. Cabeça de monitor CRT com três olhos, cabelo elétrico, auréola de código
 /// e cauda de dados no lugar das pernas. `strain` (impacto no escudo) deixa os olhos vermelhos.
-pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, foe: Vec3, strain: f32) {
+pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, foe: Vec3, strain: f32, say: Option<&str>) {
     let sc = shield_center();
     let s = 3.2;
     let base = sc + vec3(0.0, SHIELD_R + 8.0 + (time * 1.1).sin() * 0.8, 0.0);
@@ -118,7 +118,7 @@ pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Lab
         trans.glow(&Mat4::from_translation(p), Vec3::ZERO, Vec3::splat(1.5 + k2), Color::new(energy.r, energy.g, energy.b, 0.5));
     }
 
-    let fala = FALAS[(time / 5.0) as usize % FALAS.len()];
+    let fala = say.unwrap_or(FALAS[(time / 5.0) as usize % FALAS.len()]);
     labels.push(Label { pos: base + vec3(0.0, 11.0, 0.0), text: format!("\"{fala}\""), size: 26.0, color: rgb(0.6, 1.0, 0.7) });
     labels.push(Label { pos: base + vec3(0.0, 9.5, 0.0), text: "EU, A IA, SEGURANDO O ESCUDO DO CLUB".into(), size: 24.0, color: rgb(1.0, 0.55, 0.2) });
 }

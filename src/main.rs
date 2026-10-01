@@ -9,11 +9,14 @@ mod batch;
 mod club;
 mod eleicao;
 mod extras;
+mod gta;
 mod models;
 mod mp;
 #[cfg_attr(target_arch = "wasm32", path = "net_web.rs")]
 mod net;
 mod player;
+mod ragdoll;
+mod skate;
 mod synth;
 #[cfg_attr(target_arch = "wasm32", path = "telao_web.rs")]
 mod telao;
@@ -59,6 +62,7 @@ struct Sfx {
     slash: Clip,
     snikt: Clip,
     deflect: Clip,
+    gun: Clip,
 }
 
 struct FloatText {
@@ -76,6 +80,8 @@ struct Remote {
     yaw: f32,
     walk: f32,
     look: Look,
+    /// Personagem: 0 Steve, 1 skatista, 2 bandido, 3 bandido dirigindo.
+    ch: u8,
 }
 
 /// Dentro do clube só se ouve o que está dentro do escudo.
@@ -184,17 +190,40 @@ fn tapped() -> bool {
 }
 
 /// Botões do celular: (centro, raio, rótulo).
-fn touch_buttons(sw: f32, sh: f32) -> [(Vec2, f32, &'static str); 6] {
+/// Botões do celular; rótulos mudam com o personagem (0 Steve, 1 skatista, 2 bandido, 3 dirigindo).
+fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 7] {
     let r = (sw.min(sh) * 0.085).max(26.0);
     let (x, y) = (sw - r * 1.4, sh - r * 1.4);
+    let l = match ch {
+        1 => ["OLLIE", "GRAB", "MANUAL", "-"],
+        4 => ["PULA", "SE JOGA", "-", "-"],
+        2 => ["PULA", "ATIRA", "ARMA", "CARRO"],
+        3 => ["FREIO", "-", "-", "SAIR"],
+        _ => ["PULA", "BATE", "POE", "VOA"],
+    };
     [
-        (vec2(x, y), r * 1.15, "PULA"),
-        (vec2(x - r * 2.5, y + r * 0.2), r, "BATE"),
-        (vec2(x - r * 0.4, y - r * 2.4), r, "POE"),
-        (vec2(x - r * 2.7, y - r * 2.0), r * 0.75, "VOA"),
+        (vec2(x, y), r * 1.15, l[0]),
+        (vec2(x - r * 2.5, y + r * 0.2), r, l[1]),
+        (vec2(x - r * 0.4, y - r * 2.4), r, l[2]),
+        (vec2(x - r * 2.7, y - r * 2.0), r * 0.75, l[3]),
         (vec2(r * 0.9 + 8.0, sh * 0.3), r * 0.7, "CHAT"),
         (vec2(r * 2.6 + 8.0, sh * 0.3), r * 0.7, "TELAO"),
+        (vec2(r * 4.3 + 8.0, sh * 0.3), r * 0.7, "PERS"),
     ]
+}
+
+const CHARS: [(&str, &str); 4] = [
+    ("STEVE", "MINECRAFT: quebra e poe bloco"),
+    ("SKATISTA", "SKATE 3: flick-it, grind, manual"),
+    ("BANDIDO", "GTA 3: arsenal completo + carro"),
+    ("NIKO", "GTA 4: ragdoll fisico ativo"),
+];
+
+fn char_cards(sw: f32, sh: f32) -> [Rect; 4] {
+    let w = (sw * 0.22).min(230.0);
+    let h = (sh * 0.36).min(200.0);
+    let x0 = sw * 0.5 - w * 2.0 - 18.0;
+    [0, 1, 2, 3].map(|i| Rect::new(x0 + i as f32 * (w + 12.0), sh * 0.5 - h * 0.5, w, h))
 }
 
 /// Lê texto digitado (nome / chat). Retorna true no Enter.
@@ -255,6 +284,45 @@ fn apply_world(world: &mut World, m: &Value, fx: &mut Fx, avg: &[Color]) -> Opti
             *world = World::generate();
             None
         }
+        "ai" => {
+            let p3 = |v: &Value| ivec3(v[0].as_i64().unwrap_or(0) as i32, v[1].as_i64().unwrap_or(0) as i32, v[2].as_i64().unwrap_or(0) as i32);
+            for op in m["ops"].as_array()? {
+                let k = op["k"].as_u64().unwrap_or(0) as u8;
+                let hollow = op["h"].as_bool().unwrap_or(false);
+                match op["op"].as_str().unwrap_or("") {
+                    "box" => {
+                        let (a, b) = (p3(&op["a"]), p3(&op["b"]));
+                        let (lo, hi) = (a.min(b), a.max(b));
+                        for y in lo.y..=hi.y {
+                            for z in lo.z..=hi.z {
+                                for x in lo.x..=hi.x {
+                                    let edge = x == lo.x || x == hi.x || z == lo.z || z == hi.z || y == lo.y || y == hi.y;
+                                    if !hollow || edge {
+                                        world.set(x, y, z, k);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "ball" => {
+                        let (c, r) = (p3(&op["c"]), op["r"].as_i64().unwrap_or(1) as i32);
+                        for y in -r..=r {
+                            for z in -r..=r {
+                                for x in -r..=r {
+                                    let d = ((x * x + y * y + z * z) as f32).sqrt();
+                                    if d <= r as f32 + 0.3 && (!hollow || d > r as f32 - 1.0) {
+                                        world.set(c.x + x, c.y + y, c.z + z, k);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "boom" => urna::explode(world, p3(&op["c"]).as_vec3() + Vec3::splat(0.5), op["r"].as_f64().unwrap_or(3.0) as f32, fx, avg),
+                    _ => {}
+                }
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -286,12 +354,14 @@ async fn main() {
         slash: Arc::new(synth::slash(sr)),
         snikt: Arc::new(synth::snikt(sr)),
         deflect: Arc::new(synth::deflect(sr)),
+        gun: Arc::new(synth::gun(sr)),
     };
     let house = audio.play(&Arc::new(synth::house_loop(sr)), 0.6, true);
     let mut telao = Telao::new(&audio);
     let mut tv_src = initial_source();
     telao.load(&tv_src);
     let guests = actors::spawn_guests();
+    let bandido_look = gta::look();
     let relogio = eleicao::Relogio::new();
     let lab = extras::Lab::new();
     let mut club_k = 0.0f32;
@@ -303,6 +373,21 @@ async fn main() {
     let mut stick: Option<(u64, Vec2)> = None;
     let mut look_touch: Option<(u64, Vec2)> = None;
     let mut held: HashMap<u64, usize> = HashMap::new();
+    let mut look_origin = Vec2::ZERO;
+    let mut skate_touch: Option<Vec2> = None;
+    // Personagens
+    let mut chars_open = false;
+    let mut skater: Option<skate::Skater> = None;
+    let mut bandido: Option<gta::Bandido> = None;
+    let mut car = gta::Car::new(&world);
+    let mut niko: Option<ragdoll::Ragdoll> = None;
+    let niko_look = Look { skin: rgb(0.86, 0.7, 0.58), hair: rgb(0.12, 0.09, 0.07), shirt: rgb(0.36, 0.33, 0.29), pants: rgb(0.14, 0.14, 0.17), shoes: rgb(0.08, 0.06, 0.05), beard: None, glasses: false, wolverine: false, toga: false };
+    let mut gta_walk = 0.0f32;
+    // Efeitos pedidos pro agente IA
+    let mut ai_say: Option<(String, f32)> = None;
+    let mut ai_fireworks = 0.0f32;
+    let mut ai_rage = 0.0f32;
+    let mut ai_sky: Option<(Color, f32)> = None;
 
     // Rede
     let mut net = net::Net::connect(url.as_deref().unwrap_or(""));
@@ -394,7 +479,7 @@ async fn main() {
                     for p in m["players"].as_array().into_iter().flatten() {
                         let pid = p[0].as_u64().unwrap_or(0);
                         if pid != my_id {
-                            remotes.insert(pid, Remote { name: p[1].as_str().unwrap_or("?").into(), pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(pid) });
+                            remotes.insert(pid, Remote { name: p[1].as_str().unwrap_or("?").into(), pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(pid), ch: 0 });
                         }
                     }
                     world = World::generate();
@@ -420,7 +505,7 @@ async fn main() {
                 "join" => {
                     let n = m["n"].as_str().unwrap_or("?").to_string();
                     chat.push((format!("* {n} entrou na vila"), get_time()));
-                    remotes.insert(id, Remote { name: n, pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(id) });
+                    remotes.insert(id, Remote { name: n, pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(id), ch: 0 });
                 }
                 "leave" => {
                     if let Some(r) = remotes.remove(&id) {
@@ -435,22 +520,25 @@ async fn main() {
                         }
                         r.target = p;
                         r.yaw = mp::f(&m["y"]);
+                        r.ch = m["c"].as_u64().unwrap_or(0) as u8;
                     }
                 }
                 "chat" => {
-                    let who = who(id, online, my_id, &my_name, &remotes);
+                    let who = m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes));
                     chat.push((format!("{who}: {}", m["m"].as_str().unwrap_or("")), get_time()));
                 }
                 "tv" => {
                     tv_src = m["u"].as_str().unwrap_or(telao::DEFAULT_URL).to_string();
                     telao.load(&tv_src);
-                    banner = Some((format!("{} TROCOU O TELAO", who(id, online, my_id, &my_name, &remotes)), 2.5));
+                    banner = Some((format!("{} TROCOU O TELAO", m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes))), 2.5));
                 }
                 "w" => match apply_world(&mut world, &m, &mut fx, &atlas.avg) {
                     Some((plan, shot)) => {
                         let eye = player.eye();
-                        urna.recoil();
-                        play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
+                        if m["by"].is_null() {
+                            urna.recoil();
+                            play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
+                        }
                         match shot {
                             Shot::Deflected(p) => {
                                 play_at(&audio, &sfx.deflect, p, eye, 1.2, muted, in_club);
@@ -478,6 +566,36 @@ async fn main() {
                         }
                     }
                     None => {
+                        if m["k"] == "ai" {
+                            let say = m["say"].as_str().unwrap_or("");
+                            chat.push((format!("IA (pra {}): {say}", m["n"].as_str().unwrap_or("?")), get_time()));
+                            ai_say = Some((say.to_string(), 10.0));
+                            for op in m["ops"].as_array().into_iter().flatten() {
+                                let s = op["s"].as_f64().unwrap_or(5.0) as f32;
+                                match op["op"].as_str().unwrap_or("") {
+                                    "banner" => banner = Some((op["text"].as_str().unwrap_or("").to_string(), 4.0)),
+                                    "fireworks" => ai_fireworks = s,
+                                    "rage" => ai_rage = s,
+                                    "sky" => ai_sky = Some((Color::new(op["c"][0].as_f64().unwrap_or(1.0) as f32, op["c"][1].as_f64().unwrap_or(0.0) as f32, op["c"][2].as_f64().unwrap_or(0.0) as f32, 1.0), s)),
+                                    "wolverine" if is_host && !fighters[3].spawned => {
+                                        fighters[3].spawn_wolverine();
+                                        wolverine_called = true;
+                                    }
+                                    "tp" if op["n"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(&my_name)) => {
+                                        let to = mp::get_v3(&op["to"]) + vec3(0.5, 0.0, 0.5);
+                                        player.pos = to;
+                                        player.vel = Vec3::ZERO;
+                                        if let Some(s) = skater.as_mut() {
+                                            *s = skate::Skater::new(to, s.heading);
+                                        }
+                                        if let Some(b) = bandido.as_mut() {
+                                            b.driving = false;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                         if m["k"] == "reset" {
                             chunks = build_all(&mut world, &atlas.tex);
                             let w_on = fighters[3].spawned;
@@ -496,7 +614,7 @@ async fn main() {
                         "pf" if i < fighters.len() => {
                             let f = &mut fighters[i];
                             if f.active() {
-                                f.hp -= 6.0;
+                                f.hp -= m["dmg"].as_f64().unwrap_or(6.0) as f32;
                                 f.vel += fwh * 7.0 + up * 3.0;
                                 f.flash = 1.0;
                                 if f.hp <= 0.0 {
@@ -506,7 +624,7 @@ async fn main() {
                                 } else {
                                     f.state = FState::Stun(0.3);
                                 }
-                                events.push(Ev::Text { pos: f.pos + up * 2.2, text: format!("SOCO DE {}!", who(id, online, my_id, &my_name, &remotes)), color: YELLOW, big: false });
+                                events.push(Ev::Text { pos: f.pos + up * 2.2, text: format!("{} DE {}!", m["w"].as_str().unwrap_or("SOCO"), who(id, online, my_id, &my_name, &remotes)), color: YELLOW, big: false });
                                 events.push(Ev::Hit { pos: f.pos + up, claws: false });
                             }
                         }
@@ -535,8 +653,16 @@ async fn main() {
 
         // ------------------------------------------------ Toque (celular)
         let (sw, sh) = (screen_width(), screen_height());
-        let buttons = touch_buttons(sw, sh);
+        let ch: u8 = match (&skater, &bandido) {
+            (Some(_), _) => 1,
+            (_, Some(b)) => 2 + b.driving as u8,
+            _ if niko.is_some() => 4,
+            _ => 0,
+        };
+        let buttons = touch_buttons(sw, sh, ch);
         let (mut tap_hit, mut tap_place) = (false, false);
+        let (mut pick_char, mut car_toggle, mut sk_ollie, mut cycle_weapon): (Option<usize>, bool, bool, i32) = (None, false, false, 0);
+        let mut niko_dive = false;
         let ts = touches();
         if !ts.is_empty() && !mobile {
             mobile = true;
@@ -546,25 +672,36 @@ async fn main() {
         for t in &ts {
             let p = t.position;
             match t.phase {
+                TouchPhase::Started if chars_open => {
+                    pick_char = char_cards(sw, sh).iter().position(|r| r.contains(p));
+                    if pick_char.is_none() {
+                        chars_open = false;
+                    }
+                }
                 TouchPhase::Started => {
-                    let hot = (p.y > sh - slot - 14.0 && (p.x - (sw * 0.5 - slot * 4.5)).abs() < slot * 9.0 && p.x > sw * 0.5 - slot * 4.5).then(|| ((p.x - (sw * 0.5 - slot * 4.5)) / slot) as usize);
+                    let hot = (ch == 0 && p.y > sh - slot - 14.0 && (p.x - (sw * 0.5 - slot * 4.5)).abs() < slot * 9.0 && p.x > sw * 0.5 - slot * 4.5).then(|| ((p.x - (sw * 0.5 - slot * 4.5)) / slot) as usize);
                     if let Some(k) = hot.filter(|k| *k < 9) {
                         player.sel = k;
                     } else if let Some(b) = buttons.iter().position(|(c, r, _)| p.distance(*c) < *r) {
                         held.insert(t.id, b);
-                        match b {
-                            1 => tap_hit = true,
-                            2 => tap_place = true,
-                            3 => {
+                        match (b, ch) {
+                            (0, 1) => sk_ollie = true,
+                            (1, 0) => tap_hit = true,
+                            (2, 0) => tap_place = true,
+                            (2, 2) => cycle_weapon = 1,
+                            (3, 2) | (3, 3) => car_toggle = true,
+                            (3, 0) => {
                                 player.fly = !player.fly;
                                 player.vel.y = 0.0;
                             }
-                            4 => {
+                            (6, _) => chars_open = true,
+                            (1, 4) => niko_dive = true,
+                            (4, _) => {
                                 if let Some(m) = ask_text("Mensagem pro chat:") {
                                     send(json!({"t": "chat", "m": m}), &mut loopback);
                                 }
                             }
-                            5 => {
+                            (5, _) => {
                                 if let Some(u) = ask_text("Cola o link do YouTube pro telao:") {
                                     send(json!({"t": "tv", "u": u}), &mut loopback);
                                 }
@@ -575,11 +712,16 @@ async fn main() {
                         stick = Some((t.id, p));
                     } else if look_touch.is_none() {
                         look_touch = Some((t.id, p));
+                        look_origin = p;
                     }
                 }
                 TouchPhase::Moved | TouchPhase::Stationary => {
                     if let Some((id, last)) = look_touch.filter(|l| l.0 == t.id) {
-                        player.look((p - last) * 2.2);
+                        if ch == 1 {
+                            skate_touch = Some(((p - look_origin) / (sh * 0.12)).clamp_length_max(1.0) * vec2(1.0, -1.0));
+                        } else {
+                            player.look((p - last) * 2.2);
+                        }
                         look_touch = Some((id, p));
                     }
                 }
@@ -590,6 +732,7 @@ async fn main() {
                     }
                     if look_touch.is_some_and(|l| l.0 == t.id) {
                         look_touch = None;
+                        skate_touch = None;
                     }
                 }
             }
@@ -617,8 +760,11 @@ async fn main() {
         let mouse: Vec2 = mouse_position().into();
         let md = mouse - last_mouse;
         last_mouse = mouse;
-        if grabbed && !just_grabbed {
+        if grabbed && !just_grabbed && ch != 1 && !chars_open {
             player.look(md);
+        }
+        if chars_open && is_mouse_button_pressed(MouseButton::Left) {
+            pick_char = char_cards(sw, sh).iter().position(|r| r.contains(mouse));
         }
         if let Some(msg) = typing.as_mut() {
             if type_into(msg, 120) {
@@ -657,11 +803,72 @@ async fn main() {
             if is_key_pressed(KeyCode::R) {
                 send(json!({"t": "w", "k": "reset"}), &mut loopback);
             }
-            for (k, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9].iter().enumerate() {
-                if is_key_pressed(*key) {
-                    player.sel = k;
+            if is_key_pressed(KeyCode::C) {
+                chars_open = !chars_open;
+                if chars_open && grabbed {
+                    grabbed = false;
+                    set_cursor_grab(false);
+                    show_mouse(true);
                 }
             }
+            if ch >= 2 && is_key_pressed(KeyCode::F) {
+                car_toggle = true;
+            }
+            if ch == 2 {
+                cycle_weapon += is_key_pressed(KeyCode::E) as i32 - is_key_pressed(KeyCode::Q) as i32;
+            }
+            if ch == 4 && is_key_pressed(KeyCode::G) {
+                niko_dive = true;
+            }
+            for (k, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9].iter().enumerate() {
+                if is_key_pressed(*key) {
+                    if chars_open {
+                        pick_char = (k < CHARS.len()).then_some(k);
+                    } else if let Some(b) = bandido.as_mut() {
+                        b.weapon = k;
+                    } else {
+                        player.sel = k;
+                    }
+                }
+            }
+        }
+        if let Some(c) = pick_char {
+            chars_open = false;
+            if let Some(s) = skater.take() {
+                player.pos = s.pos;
+                player.yaw = (s.heading.cos()).atan2(s.heading.sin());
+            }
+            if bandido.take().is_some_and(|b| b.driving) {
+                player.pos = car.pos + vec3(0.0, 2.0, 0.0);
+            }
+            niko = None;
+            player.vel = Vec3::ZERO;
+            player.fly = false;
+            let fw = player.forward();
+            match c {
+                1 => skater = Some(skate::Skater::new(player.pos, fw.x.atan2(fw.z))),
+                2 => bandido = Some(gta::Bandido::new()),
+                3 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
+                _ => {}
+            }
+            banner = Some((format!("PERSONAGEM: {}", CHARS[c].0), 2.0));
+        }
+        if car_toggle {
+            if let Some(b) = bandido.as_mut() {
+                if b.driving {
+                    b.driving = false;
+                    let l = vec3(car.fwd().z, 0.0, -car.fwd().x);
+                    player.pos = [car.pos + l * 1.8, car.pos - l * 1.8].into_iter().find(|p| !player.collides_at(&world, *p)).unwrap_or(car.pos + up * 2.0);
+                    player.vel = Vec3::ZERO;
+                } else if player.pos.distance(car.pos) < 4.0 {
+                    b.driving = true;
+                } else {
+                    banner = Some(("CHEGA PERTO DO CARRO (PERTO DA TORRE)".into(), 2.0));
+                }
+            }
+        }
+        if let Some(b) = bandido.as_mut() {
+            b.cycle(cycle_weapon);
         }
         if is_host && !wolverine_called && time > 20.0 {
             fighters[3].spawn_wolverine();
@@ -669,19 +876,147 @@ async fn main() {
             events.push(Ev::Banner("TEM ALGO CAINDO DO CEU...".into()));
         }
         let wheel = mouse_wheel().1;
-        if wheel > 0.0 {
+        if let Some(b) = bandido.as_mut() {
+            b.cycle(-(wheel.signum() as i32) * (wheel != 0.0) as i32);
+        } else if wheel > 0.0 {
             player.sel = (player.sel + 8) % 9;
         } else if wheel < 0.0 {
             player.sel = (player.sel + 1) % 9;
         }
 
-        let active = (grabbed || mobile) && typing.is_none();
-        player.update(&world, dt, active);
-        let eye = player.eye();
-        let fw = player.forward();
-        let pick = world.raycast(eye, fw, 6.0);
+        let active = (grabbed || mobile) && typing.is_none() && !chars_open;
+        let key = |k: KeyCode| active && is_key_down(k);
+        let btn = |i: usize| held.values().any(|b| *b == i);
+        let steer = ((key(KeyCode::A) as i32 - key(KeyCode::D) as i32) as f32 - player.stick.x).clamp(-1.0, 1.0);
+        let mut moving = false;
+        if let Some(sk) = skater.as_mut() {
+            let inp = skate::Input {
+                push: key(KeyCode::W) || player.stick.y > 0.5,
+                brake: key(KeyCode::S) || player.stick.y < -0.5,
+                steer,
+                mouse: if active && grabbed && !just_grabbed { md } else { Vec2::ZERO },
+                touch: skate_touch,
+                grab: key(KeyCode::Q) || key(KeyCode::E) || btn(1),
+                manual: key(KeyCode::LeftShift) || btn(2),
+                ollie: sk_ollie || (active && is_key_pressed(KeyCode::Space)),
+            };
+            sk.update(&world, dt, &inp);
+            if player.knock.length() > 3.0 {
+                sk.bail_now("EXPLOSAO");
+            }
+            player.knock = Vec3::ZERO;
+            player.pos = sk.pos;
+            if sk.landed || sk.bailed {
+                play_at(&audio, &sfx.punch, sk.pos, sk.pos, if sk.bailed { 1.0 } else { 0.4 }, muted, false);
+            }
+            if sk.sparks {
+                fx.particles.push(urna::Particle { pos: sk.pos + up * 0.05, vel: vec3(gen_range(-2.0, 2.0), gen_range(1.0, 3.0), gen_range(-2.0, 2.0)), col: Color::new(1.0, 0.8, 0.3, 1.0), life: 0.3, size: 0.06, gravity: false });
+            }
+        } else if bandido.as_ref().is_some_and(|b| b.driving) {
+            let throttle = (key(KeyCode::W) as i32 - key(KeyCode::S) as i32) as f32 + player.stick.y;
+            let crash = car.update(&world, dt, throttle.clamp(-1.0, 1.0), steer, key(KeyCode::Space) || btn(0));
+            if crash > 5.0 {
+                play_at(&audio, &sfx.punch, car.pos, car.pos, (crash / 15.0).min(1.5), muted, false);
+                fx.shake = fx.shake.max((crash / 30.0).min(0.6));
+            }
+            player.pos = car.pos;
+            player.knock = Vec3::ZERO;
+        } else if niko.as_ref().is_none_or(|n| n.controlled()) {
+            player.can_fly = bandido.is_none() && niko.is_none();
+            let (before, vy) = (player.pos, player.vel.y);
+            if let Some(n) = niko.as_mut() {
+                let imp = std::mem::take(&mut player.knock);
+                if imp.length() > 2.0 {
+                    n.hit(imp * 1.2, dt);
+                    play_at(&audio, &sfx.punch, player.pos, player.pos, 0.8, muted, false);
+                }
+            }
+            player.update(&world, dt, active && niko.as_ref().is_none_or(|n| n.controlled()));
+            let d = vec2(player.pos.x - before.x, player.pos.z - before.z).length();
+            moving = d > 0.001;
+            gta_walk += d * 3.0;
+            if let Some(n) = niko.as_mut() {
+                let fwh = vec3(player.forward().x, 0.0, player.forward().z).normalize_or_zero();
+                if niko_dive {
+                    n.hit(fwh * 7.0 + up * 2.5, dt);
+                } else if vy < -14.0 && player.on_ground {
+                    n.hit(fwh * 4.0 + up * 10.0, dt);
+                }
+            }
+        }
+        if let Some(n) = niko.as_mut() {
+            let fw = player.forward();
+            if let Some(r) = n.update(&world, dt, player.pos, fw.x.atan2(fw.z), gta_walk, moving as i32 as f32, time) {
+                player.pos = r;
+                player.vel = Vec3::ZERO;
+            }
+            if !n.controlled() {
+                let pv = n.pelvis();
+                player.pos = vec3(pv.x, world.floor_at(pv.x, pv.y, pv.z), pv.z);
+                player.knock = Vec3::ZERO;
+            }
+        }
+        let (eye, fw) = if let Some(sk) = &skater {
+            let (e, t) = sk.camera();
+            (e, (t - e).normalize())
+        } else if bandido.as_ref().is_some_and(|b| b.driving) {
+            let f = car.fwd();
+            let e = car.pos + up * 3.2 - f * 7.5;
+            (e, (car.pos + up * 1.2 + f * 4.0 - e).normalize())
+        } else if bandido.is_some() || niko.is_some() {
+            let fw = player.forward();
+            let right = vec3(-fw.z, 0.0, fw.x).normalize_or_zero();
+            let head = player.pos + up * 1.7;
+            let want = -fw * 3.2 + right * 0.6;
+            let dist = world.raycast(head, want.normalize(), want.length()).map(|h| (h.2 - 0.3).max(0.2)).unwrap_or(want.length());
+            (head + want.normalize() * dist, fw)
+        } else {
+            (player.eye(), player.forward())
+        };
+        let pick = if ch == 0 { world.raycast(eye, fw, 6.0) } else { None };
 
-        if tap_hit || (grabbed && !just_grabbed && is_mouse_button_pressed(MouseButton::Left)) {
+        if let Some(b) = bandido.as_mut() {
+            let mut targets: Vec<gta::Target> = fighters.iter().enumerate().filter(|(_, f)| f.spawned).map(|(i, f)| (f.pos + up, 0.8, i, true)).collect();
+            targets.extend(villagers.iter().enumerate().map(|(i, v)| (v.pos + up, 0.7, i, false)));
+            let mut outs = Vec::new();
+            if b.driving {
+                let spd = car.speed().abs();
+                if spd > 4.0 && b.hit_cd <= 0.0 {
+                    for t in &targets {
+                        if vec2(t.0.x - car.pos.x, t.0.z - car.pos.z).length() < 2.4 && (t.0.y - car.pos.y).abs() < 2.5 {
+                            outs.push(gta::Out::Hit { i: t.2, fighter: t.3, dmg: spd * 1.5, dir: car.fwd() });
+                            b.hit_cd = 0.3;
+                        }
+                    }
+                }
+            } else {
+                let wpn = &gta::ARSENAL[b.weapon];
+                let mouse_fire = grabbed && !just_grabbed && active && if wpn.auto { is_mouse_button_down(MouseButton::Left) } else { is_mouse_button_pressed(MouseButton::Left) };
+                if mouse_fire || btn(1) {
+                    b.fire(&world, eye, fw, gta::Bandido::muzzle(player.pos, fw), player.pos + up, &targets, &mut outs);
+                }
+            }
+            b.update(&world, dt, &targets, &mut outs);
+            let wname = if b.driving { "ATROPELADO" } else { gta::ARSENAL[b.weapon].name };
+            for o in outs {
+                match o {
+                    gta::Out::Hit { i, fighter, dmg, dir } => send(json!({"t": "a", "k": if fighter { "pf" } else { "pv" }, "i": i, "d": mp::v3(dir), "dmg": dmg, "w": wname}), &mut loopback),
+                    gta::Out::Boom(p, r) => {
+                        let mut v = mp::shot(&urna::Plan { o: p, hit: p, r, deflect: false });
+                        v["by"] = json!(1);
+                        send(v, &mut loopback);
+                    }
+                    gta::Out::Spark(p) => {
+                        for _ in 0..4 {
+                            fx.particles.push(urna::Particle { pos: p, vel: vec3(gen_range(-3.0, 3.0), gen_range(0.0, 3.0), gen_range(-3.0, 3.0)), col: Color::new(1.0, 0.85, 0.4, 1.0), life: 0.25, size: 0.05, gravity: false });
+                        }
+                    }
+                    gta::Out::Bang(p) => play_at(&audio, &sfx.gun, p, eye, 0.8, muted, in_club),
+                }
+            }
+        }
+
+        if ch == 0 && (tap_hit || (grabbed && !just_grabbed && is_mouse_button_pressed(MouseButton::Left))) {
             // Soco em lutador/villager tem prioridade sobre quebrar bloco
             let mut best: Option<(f32, usize, bool)> = None;
             for (i, f) in fighters.iter().enumerate() {
@@ -718,7 +1053,7 @@ async fn main() {
                 }
             }
         }
-        if tap_place || (grabbed && is_mouse_button_pressed(MouseButton::Right)) {
+        if ch == 0 && (tap_place || (grabbed && is_mouse_button_pressed(MouseButton::Right))) {
             if let Some((_, prev, _)) = pick {
                 if world.get(prev.x, prev.y, prev.z) == AIR {
                     world.set(prev.x, prev.y, prev.z, HOTBAR[player.sel]);
@@ -741,7 +1076,7 @@ async fn main() {
         if is_host {
             actors::update_villagers(&mut villagers, &world, dt, time);
             actors::update_fighters(&mut fighters, &world, dt, time, &mut events);
-            if evento && !urna.charging {
+            if (evento || ai_rage > 0.0) && !urna.charging {
                 urna.timer = urna.timer.min(0.35);
             }
             let mut targets: Vec<Vec3> = vec![player.pos];
@@ -794,8 +1129,18 @@ async fn main() {
             r.pos = if moved > 8.0 { r.target } else { r.pos.lerp(r.target, (dt * 12.0).min(1.0)) };
         }
 
-        // Fogos na abertura das urnas
-        if evento {
+        // Fogos na abertura das urnas (ou quando pedem pra IA)
+        ai_fireworks -= dt;
+        ai_rage -= dt;
+        if let Some((_, t)) = ai_say.as_mut() {
+            *t -= dt;
+        }
+        ai_say = ai_say.filter(|s| s.1 > 0.0);
+        if let Some((_, t)) = ai_sky.as_mut() {
+            *t -= dt;
+        }
+        ai_sky = ai_sky.filter(|s| s.1 > 0.0);
+        if evento || ai_fireworks > 0.0 {
             fireworks_t -= dt;
             if fireworks_t <= 0.0 {
                 fireworks_t = gen_range(0.15, 0.4);
@@ -843,7 +1188,12 @@ async fn main() {
         net_t -= dt;
         if online && net_t <= 0.0 {
             net_t = 0.15;
-            net.send(json!({"t": "p", "p": mp::v3(player.pos), "y": fw.x.atan2(fw.z)}).to_string());
+            let yaw = match (&skater, &bandido) {
+                (Some(s), _) => s.heading,
+                (_, Some(b)) if b.driving => car.yaw,
+                _ => fw.x.atan2(fw.z),
+            };
+            net.send(json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch}).to_string());
             if is_host {
                 net.send(mp::snapshot(time, &urna, &fighters, &villagers, &ev_out).to_string());
                 ev_out.clear();
@@ -874,13 +1224,21 @@ async fn main() {
         // ------------------------------------------------ Render 3D
         club_k += ((in_club as i32 as f32) - club_k) * (dt * 2.0).min(1.0);
         let day = 1.0 - club_k * 0.9;
-        clear_background(Color::new(0.53 * day + 0.06 * club_k, 0.75 * day, 1.0 * day + 0.1 * club_k, 1.0));
+        let sky = Color::new(0.53 * day + 0.06 * club_k, 0.75 * day, 1.0 * day + 0.1 * club_k, 1.0);
+        let sky = match ai_sky {
+            Some((c, t)) => {
+                let k = t.min(1.0) * 0.8;
+                Color::new(sky.r + (c.r * day - sky.r) * k, sky.g + (c.g * day - sky.g) * k, sky.b + (c.b * day - sky.b) * k, 1.0)
+            }
+            None => sky,
+        };
+        clear_background(sky);
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
         let cam = Camera3D {
             position: eye + shake,
             target: eye + shake + fw,
             up,
-            fovy: 70f32.to_radians(),
+            fovy: if bandido.as_ref().is_some_and(|b| !b.driving && b.weapon == 7) && grabbed && is_mouse_button_down(MouseButton::Right) { 18f32 } else { 70f32 }.to_radians(),
             ..Default::default()
         };
         set_camera(&cam);
@@ -944,15 +1302,41 @@ async fn main() {
         }
         for r in remotes.values() {
             let moving = (r.pos - r.target).length() > 0.05;
-            let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
-            draw_humanoid(&mut opaque, &r.look, &pose, &root(r.pos, r.yaw, 0.0, 0.0));
+            match r.ch {
+                1 => skate::Skater::new(r.pos, r.yaw).draw(&mut opaque, r.look.shirt, time),
+                3 => gta::draw_car(&mut opaque, r.pos, r.yaw, 0.0, r.walk, true),
+                _ => {
+                    let arm = if r.ch == 2 { -std::f32::consts::FRAC_PI_2 } else { -0.2 };
+                    let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: arm, ..Default::default() };
+                    let look = match r.ch {
+                        2 => &bandido_look,
+                        4 => &niko_look,
+                        _ => &r.look,
+                    };
+                    draw_humanoid(&mut opaque, look, &pose, &root(r.pos, r.yaw, 0.0, 0.0));
+                }
+            }
             labels.push(Label { pos: r.pos + up * 2.2, text: r.name.clone(), size: 22.0, color: Color::new(0.5, 1.0, 0.6, 1.0) });
         }
         // Telão: moldura presa na parede oeste do clube, virado pro leste
         let (tx, tz0, tz1, ty0, ty1) = (9.21, 56.5, 72.5, G as f32 + 4.5, G as f32 + 13.5);
         opaque.cube(&id, vec3(9.1, (ty0 + ty1) * 0.5, (tz0 + tz1) * 0.5), vec3(0.2, ty1 - ty0 + 0.4, tz1 - tz0 + 0.4), Color::new(0.05, 0.05, 0.06, 1.0));
+        let driving = bandido.as_ref().is_some_and(|b| b.driving);
+        car.draw(&mut opaque, driving);
+        if !driving && car.pos.distance(eye) < 30.0 {
+            labels.push(Label { pos: car.pos + up * 2.4, text: if ch == 2 { "SEDA DA 1a MISSAO - F PRA ENTRAR".into() } else { "SEDA DA 1a MISSAO (VIRA BANDIDO NO C)".into() }, size: 18.0, color: Color::new(1.0, 0.85, 0.3, 1.0) });
+        }
+        if let Some(sk) = &skater {
+            sk.draw(&mut opaque, rgb(0.45, 0.47, 0.5), time);
+        }
+        if let Some(n) = &niko {
+            n.draw(&mut opaque);
+        }
+        if let Some(b) = bandido.as_ref().filter(|b| !b.driving) {
+            b.draw(&mut opaque, &mut trans, player.pos, fw, gta_walk, moving, time);
+        }
         urna.draw(&mut opaque, &mut trans, time);
-        extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash);
+        extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()));
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
@@ -1094,10 +1478,26 @@ async fn main() {
         draw_line(sw * 0.5 - 9.0, sh * 0.5, sw * 0.5 + 9.0, sh * 0.5, 2.0, WHITE);
         draw_line(sw * 0.5, sh * 0.5 - 9.0, sw * 0.5, sh * 0.5 + 9.0, 2.0, WHITE);
 
+        // Skate: combo e pontos / Bandido: arma atual
+        if let Some(sk) = &skater {
+            let combo = sk.combo_text();
+            if !combo.is_empty() {
+                text_centered(&combo, sw * 0.5, sh * 0.2, 26.0, Color::new(0.6, 1.0, 0.7, 1.0), true);
+            }
+            if let Some((p, t)) = &sk.popup {
+                text_centered(p, sw * 0.5, sh * 0.2 + 34.0, 30.0, Color::new(1.0, 0.85, 0.3, t.min(1.0)), true);
+            }
+            text_centered(&format!("PONTOS SKATE: {}", sk.score), sw * 0.5, sh - 24.0, 24.0, WHITE, true);
+        }
+        if let Some(b) = &bandido {
+            let txt = if b.driving { "DIRIGINDO - F SAI | ESPACO FREIO DE MAO".to_string() } else { format!("< {}/{}  {} >", b.weapon + 1, gta::ARSENAL.len(), gta::ARSENAL[b.weapon].name) };
+            text_centered(&txt, sw * 0.5, sh - 24.0, 26.0, Color::new(1.0, 0.85, 0.3, 1.0), true);
+        }
+
         // Hotbar
         let hx = sw * 0.5 - slot * 4.5;
         let hy = sh - slot - 14.0;
-        for (k, &b) in HOTBAR.iter().enumerate() {
+        for (k, &b) in HOTBAR.iter().enumerate().filter(|_| ch == 0) {
             let x = hx + k as f32 * slot;
             draw_rectangle(x, hy, slot, slot, Color::new(0.0, 0.0, 0.0, 0.5));
             let t = face_tile(b, 0);
@@ -1120,12 +1520,32 @@ async fn main() {
         let now_playing = if telao.live { format!("TELAO: {}", telao.title) } else { "house sintetizado 124 BPM (telao carregando...)".to_string() };
         draw_text(&format!("TOCANDO: {}{}", now_playing, if muted { " [MUDO]" } else { "" }), 12.0, sh - 58.0, 20.0, Color::new(1.0, 0.5, 0.9, 1.0));
         if show_help {
-            let lines = [
-                "WASD andar | ESPACO pular | SHIFT correr | F voar (CTRL desce)",
-                "MOUSE olhar | ESQ quebrar/socar | DIR colocar | 1-9/RODA bloco",
-                "K chama Wolverine | R reseta mundo | M muta | TAB solta mouse | H ajuda",
-                "Y troca o video do telao (link do YouTube) | T ou ENTER chat",
-            ];
+            let lines = match ch {
+                1 => [
+                    "SKATE: W rema | S freia (rapido = POWERSLIDE) | A/D curva (no ar: gira 180/360)",
+                    "MOUSE = analogico: baixo->cima OLLIE | baixo->cima-esq KICKFLIP | baixo->cima-dir HEELFLIP",
+                    "baixo->lado SHOVE-IT | cima->baixo NOLLIE | Q/E GRAB | SHIFT MANUAL | cai em muro fino = GRIND",
+                    "ESPACO ollie rapido | C troca personagem | T chat | H ajuda",
+                ],
+                4 => [
+                    "NIKO: WASD anda | MOUSE olha | ESPACO pula | SHIFT corre",
+                    "G = SE JOGA (tropeca/cai) | explosao derruba | queda alta derruba",
+                    "Ragdoll ativo: cambaleia dando passos, cai protegendo com as maos e levanta sozinho",
+                    "C troca personagem | T chat | /comando fala com a IA | H ajuda",
+                ],
+                2 | 3 => [
+                    "BANDIDO: WASD anda | MOUSE mira | ESQ atira (segura nas automaticas) | DIR zoom",
+                    "RODA / Q / E / 1-9 troca arma (12 armas) | F entra/sai do carro (perto da torre)",
+                    "CARRO: W acelera | S re/freio | A/D vira | ESPACO freio de mao (drift)",
+                    "C troca personagem | T chat | H ajuda",
+                ],
+                _ => [
+                    "WASD andar | ESPACO pular | SHIFT correr | F voar (CTRL desce)",
+                    "MOUSE olhar | ESQ quebrar/socar | DIR colocar | 1-9/RODA bloco",
+                    "K chama Wolverine | R reseta mundo | M muta | TAB solta mouse | H ajuda",
+                    "Y troca o video do telao | T ou ENTER chat | C PERSONAGENS",
+                ],
+            };
             for (i, l) in lines.iter().enumerate() {
                 draw_text(l, 12.0, 90.0 + i as f32 * 22.0, 20.0, Color::new(1.0, 1.0, 1.0, 0.85));
             }
@@ -1147,14 +1567,27 @@ async fn main() {
             } else {
                 text_centered("ARRASTA AQUI PRA ANDAR", sw * 0.22, sh * 0.62, 16.0, Color::new(1.0, 1.0, 1.0, 0.5), false);
             }
-            for (i, (c, r, label)) in buttons.iter().enumerate() {
+            for (i, (c, r, label)) in buttons.iter().enumerate().filter(|b| b.1.2 != "-") {
                 let on = held.values().any(|b| *b == i) || (i == 3 && player.fly);
                 draw_circle(c.x, c.y, *r, Color::new(0.0, 0.0, 0.0, if on { 0.55 } else { 0.32 }));
                 draw_circle_lines(c.x, c.y, *r, 2.0, Color::new(1.0, 1.0, 1.0, 0.55));
                 text_centered(label, c.x, c.y + 6.0, (*r * 0.5).max(13.0), WHITE, false);
             }
-        } else if !grabbed {
+        } else if !grabbed && !chars_open {
             text_centered("CLIQUE PRA ENTRAR NA VILA", sw * 0.5, sh * 0.5 + 60.0, 36.0, WHITE, true);
+        }
+        if chars_open {
+            draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
+            text_centered("ESCOLHE O PERSONAGEM", sw * 0.5, sh * 0.5 - (sh * 0.36).min(200.0) * 0.5 - 24.0, 34.0, WHITE, true);
+            for (i, r) in char_cards(sw, sh).iter().enumerate() {
+                let sel = i as u8 == [0, 1, 2, 2, 3][ch as usize];
+                draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.1, 0.1, 0.15, 0.9));
+                draw_rectangle_lines(r.x, r.y, r.w, r.h, if sel { 4.0 } else { 2.0 }, if sel { Color::new(1.0, 0.85, 0.3, 1.0) } else { GRAY });
+                text_centered(&format!("{}", i + 1), r.x + r.w * 0.5, r.y + r.h * 0.3, 44.0, Color::new(1.0, 0.85, 0.3, 1.0), false);
+                text_centered(CHARS[i].0, r.x + r.w * 0.5, r.y + r.h * 0.58, 30.0, WHITE, true);
+                text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.8, (r.w / 16.0).min(16.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
+            }
+            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-4 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
         }
 
         next_frame().await;

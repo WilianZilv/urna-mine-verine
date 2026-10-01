@@ -77,6 +77,26 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | `H` | mostrar/esconder ajuda |
 | `Tab` / `Esc` | soltar mouse |
 
+### Personagens (`C` ou botão `PERS`)
+
+| # | Personagem | Jogabilidade |
+| --- | --- | --- |
+| 1 | Steve | padrão Minecraft (quebra/põe bloco, soco) |
+| 2 | Skatista (estilo Skate 3) | flick-it no mouse/arrasto: baixo→cima ollie, diagonais kickflip/heelflip, lado shove-it, cima→baixo nollie; `W` rema, `S` freia/powerslide, `A/D` carve (no ar gira 180/360), `Q/E` grab, `Shift` manual, grind caindo em muro de 1 bloco; combo com multiplicador e bail |
+| 3 | Bandido (estilo GTA 3) | terceira pessoa, 12 armas (punho, taco, pistola, uzi, escopeta, AK-47, M16, sniper com zoom, lança-foguete, lança-chamas, granada, molotov); sedã da 1ª missão perto da torre (`F` entra/sai, `Espaço` freio de mão, atropela) |
+| 4 | Niko (estilo GTA 4) | ragdoll físico ativo próprio: explosão/queda/`G` faz cambalear com passos de equilíbrio e braços em moinho, cair protegendo com as mãos e levantar sozinho |
+
+Tudo original (sem código/asset de Skate 3, GTA ou Euphoria).
+
+### Agente IA no chat (`/comando`)
+
+No chat, qualquer mensagem começando com `/` vai pra uma **fila** no servidor (1 pedido por jogador,
+máx. 12). A IA (OpenAI) responde com operações de uma whitelist que o servidor valida e transmite
+pra todos em ordem: construir caixas/esferas de blocos, explodir, banner, fogos, cor do céu, urna
+furiosa, teleportar jogador, chamar Wolverine, trocar o telão. A fala da IA aparece no guardião do
+escudo. Ex.: `/constroi uma piramide de neon na praca`, `/ceu roxo e fogos`, `/explode a casa do lado da torre`.
+Precisa da chave: `npx wrangler secret put OPENAI_API_KEY` (modelo opcional: `OPENAI_MODEL`).
+
 **Celular** (abre o link no navegador, deita o celular): metade esquerda = joystick, arrastar na
 direita = olhar, botões `PULA` / `BATE` / `POE` / `VOA`, `CHAT` e `TELAO` no canto, toque na
 hotbar escolhe bloco. Entra em tela cheia no primeiro toque.

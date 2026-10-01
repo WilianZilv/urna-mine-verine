@@ -16,13 +16,14 @@ pub struct Player {
     /// Joystick virtual (x = direita, y = frente) e botão de pulo do celular.
     pub stick: Vec2,
     pub jump_held: bool,
+    pub can_fly: bool,
 }
 
 pub const HOTBAR: [u8; 9] = [GRASS, DIRT, STONE, PLANKS, LOG, COBBLE, GLASS, BRICK, NEON];
 
 impl Player {
     pub fn new() -> Self {
-        Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0, stick: Vec2::ZERO, jump_held: false }
+        Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0, stick: Vec2::ZERO, jump_held: false, can_fly: true }
     }
 
     pub fn spawn() -> Vec3 {
@@ -75,7 +76,7 @@ impl Player {
             if is_key_down(KeyCode::A) {
                 wish -= r;
             }
-            if is_key_pressed(KeyCode::F) {
+            if is_key_pressed(KeyCode::F) && self.can_fly {
                 self.fly = !self.fly;
                 self.vel.y = 0.0;
             }

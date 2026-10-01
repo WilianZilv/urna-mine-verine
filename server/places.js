@@ -1,4 +1,4 @@
-// Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal) + Tour dos Poderes (tour.js), que passa
+// Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal, Escola) + Tour dos Poderes (tour.js), que passa
 // por todos. Cada lugar e uma classe no seu
 // arquivo com a mesma interface (todos os metodos opcionais):
 //   join(c)                      jogador entrou: manda snapshot {t:"pl", k:<lugar>, ...}
@@ -14,6 +14,7 @@ import { Tv } from "./tv.js";
 import { Banco } from "./banco.js";
 import { Terminal } from "./terminal.js";
 import { Tour } from "./tour.js";
+import { Escola } from "./escola.js";
 
 const TICK_MS = 20 * 1000;
 
@@ -36,7 +37,8 @@ export class Places {
             this.banco = new Banco(this, await load("banco"));
             this.terminal = new Terminal(this, await load("terminal"));
             this.tour = new Tour(this, await load("tour"));
-            this.list = [this.congresso, this.bolsa, this.tv, this.banco, this.terminal, this.tour];
+            this.escola = new Escola(this, await load("escola"));
+            this.list = [this.congresso, this.bolsa, this.tv, this.banco, this.terminal, this.tour, this.escola];
         });
     }
 

@@ -125,8 +125,13 @@ export class Economy {
         this.room.send(c, { t: "chat", id: 0, n: "BANCO", m });
     }
 
+    /// Preco de venda agora (lei de promocao do Congresso mexe aqui, nunca no preco base da IA).
+    price(id) {
+        return Math.max(1, Math.round(this.s.items[id] * (this.room.places?.priceFactor() ?? 1)));
+    }
+
     items() {
-        return Object.entries(ITEMS).map(([id, v]) => ({ id, name: v.name, p: this.s.items[id] }));
+        return Object.entries(ITEMS).map(([id, v]) => ({ id, name: v.name, p: this.price(id) }));
     }
 
     ads() {
@@ -218,7 +223,7 @@ export class Economy {
     buy(c, w, id) {
         const item = ITEMS[id];
         if (!item) return this.priv(c, `item? ${Object.keys(ITEMS).join(", ")}`);
-        const p = this.s.items[id];
+        const p = this.price(id);
         if (w.c < p) return this.priv(c, `${item.name} custa ${p}, tens ${w.c}`);
         w.c -= p;
         this.s.tr += p;

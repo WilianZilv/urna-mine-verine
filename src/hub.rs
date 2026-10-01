@@ -98,7 +98,7 @@ pub fn build(w: &mut World) {
 }
 
 /// Centro do arco (no chão) e normal pra dentro do corredor.
-fn slot(i: usize) -> (Vec3, Vec3) {
+pub fn slot(i: usize) -> (Vec3, Vec3) {
     let x = 96.5 + HUB_D.x as f32 + 6.0 * (i % 4) as f32;
     if i < 4 { (vec3(x, G as f32, HZ0 as f32 + 1.5), Vec3::Z) } else { (vec3(x, G as f32, HZ1 as f32 - 0.5), -Vec3::Z) }
 }

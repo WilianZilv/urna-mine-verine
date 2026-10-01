@@ -11,10 +11,12 @@ const [extra = "", out = join(tmpdir(), "urna-shot"), mode = "", keyList = ""] =
 const mobile = mode === "mobile";
 const keys = keyList ? keyList.split(",") : [];
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const PORT = 9341, HTTP = 8741;
+// Portas trocaveis pra rodar varios em paralelo; SHOT_URL (ex.: wrangler dev) pula o servidor estatico.
+const PORT = +(process.env.SHOT_CDP_PORT || 9341), HTTP = +(process.env.SHOT_HTTP_PORT || 8741);
+const BASE = process.env.SHOT_URL || `http://127.0.0.1:${HTTP}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm" };
-const server = createServer((req, res) => {
+const server = process.env.SHOT_URL ? { close() { } } : createServer((req, res) => {
     const f = join(process.env.URNA_WEB || "web", decodeURIComponent(req.url.split("?")[0]).replace(/^\/$/, "/index.html"));
     if (!existsSync(f)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { "content-type": types[extname(f)] || "application/octet-stream" });
@@ -53,7 +55,7 @@ if (mobile) {
 } else {
     await cmd("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false }, sessionId);
 }
-await cmd("Page.navigate", { url: `http://127.0.0.1:${HTTP}/?nome=shot&${extra}` }, sessionId);
+await cmd("Page.navigate", { url: `${BASE}/?nome=${process.env.SHOT_NAME || "shot"}&${extra}` }, sessionId);
 await sleep(+(process.env.SHOT_WAIT || 14000));
 const save = async (f) => {
     const shot = await cmd("Page.captureScreenshot", { format: "png" }, sessionId);

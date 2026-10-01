@@ -350,6 +350,7 @@ impl World {
             }
         }
         crate::hub::build(&mut w);
+        crate::places::build(&mut w);
         w
     }
 

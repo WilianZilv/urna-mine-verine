@@ -25,6 +25,7 @@ mod mp;
 mod npc;
 #[cfg_attr(target_arch = "wasm32", path = "net_web.rs")]
 mod net;
+mod places;
 mod player;
 mod portal;
 mod prof;
@@ -420,6 +421,7 @@ async fn main() {
     let lab = extras::Lab::new();
     let mut lab_info = lab::LabInfo::new();
     let mut arena_board = arena_panel::ArenaPanel::new();
+    let mut places = places::Places::new();
     let mut hub = hub::Hub::new();
     let mut club_k = 0.0f32;
     let mut vibe = club::Vibe::new();
@@ -805,7 +807,11 @@ async fn main() {
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
                 "mod" | "mods" => mods.on_msg(&m),
-                "hub" | "hub_s" => hub.on_msg(&m),
+                "hub" | "hub_s" => {
+                    places.on_hub(&m);
+                    hub.on_msg(&m);
+                }
+                "pl" => places.on_msg(&m),
                 "uv_list" | "uv_me" | "uv_pkg" | "uv_bag" | "uv_ctok" => uni.on_msg(&m),
                 _ => {}
             }
@@ -1266,6 +1272,16 @@ async fn main() {
         if let Some(b) = hub.msg.take() {
             banner = Some(b);
         }
+        for m in places.update(&mut player, dt, time, online) {
+            if online {
+                net.send(m.to_string());
+            }
+        }
+        let laws = places.laws();
+        (player.grav, player.speed_mul) = (if laws.lua { 0.35 } else { 1.0 }, if laws.turbo { 1.6 } else { 1.0 });
+        if laws.festa {
+            ai_fireworks = ai_fireworks.max(0.2);
+        }
         // Carro: física mesmo estacionado, dano, fumaça, explosão e ronco do motor
         let driving_now = bandido.as_ref().is_some_and(|b| b.driving);
         if !driving_now {
@@ -1556,7 +1572,7 @@ async fn main() {
                     }
                 })
             };
-            if let Some(target) = shot_target {
+            if let Some(target) = shot_target.filter(|_| !laws.paz) {
                 let plan = urna::plan(&world, urna.eye(), target, if evento { 0.5 } else { 0.15 });
                 send(mp::shot(&plan), &mut loopback);
             }
@@ -1736,6 +1752,7 @@ async fn main() {
         lab_info.render(time, eye, npcs.guard());
         let in_ring = remotes.values().map(|r| (r.name.as_str(), r.pos)).chain([(my_name.as_str(), player.pos)]);
         arena_board.render(time, eye, &fighters, &npcs, mario.visible().then_some(mario.body.pos), urna.pos, in_ring);
+        places.render(time, eye);
         prof.mark(prof::LAB_RT);
         clear_background(sky);
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
@@ -1898,6 +1915,7 @@ async fn main() {
         arena_panel::draw_frame(&mut opaque, &mut trans, time, eye);
         mods.draw(&mut opaque, &mut trans, &mut labels, time, eye, &npcs);
         hub.draw(&mut opaque, &mut trans, &mut labels, time, eye);
+        places.draw(&mut opaque, &mut trans, &mut labels, time, eye);
         eco.draw_world(&mut opaque, &mut labels, eye, time);
         steve.draw_world(&mut opaque, time, eye, fw, ch == 0, player.sel, remotes.iter().map(|(id, r)| (*id, r.pos, r.yaw, r.ch)), &atlas.avg);
         fx.draw_opaque(&mut opaque);
@@ -1947,6 +1965,7 @@ async fn main() {
         }
         lab_info.draw_dome(time, npcs.guard().flash.max(fx.dome_flash[0]), eye);
         arena_board.draw_screen(time, eye);
+        places.draw_screens(time, eye);
         shield::draw_hub(time, fx.dome_flash[1]);
 
         prof.mark(prof::FLUSH);

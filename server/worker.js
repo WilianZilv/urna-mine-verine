@@ -7,6 +7,7 @@ import { Lab } from "./lab.js";
 import { Mods, docs, SITE } from "./mods.js";
 import { Hub } from "./hub.js";
 import { Universe } from "./universe.js";
+import { Places } from "./places.js";
 import { skill } from "./skill.js";
 import { WORLD, WORLD_VERSION, PLACES, onLandmarkBox, shielded } from "./layout.js";
 
@@ -144,6 +145,7 @@ export class Room extends DurableObject {
         this.mods = new Mods(this);
         this.hub = new Hub(this);
         this.uni = new Universe(this);
+        this.places = new Places(this);
         // Obras da IA ("w" k:"ai") sobrevivem ao DO dormir: viram o comeco do log quando ele acorda.
         this.aiLog = [];
         this.aiSave = null;
@@ -261,6 +263,7 @@ export class Room extends DurableObject {
             this.mods.join(c);
             this.hub.join(c);
             this.uni.join(c);
+            this.places.join(c);
             return;
         }
         m.id = id;
@@ -285,7 +288,10 @@ export class Room extends DurableObject {
                     break;
                 }
                 this.broadcast(m);
-                if (m.m.startsWith("/") && !this.lab.command(id, c, m.m.slice(1).trim()) && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
+                if (m.m.startsWith("/") && !this.lab.command(id, c, m.m.slice(1).trim()) && !this.places.command(id, c, m.m.slice(1).trim()) && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
+                break;
+            case "pl":
+                this.places.onMsg(id, c, m);
                 break;
             case "mk":
                 this.mods.onKill(c, m);
@@ -301,6 +307,7 @@ export class Room extends DurableObject {
                 const h = this.clients.get(this.host);
                 if (h) this.send(h, m);
                 this.eco.onHit(c, m);
+                this.places.onHit(c, m);
                 break;
             }
             case "w":

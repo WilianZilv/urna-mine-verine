@@ -103,25 +103,46 @@ pub fn arena_point(margin: f32) -> Vec2 {
 /// Pista de skate (sudeste): (x0, z0, x1, z1).
 pub const SKATE: (i32, i32, i32, i32) = (228, 244, 272, 280);
 
+// ---------------------------------------------------------------- Lugares funcionais (src/places/*)
+
+/// Retângulo de um lugar (x0, z0, x1, z1), inclusivo. Cada módulo em src/places/ constrói dentro do seu.
+pub type Rect = (i32, i32, i32, i32);
+/// Congresso da Vila: ponta oeste da Avenida dos Poderes; entrada leste (x 86, z 96..100).
+pub const CONGRESSO: Rect = (50, 80, 86, 116);
+/// Bolsa de Valores: ponta leste da Avenida dos Poderes; entrada oeste (x 234, z 96..100).
+pub const BOLSA: Rect = (234, 70, 270, 102);
+/// TV URNA NEWS: sul das casas; entrada norte (z 266, x 60..64), trilha vem da rua das casas.
+pub const TV: Rect = (44, 266, 84, 292);
+/// Banco Central: leste da rua S, norte da avenida GTA; entrada oeste (x 184, z 235..239).
+pub const BANCO: Rect = (184, 222, 214, 252);
+/// Terminal Interdimensional: sul da avenida GTA; entrada norte (z 266, x 198..202).
+pub const TERMINAL: Rect = (184, 266, 220, 294);
+
 // ---------------------------------------------------------------- Ruas
 
 /// Ruas retas (x0, z0, x1, z1): miolo de cascalho, meio-fio de pedra, postes de luz.
-pub const ROADS: [(i32, i32, i32, i32); 6] = [
+pub const ROADS: [(i32, i32, i32, i32); 7] = [
     (158, 92, 162, 137),  // N: praça -> arena
     (158, 183, 162, 263), // S: praça -> torre
     (75, 158, 137, 162),  // O: praça -> clube
     (183, 158, 243, 162), // L: praça -> painel -> entrada do lab
     (44, 238, 157, 242),  // rua das casas
     (163, 257, 227, 261), // avenida GTA: rua S -> skate
+    (87, 96, 233, 100),   // Avenida dos Poderes: Congresso <- topo do anel -> Bolsa
 ];
 pub const RING_R: f32 = 62.0;
-/// Trilhas de cascalho sem meio-fio: rua L -> zona de mods. (A trilha do hub é do hub.rs.)
-pub const PATHS: [(i32, i32, i32, i32); 2] = [(239, 119, 241, 157), (242, 118, 245, 120)];
+/// Trilhas de cascalho sem meio-fio: rua L -> zona de mods; casas -> TV; rua S -> banco; avenida -> terminal.
+/// (A trilha do hub é do hub.rs.)
+pub const PATHS: [(i32, i32, i32, i32); 5] = [(239, 119, 241, 157), (242, 118, 245, 120), (61, 243, 63, 265), (163, 236, 183, 238), (199, 262, 201, 265)];
 /// Trilha do hub sai da rua L (z) até o corredor.
 pub const HUB_PATH_Z0: i32 = 163;
 
 /// Placas de rua (posição no chão, texto).
-pub const SIGNS: [(f32, f32, &str); 9] = [
+pub const SIGNS: [(f32, f32, &str); 13] = [
+    (155.5, 102.5, "< CONGRESSO DA VILA"),
+    (165.5, 102.5, "BOLSA DE VALORES >"),
+    (59.5, 244.5, "v TV URNA NEWS"),
+    (164.5, 234.5, "BANCO CENTRAL >   v TERMINAL"),
     (164.5, 134.5, "^ ARENA DOS GIGANTES"),
     (164.5, 186.5, "v TORRE / CASAS / AVENIDA"),
     (134.5, 155.5, "< CLUB DO HOUSE"),
@@ -134,7 +155,12 @@ pub const SIGNS: [(f32, f32, &str); 9] = [
 ];
 
 /// Retângulos ocupados (x0, z0, x1, z1): sem árvore nem poste.
-pub const FOOTPRINTS: [(i32, i32, i32, i32); 10] = [
+pub const FOOTPRINTS: [(i32, i32, i32, i32); 15] = [
+    (CONGRESSO.0 - 2, CONGRESSO.1 - 2, CONGRESSO.2 + 2, CONGRESSO.3 + 2),
+    (BOLSA.0 - 2, BOLSA.1 - 2, BOLSA.2 + 2, BOLSA.3 + 2),
+    (TV.0 - 2, TV.1 - 2, TV.2 + 2, TV.3 + 2),
+    (BANCO.0 - 2, BANCO.1 - 2, BANCO.2 + 2, BANCO.3 + 2),
+    (TERMINAL.0 - 2, TERMINAL.1 - 2, TERMINAL.2 + 2, TERMINAL.3 + 2),
     (40, 138, 86, 182),   // clube + escudo
     (226, 104, 284, 214), // lab, domo, painel, mods, hub
     (40, 222, 134, 258),  // casas

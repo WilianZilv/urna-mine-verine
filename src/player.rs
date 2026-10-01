@@ -43,6 +43,9 @@ pub struct Player {
     /// View bobbing do Minecraft: distância andada (x0,6) e amplitude (<= 0,1).
     walk_dist: f32,
     bob: f32,
+    /// Leis do Congresso: multiplicador da gravidade e da velocidade (1 = normal).
+    pub grav: f32,
+    pub speed_mul: f32,
 }
 
 // Minecraft Java em blocos/s (20 ticks/s). Atrito por tick vira decaimento contínuo: chão 0,6*0,91,
@@ -110,6 +113,8 @@ impl Player {
             fov: 1.0,
             walk_dist: 0.0,
             bob: 0.0,
+            grav: 1.0,
+            speed_mul: 1.0,
         };
         if let Some(c) = cam() {
             (p.pos, p.yaw, p.pitch, p.fly) = (vec3(c[0], c[1], c[2]), c[3], c[4], true);
@@ -214,7 +219,7 @@ impl Player {
             6.5
         } else {
             4.3
-        };
+        } * self.speed_mul;
         self.vel.x = wish.x * speed + self.knock.x;
         self.vel.z = wish.z * speed + self.knock.z;
         if self.fly {
@@ -222,7 +227,7 @@ impl Player {
             let down = input && is_key_down(KeyCode::LeftControl);
             self.vel.y = (up as i32 - down as i32) as f32 * speed + self.knock.y;
         } else {
-            self.vel.y -= 28.0 * dt;
+            self.vel.y -= 28.0 * self.grav * dt;
             if self.on_ground && jump {
                 self.vel.y = 8.4;
             }
@@ -306,6 +311,7 @@ impl Player {
             _ if self.sneaking => (SNEAK, if self.on_ground { GROUND_RATE } else { AIR_RATE }),
             (_, s) => (if s { SPRINT } else { WALK }, if self.on_ground { GROUND_RATE } else { AIR_RATE }),
         };
+        let speed = speed * self.speed_mul;
         self.vel.y += self.knock.y;
         let dy = if self.fly {
             let (vy, dy) = approach(self.vel.y, (jump as i32 - self.sneaking as i32) as f32 * FLY_VERT, FLY_VERT_RATE, dt);
@@ -318,7 +324,7 @@ impl Player {
                     h += vec2(f.x, f.z) * SPRINT_JUMP;
                 }
             }
-            let (vy, dy) = approach(self.vel.y, TERMINAL, DRAG, dt);
+            let (vy, dy) = approach(self.vel.y, TERMINAL * self.grav, DRAG, dt);
             self.vel.y = vy;
             dy
         };

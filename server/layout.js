@@ -16,15 +16,23 @@ export const MODZ = { x0: 245, x1: 261, z0: 111, z1: 127 };
 export const HUB = { x0: 241, x1: 271, z0: 191, z1: 205, dome: [256.5, G, 198.5], r: [17, 11, 10] };
 export const TOWER = [160, 30, 265];
 export const SKATE = { x0: 228, x1: 272, z0: 244, z1: 280 };
+// Lugares funcionais (src/places/*.rs + server/places.js): Congresso e Bolsa na avenida dos poderes (norte),
+// TV ao sul das casas, Banco Central e Terminal na avenida GTA.
+export const CONGRESSO = { x0: 50, x1: 86, z0: 80, z1: 116 };
+export const BOLSA = { x0: 234, x1: 270, z0: 70, z1: 102 };
+export const TV = { x0: 44, x1: 84, z0: 266, z1: 292 };
+export const BANCO = { x0: 184, x1: 214, z0: 222, z1: 252 };
+export const TERMINAL = { x0: 184, x1: 220, z0: 266, z1: 294 };
+const NEW_PLACES = [CONGRESSO, BOLSA, TV, BANCO, TERMINAL];
 // [x0, z0, x1, z1] (igual layout::ROADS / PATHS)
-export const ROADS = [[158, 92, 162, 137], [158, 183, 162, 263], [75, 158, 137, 162], [183, 158, 243, 162], [44, 238, 157, 242], [163, 257, 227, 261]];
-export const PATHS = [[239, 119, 241, 157], [242, 118, 245, 120], [241, 163, 242, 190]];
+export const ROADS = [[158, 92, 162, 137], [158, 183, 162, 263], [75, 158, 137, 162], [183, 158, 243, 162], [44, 238, 157, 242], [163, 257, 227, 261], [87, 96, 233, 100]];
+export const PATHS = [[239, 119, 241, 157], [242, 118, 245, 120], [241, 163, 242, 190], [61, 243, 63, 265], [163, 236, 183, 238], [199, 262, 201, 265]];
 export const HOUSES = [[50, 228], [68, 228], [86, 228], [104, 228], [122, 228], [50, 246], [68, 246], [86, 246], [104, 246], [122, 246], [166, 250]];
 export const PLACAR = [120, 131, 200, 133];
 export const BILLBOARDS = [[136, 136], [184, 136], [136, 184], [184, 184], [112, 150]];
 
 // Missao "visitar"
-export const SPOTS = { praca: PLAZA, clube: [60, 160], lab: [253, 160], torre: [160, 265], arena: [160, 58], skate: [250, 262], casas: [100, 240] };
+export const SPOTS = { praca: PLAZA, clube: [60, 160], lab: [253, 160], torre: [160, 265], arena: [160, 58], skate: [250, 262], casas: [100, 240], congresso: [78, 98], bolsa: [244, 86], tv: [64, 262], banco: [190, 237], terminal: [202, 280] };
 
 // [x0, x1, z0, z1]: nenhuma obra da IA (pedido de jogador ou autonoma) cobre clube, lab+domo+painel, zona de mods, hub ou placar da arena.
 export const LANDMARKS = [
@@ -33,6 +41,7 @@ export const LANDMARKS = [
     [MODZ.x0 - 2, MODZ.x1 + 2, MODZ.z0 - 2, MODZ.z1 + 2],
     [HUB.x0 - 2, HUB.x1 + 2, HUB.z0 - 3, HUB.z1 + 4],
     [ARENA_BOARD.x0, ARENA_BOARD.x1, ARENA_BOARD.z0, ARENA_BOARD.z1],
+    ...NEW_PLACES.map((p) => [p.x0 - 2, p.x1 + 2, p.z0 - 2, p.z1 + 2]),
 ];
 
 // Onde a IA nao constroi sozinha: marcos + ruas, trilhas, casas, torre, skate, arena, placar, outdoors.
@@ -76,4 +85,6 @@ export const PLACES =
     `ARENA DOS GIGANTES ao norte (x ${ARENA.x0}..${ARENA.x1}, z ${ARENA.z0}..${ARENA.z1}): Lula, Flavio Bolsonaro, Renan Santos, Wolverine, urna x GODZILHA. ` +
     `CLUBE de house a oeste (x ${CLUB.x0}..${CLUB.x1}, z ${CLUB.z0}..${CLUB.z1}) com escudo (centro ${CLUB.shield.join(",")} raio ${CLUB.r}; explosoes nao afetam dentro). ` +
     `DISTRITO DA CIENCIA a leste: laboratorio (x ${LAB.x0}..${LAB.x1}, z ${LAB.z0}..${LAB.z1}) com domo, zona de mods ao norte (x ${MODZ.x0}..${MODZ.x1}, z ${MODZ.z0}..${MODZ.z1}), game hub ao sul (x ${HUB.x0}..${HUB.x1}, z ${HUB.z0}..${HUB.z1}). ` +
+    `AVENIDA DOS PODERES (z 96..100, x 87..233) passa no sul da arena: CONGRESSO DA VILA na ponta oeste (x ${CONGRESSO.x0}..${CONGRESSO.x1}, z ${CONGRESSO.z0}..${CONGRESSO.z1}, leis votadas que mudam o jogo) e BOLSA DE VALORES na ponta leste (x ${BOLSA.x0}..${BOLSA.x1}, z ${BOLSA.z0}..${BOLSA.z1}). ` +
+    `TV URNA NEWS ao sul das casas (x ${TV.x0}..${TV.x1}, z ${TV.z0}..${TV.z1}). BANCO CENTRAL (x ${BANCO.x0}..${BANCO.x1}, z ${BANCO.z0}..${BANCO.z1}) e TERMINAL INTERDIMENSIONAL (x ${TERMINAL.x0}..${TERMINAL.x1}, z ${TERMINAL.z0}..${TERMINAL.z1}) na avenida GTA. ` +
     `CASAS a sudoeste (rua z 238..242, x 44..157). TORRE ao sul (${TOWER.join(",")}) na avenida GTA (z 257..261). SKATE PARK a sudeste (x ${SKATE.x0}..${SKATE.x1}, z ${SKATE.z0}..${SKATE.z1}). Jogadores nascem no sul da praca.`;

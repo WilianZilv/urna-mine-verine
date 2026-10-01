@@ -2,7 +2,7 @@
 //! Prédio: laje comprida com torres gêmeas, cúpula e cuia no teto (oeste) e plenário aberto pra avenida
 //! (leste) com 5 púlpitos (um por lei: pisa 1,5 s pra votar) e o painel holográfico virado pro leste.
 
-use super::{Geo, Laws, Place, Screen, TW, clear_lot, fill, hash_str, wrap};
+use super::{Geo, Laws, Place, Screen, TW, clear_lot, fill, hash_str, text_mid, wrap};
 use crate::batch::Batch;
 use crate::extras::Label;
 use crate::lab::panel::{CYAN, DIM, GOLD, PINK, SOFT, fit, frame, frame_at, holo_fx, text_right};
@@ -24,6 +24,8 @@ const LAWS: [(&str, &str, &str, Color); 5] = [
 /// Centro (bloco) de cada púlpito 3x3, em arco virado pro painel.
 const PADS: [(i32, i32); 5] = [(81, 90), (80, 94), (79, 98), (80, 102), (81, 106)];
 const HOLD: f32 = 1.5;
+/// Pedestal do troféu MOD DA SEMANA: canto sudeste da entrada, fora da passarela e do pórtico.
+const TROPHY: (f32, f32) = (83.5, 109.5);
 /// Pé do painel (tela virada pra +x, pra avenida).
 const PX: f32 = 71.0;
 const PZ: f32 = 98.5;
@@ -60,6 +62,33 @@ fn mmss(s: f32) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// Mod no concurso: nome, criador, votos.
+#[derive(Default, Clone, PartialEq)]
+struct Entry {
+    n: String,
+    c: String,
+    vo: u32,
+}
+
+impl Entry {
+    fn from(v: &Value) -> Self {
+        Entry { n: super::s(&v["n"]), c: super::s(&v["c"]), vo: v["vo"].as_u64().unwrap_or(0) as u32 }
+    }
+}
+
+/// Concurso semanal de mods (mds no snapshot "lei").
+#[derive(Default)]
+struct Contest {
+    week: String,
+    /// Segundos até a virada, na hora do snapshot.
+    left: f32,
+    n: u32,
+    tot: u32,
+    top: Vec<Entry>,
+    winner: Option<(String, Entry)>,
+    hist: Vec<(String, Entry)>,
+}
+
 #[derive(Default, Clone, Copy)]
 struct Vote {
     v: u32,
@@ -87,11 +116,126 @@ pub struct Congresso {
     /// Confete sobre o plenário quando uma lei passa.
     burst: f64,
     burst_col: Color,
+    mds: Contest,
+    /// Confete sobre o troféu quando o líder da semana muda.
+    trophy_burst: f64,
 }
 
 impl Congresso {
     pub fn new() -> Self {
-        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE }
+        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE, mds: Contest::default(), trophy_burst: -100.0 }
+    }
+
+    /// Troféu holográfico dourado girando num pedestal na entrada (MOD DA SEMANA).
+    fn trophy(&self, b: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let base = vec3(TROPHY.0, G as f32, TROPHY.1);
+        let d = eye.distance(base);
+        if d > 130.0 {
+            return;
+        }
+        let id = Mat4::IDENTITY;
+        b.cube(&id, base + vec3(0.0, 0.6, 0.0), vec3(1.8, 1.2, 1.8), rgb(0.12, 0.13, 0.16));
+        b.cube(&id, base + vec3(0.0, 1.3, 0.0), vec3(1.4, 0.2, 1.4), rgb(0.2, 0.2, 0.24));
+        b.glow(&id, base + vec3(0.0, 1.21, 0.0), vec3(1.9, 0.06, 1.9), GOLD);
+        let flick = 0.85 + 0.15 * (time * 9.0).sin() * (time * 3.3).sin();
+        let gold = Color::new(GOLD.r * flick, GOLD.g * flick, GOLD.b * flick, 1.0);
+        let m = Mat4::from_translation(base + vec3(0.0, 2.0 + (time * 1.6).sin() * 0.15, 0.0)) * Mat4::from_rotation_y(time * 1.2);
+        b.glow(&m, vec3(0.0, 0.1, 0.0), vec3(1.0, 0.2, 1.0), gold);
+        b.glow(&m, vec3(0.0, 0.5, 0.0), vec3(0.25, 0.6, 0.25), gold);
+        for (y, w) in [(0.9, 0.5), (1.15, 0.85), (1.45, 1.1), (1.75, 1.25)] {
+            b.glow(&m, vec3(0.0, y, 0.0), vec3(w, 0.3, w), gold);
+        }
+        for s in [-1.0f32, 1.0] {
+            b.glow(&m, vec3(s * 0.8, 1.45, 0.0), vec3(0.15, 0.6, 0.15), gold);
+            b.glow(&m, vec3(s * 0.7, 1.75, 0.0), vec3(0.3, 0.12, 0.12), gold);
+        }
+        b.glow(&m, vec3(0.0, 1.6, 0.66), vec3(0.3, 0.3, 0.05), WHITE);
+        let sparks = crate::quality::pick([0, 4, 8]);
+        for k in 0..sparks {
+            let a = k as f32 / sparks as f32 * TAU + time * 0.9;
+            let y = 2.0 + ((time * 0.7 + k as f32 * 0.37).fract()) * 2.5;
+            b.glow(&id, base + vec3(a.cos() * 1.3, y, a.sin() * 1.3), Vec3::splat(0.08), GOLD);
+        }
+        let t = (get_time() - self.trophy_burst) as f32;
+        if (0.0..3.0).contains(&t) {
+            let o = base + vec3(0.0, 4.0, 0.0);
+            let size = 0.3 * (1.0 - t / 3.0);
+            for k in 0..crate::quality::pick([10u32, 20, 32]) {
+                let (a, up, sp) = (rnd(k, 7) * TAU, 0.4 + rnd(k, 8) * 0.8, 2.5 + rnd(k, 9) * 3.0);
+                let p = o + vec3(a.cos(), up, a.sin()) * sp * t - vec3(0.0, 2.5 * t * t, 0.0);
+                b.glow(&id, p, Vec3::splat(size), if k % 2 == 0 { GOLD } else { LAWS[k as usize % 5].3 });
+            }
+        }
+        if d < 50.0 {
+            let m = &self.mds;
+            let text = match (&m.winner, m.top.first().filter(|e| e.vo > 0)) {
+                (Some((_, w)), _) => format!("MOD DA SEMANA: {} ({})", w.n.to_uppercase(), w.c),
+                (None, Some(e)) => format!("MOD DA SEMANA: ??? - LIDER: {} ({})", e.n.to_uppercase(), e.c),
+                _ => "MOD DA SEMANA: ??? - /concurso".into(),
+            };
+            let top = base + vec3(0.0, 4.6, 0.0);
+            let pos = eye + (top - eye) * (40.0 / eye.distance(top)).min(1.0);
+            labels.push(Label { pos, text, size: 24.0, color: GOLD });
+            let lead = m.top.first().filter(|e| e.vo > 0 && d < 30.0 && m.winner.is_some());
+            if let Some(e) = lead {
+                labels.push(Label { pos: base + vec3(0.0, 3.9, 0.0), text: format!("LIDER DA SEMANA: {} - {} voto(s)", e.n, e.vo), size: 18.0, color: SOFT });
+            }
+        }
+    }
+
+    /// Página do painel: 0 = leis, 1 = concurso de mods (alterna a cada 12 s).
+    fn page(&self, time: f32) -> u32 {
+        if self.got && self.live { (time / 12.0) as u32 % 2 } else { 0 }
+    }
+
+    fn paint_mods(&self, time: f32) {
+        let m = &self.mds;
+        draw_text("CONCURSO DE MODS", 40.0, 92.0, 84.0, GOLD);
+        let left = (m.left - (get_time() - self.recv) as f32).max(0.0);
+        let s = left as i32;
+        let when = if s >= 86400 { format!("FALTAM {} DIA(S) {}H", s / 86400, s % 86400 / 3600) } else { format!("FALTAM {}H{:02}", s / 3600, s % 3600 / 60) };
+        text_right(&format!("SEMANA {}  -  {when}", m.week), TW - 40.0, 70.0, 44.0, CYAN);
+        text_right(&format!("{} mod(s) na disputa  -  {} voto(s)", m.n, m.tot), TW - 40.0, 108.0, 30.0, SOFT);
+        draw_rectangle(40.0, 126.0, TW - 80.0, 4.0, Color::new(1.0, 0.85, 0.3, 0.7));
+
+        frame(40.0, 146.0, TW - 80.0, 430.0, "");
+        if m.top.is_empty() {
+            let blink = (time * 2.0).fract() < 0.7;
+            text_mid("NENHUM MOD ATIVO NA VILA", TW * 0.5, 330.0, 72.0, if blink { PINK } else { SOFT });
+            text_mid("sem candidato, sem concurso. sobe um mod (/modding.txt)", TW * 0.5, 410.0, 40.0, SOFT);
+        }
+        let (xb, bw) = (980.0, 700.0);
+        let max = m.top.iter().map(|e| e.vo).max().unwrap_or(0).max(1);
+        let medal = [GOLD, Color::new(0.8, 0.85, 0.9, 1.0), Color::new(0.85, 0.5, 0.25, 1.0)];
+        for (i, e) in m.top.iter().enumerate() {
+            let y = 160.0 + i as f32 * 136.0;
+            draw_rectangle(56.0, y + 4.0, TW - 112.0, 126.0, Color::new(0.3, 0.22, 0.05, if i == 0 { 0.45 } else { 0.22 }));
+            draw_rectangle(56.0, y + 4.0, 12.0, 126.0, medal[i]);
+            draw_text(&format!("{}.", i + 1), 90.0, y + 84.0, 80.0, medal[i]);
+            draw_text(&fit(&e.n.to_uppercase(), xb - 260.0, 60.0), 190.0, y + 64.0, 60.0, if i == 0 { GOLD } else { WHITE });
+            draw_text(&fit(&format!("de {}", e.c), xb - 260.0, 34.0), 190.0, y + 108.0, 34.0, SOFT);
+            let k = e.vo as f32 / max as f32;
+            draw_rectangle(xb, y + 40.0, bw, 50.0, Color::new(1.0, 0.85, 0.3, 0.1));
+            draw_rectangle(xb, y + 40.0, bw * k, 50.0, Color::new(medal[i].r, medal[i].g, medal[i].b, 0.85));
+            draw_rectangle_lines(xb, y + 40.0, bw, 50.0, 2.0, DIM);
+            text_right(&format!("{} voto(s)", e.vo), TW - 70.0, y + 82.0, 46.0, WHITE);
+        }
+
+        frame(40.0, 592.0, TW - 80.0, 350.0, "HALL DA FAMA");
+        match &m.winner {
+            Some((wk, w)) => {
+                draw_text(&fit(&format!("MOD DA SEMANA ({wk}): {} de {}", w.n.to_uppercase(), w.c), TW - 140.0, 56.0), 70.0, 680.0, 56.0, GOLD);
+                for (j, (wk, h)) in m.hist.iter().skip(1).take(4).enumerate() {
+                    draw_text(&fit(&format!("{wk}: {} de {} ({} voto(s))", h.n, h.c, h.vo), TW - 160.0, 38.0), 90.0, 752.0 + j as f32 * 46.0, 38.0, SOFT);
+                }
+            }
+            None => {
+                draw_text("nenhum campeao ainda. o primeiro MOD DA SEMANA sai na virada de segunda (UTC)", 70.0, 690.0, 40.0, SOFT);
+            }
+        }
+        draw_text("/concurso   /votarmod numero ou nome", 40.0, 1000.0, 40.0, GOLD);
+        text_right("1 voto por semana, pode trocar", TW - 40.0, 1000.0, 30.0, SOFT);
+        holo_fx(time, self.flash());
     }
 
     /// (em vigor, recesso) restantes agora, descontando o tempo desde o snapshot.
@@ -258,6 +402,22 @@ impl Place for Congresso {
         (self.got, self.recv, self.passed) = (true, get_time(), passed);
         self.q = m["q"].as_u64().unwrap_or(1) as u32;
         self.last = super::s(&m["last"]);
+        let d = &m["mds"];
+        let arr = |k: &str| d[k].as_array().cloned().unwrap_or_default();
+        let lead = |e: Option<&Entry>| e.filter(|e| e.vo > 0).map(|e| (e.n.clone(), e.c.clone()));
+        let new_lead = lead(arr("top").first().map(Entry::from).as_ref());
+        if !self.mds.week.is_empty() && new_lead.is_some() && new_lead != lead(self.mds.top.first()) {
+            self.trophy_burst = get_time();
+        }
+        self.mds = Contest {
+            week: super::s(&d["week"]),
+            left: d["left"].as_f64().unwrap_or(0.0) as f32,
+            n: d["n"].as_u64().unwrap_or(0) as u32,
+            tot: d["tot"].as_u64().unwrap_or(0) as u32,
+            top: arr("top").iter().map(Entry::from).collect(),
+            winner: d["winner"].is_object().then(|| (super::s(&d["winner"]["week"]), Entry::from(&d["winner"]))),
+            hist: arr("hist").iter().map(|h| (super::s(&h["week"]), Entry::from(h))).collect(),
+        };
     }
 
     fn update(&mut self, p: &mut Player, dt: f32, _time: f32, online: bool, out: &mut Vec<Value>) {
@@ -280,15 +440,25 @@ impl Place for Congresso {
 
     fn render(&mut self, time: f32, eye: Vec3) {
         let live = self.got && self.live;
-        let mut key = format!("{live}|{}|{}|{}", self.q, self.passed, self.last);
+        let page = self.page(time);
+        let m = &self.mds;
+        let mins = if page == 1 { ((m.left - (get_time() - self.recv) as f32) / 60.0) as i32 } else { 0 };
+        let mut key = format!("{live}|{}|{}|{}|{page}|{}|{}|{}|{mins}", self.q, self.passed, self.last, m.week, m.tot, m.n);
+        for e in m.top.iter().chain(m.winner.iter().map(|w| &w.1)) {
+            key += &format!("|{}:{}:{}", e.n, e.c, e.vo);
+        }
         let mut animated = self.flash() > 0.0;
         for i in 0..5 {
             let (on, cd) = self.left(i);
             animated |= live && (on > 0.0 || cd > 0.0);
             key += &format!("|{}:{}:{}", self.st[i].v, on > 0.0, cd > 0.0);
         }
-        if self.screen.begin(time, eye, &geo(), hash_str(&key), animated || !live) {
-            self.paint(time);
+        if self.screen.begin(time, eye, &geo(), hash_str(&key), animated || !live || (page == 1 && m.top.is_empty())) {
+            if page == 1 {
+                self.paint_mods(time);
+            } else {
+                self.paint(time);
+            }
             self.screen.end();
         }
     }
@@ -296,6 +466,7 @@ impl Place for Congresso {
     fn draw(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
         self.emblems(b, labels, time, eye);
         self.confetti(b, eye);
+        self.trophy(b, labels, time, eye);
         if eye.distance(center()) > 130.0 {
             return;
         }

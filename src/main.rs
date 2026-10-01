@@ -25,6 +25,7 @@ mod net;
 mod player;
 mod portal;
 mod prof;
+mod quality;
 mod ragdoll;
 mod shield;
 mod skate;
@@ -245,6 +246,12 @@ fn char_cards(sw: f32, sh: f32) -> [Rect; CHARS.len()] {
     std::array::from_fn(|i| Rect::new(x0 + i as f32 * (w + gap), sh * 0.5 - h * 0.5, w, h))
 }
 
+/// Botão de qualidade gráfica embaixo dos cards de personagem.
+fn quality_button(sw: f32, sh: f32) -> Rect {
+    let w = (sw * 0.8).min(320.0);
+    Rect::new(sw * 0.5 - w * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 48.0, w, 38.0)
+}
+
 /// Lê texto digitado (nome / chat). Retorna true no Enter.
 fn type_into(s: &mut String, max: usize) -> bool {
     while let Some(c) = get_char_pressed() {
@@ -391,6 +398,7 @@ async fn main() {
     let mut mobile = unsafe { web::urna_is_touch() } != 0;
     #[cfg(not(target_arch = "wasm32"))]
     let mut mobile = false;
+    let mut quality = quality::Quality::new(mobile);
     let mut stick: Option<(u64, Vec2)> = None;
     let mut look_touch: Option<(u64, Vec2)> = None;
     let mut held: HashMap<u64, usize> = HashMap::new();
@@ -465,7 +473,7 @@ async fn main() {
     prof.on = debug;
 
     loop {
-        prof.frame("");
+        prof.frame(&quality.label());
         let dt = get_frame_time().min(0.05);
         let online = welcomed && net.state() == net::OPEN;
         if was_online && !online {
@@ -778,11 +786,18 @@ async fn main() {
         if !ts.is_empty() && !mobile {
             mobile = true;
             show_help = false;
+            if quality.auto {
+                quality = quality::Quality::new(true);
+            }
+        }
+        if let Some(b) = quality.update(dt) {
+            banner = Some((b, 2.5));
         }
         let slot = if mobile { (sw / 13.0).min(48.0) } else { 48.0 };
         for t in &ts {
             let p = t.position;
             match t.phase {
+                TouchPhase::Started if chars_open && quality_button(sw, sh).contains(p) => banner = Some((quality.cycle(mobile), 2.0)),
                 TouchPhase::Started if chars_open => {
                     pick_char = char_cards(sw, sh).iter().position(|r| r.contains(p));
                     if pick_char.is_none() {
@@ -890,7 +905,11 @@ async fn main() {
             player.look(md);
         }
         if chars_open && is_mouse_button_pressed(MouseButton::Left) {
-            pick_char = char_cards(sw, sh).iter().position(|r| r.contains(mouse));
+            if quality_button(sw, sh).contains(mouse) {
+                banner = Some((quality.cycle(mobile), 2.0));
+            } else {
+                pick_char = char_cards(sw, sh).iter().position(|r| r.contains(mouse));
+            }
         }
         if let Some(msg) = typing.as_mut() {
             if type_into(msg, 120) {
@@ -917,6 +936,9 @@ async fn main() {
             }
             if is_key_pressed(KeyCode::F3) {
                 prof.toggle();
+            }
+            if is_key_pressed(KeyCode::F4) {
+                banner = Some((quality.cycle(mobile), 2.0));
             }
             if is_key_pressed(KeyCode::M) {
                 muted = !muted;
@@ -1476,6 +1498,10 @@ async fn main() {
         }
 
         fx.update(&world, dt);
+        let cap = quality::pick([300, 800, 4000]);
+        if fx.particles.len() > cap {
+            fx.particles.drain(..fx.particles.len() - cap);
+        }
         if is_host && online {
             ev_out.extend(events.iter().cloned());
         }
@@ -1573,6 +1599,11 @@ async fn main() {
         };
         set_camera(&cam);
         let vp = cam.matrix();
+        // Vista dos portais redesenha o batch de outro ângulo: sem culling enquanto houver portal visível
+        let low = quality::tier() == quality::LOW;
+        let cull = (portals.list.is_empty() || low).then(|| batch::Cull { planes: chunks::frustum(&vp), eye: cam.position, min_ratio: quality::pick([1.5, 1.0, 0.6]) * 2.0 * (cam.fovy * 0.5).tan() / sh });
+        opaque.cull = cull;
+        trans.cull = cull;
 
         // Céu: sol e nuvens
         let id = Mat4::IDENTITY;
@@ -1719,8 +1750,13 @@ async fn main() {
         let sc = shield_center();
         let sf = fx.shield_flash;
         let shimmer = 0.03 * (time * 2.0).sin();
-        draw_sphere(sc, SHIELD_R, None, Color::new(0.45, 0.75 + 0.2 * sf, 1.0, 0.09 + shimmer + 0.25 * sf));
-        draw_sphere_wires(sc, SHIELD_R + 0.05, None, Color::new(0.6, 0.9, 1.0, 0.12 + 0.4 * sf));
+        if chunks::sphere_visible(&chunks::frustum(&vp), sc, SHIELD_R) {
+            let rings = quality::pick([8, 16, 16]);
+            draw_sphere_ex(sc, SHIELD_R, None, Color::new(0.45, 0.75 + 0.2 * sf, 1.0, 0.09 + shimmer + 0.25 * sf), DrawSphereParams { rings, slices: rings + 4 * (rings < 16) as usize, ..Default::default() });
+            if !low {
+                draw_sphere_wires(sc, SHIELD_R + 0.05, None, Color::new(0.6, 0.9, 1.0, 0.12 + 0.4 * sf));
+            }
+        }
         lab_info.draw_dome(time, npcs.guard().flash.max(fx.dome_flash[0]), eye);
         shield::draw_hub(time, fx.dome_flash[1]);
 
@@ -1737,6 +1773,12 @@ async fn main() {
         labels.push(Label { pos: vec3(36.5, G as f32 + 8.2, 64.5), text: "CLUB DO HOUSE - SO CURTINDO".into(), size: 30.0, color: Color::new(1.0, 0.4, 0.9, 1.0) });
         labels.push(Label { pos: urna.matrix().transform_point3(vec3(0.0, 6.0, 0.0)), text: "URNA ELETRONICA".into(), size: 32.0, color: Color::new(1.0, 0.85, 0.3, 1.0) });
         labels.push(Label { pos: urna.matrix().transform_point3(vec3(5.2, -3.6, 1.8)), text: "CONFIRMA".into(), size: 20.0, color: GREEN });
+        let (label_max, label_far) = quality::pick([(12, 45.0), (24, 80.0), (usize::MAX, f32::MAX)]);
+        labels.retain(|l| l.pos.distance(eye) < label_far);
+        if labels.len() > label_max {
+            labels.sort_by(|a, b| a.pos.distance_squared(eye).total_cmp(&b.pos.distance_squared(eye)));
+            labels.truncate(label_max);
+        }
         for l in &labels {
             if let Some(s) = project(&vp, l.pos) {
                 let d = l.pos.distance(eye);
@@ -2022,8 +2064,12 @@ async fn main() {
                 }
             }
             text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-6 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
+            let qb = quality_button(sw, sh);
+            draw_rectangle(qb.x, qb.y, qb.w, qb.h, Color::new(0.1, 0.1, 0.15, 0.9));
+            draw_rectangle_lines(qb.x, qb.y, qb.w, qb.h, 2.0, Color::new(0.45, 1.0, 1.0, 1.0));
+            text_centered(&format!("{}{}", quality.label(), if mobile { "" } else { " (F4)" }), sw * 0.5, qb.y + qb.h * 0.5 + 7.0, 20.0, WHITE, false);
         }
-        prof.draw("");
+        prof.draw(&quality.label());
         prof.mark(prof::UI);
 
         next_frame().await;

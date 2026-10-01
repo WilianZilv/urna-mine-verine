@@ -797,9 +797,10 @@ impl Portals {
             })
             .collect();
         cands.sort_by(|a, b| a.2.total_cmp(&b.2));
-        cands.truncate(if mobile { 1 } else { 2 });
+        // Qualidade baixa: sem vista (só o redemoinho)
+        cands.truncate(crate::quality::pick([0, 1, if mobile { 1 } else { 2 }]));
 
-        let scale = if mobile { 0.4 } else { 0.5 };
+        let scale = if mobile || crate::quality::tier() < crate::quality::HIGH { 0.4 } else { 0.5 };
         let size = (((sw * scale) as u32).clamp(64, 900), ((sh * scale) as u32).clamp(64, 900));
         if size != self.rt_size {
             self.rts.clear();

@@ -4,6 +4,9 @@
 use super::*;
 use macroquad::miniquad::{FilterMode as MqFilter, MipmapFilterMode};
 use std::f32::consts::TAU;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+
+static LAST_PAINT: AtomicU32 = AtomicU32::new(0);
 
 const TW: f32 = 2048.0;
 const TH: f32 = 1024.0;
@@ -107,10 +110,20 @@ impl LabInfo {
         self.card_t = (self.card_t + dt * 1.2).min(1.0);
         self.flash = (self.flash - dt * 0.8).max(0.0);
 
+        // 2048x1024 + mipmaps todo frame pesa no celular: qualidade baixa/média redesenha menos vezes e menor
+        let (every, res) = crate::quality::pick([(0.25, 0.5), (1.0 / 15.0, 1.0), (0.0, 1.0)]);
+        let last = f32::from_bits(LAST_PAINT.load(Relaxed));
+        if self.rt.as_ref().is_some_and(|rt| rt.texture.width() == TW * res) && time - last < every && time >= last {
+            return;
+        }
+        LAST_PAINT.store(time.to_bits(), Relaxed);
+        if self.rt.as_ref().is_some_and(|rt| rt.texture.width() != TW * res) {
+            self.rt = None;
+        }
         let rt = self
             .rt
             .get_or_insert_with(|| {
-                let rt = render_target(TW as u32, TH as u32);
+                let rt = render_target((TW * res) as u32, (TH * res) as u32);
                 rt.texture.set_filter(FilterMode::Linear);
                 rt
             })

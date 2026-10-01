@@ -12,12 +12,22 @@ const FACES: [([usize; 4], [f32; 3]); 6] = [
     ([0, 2, 3, 1], [0.0, 0.0, -1.0]),
 ];
 
+/// Descarta cubos fora da câmera ou menores que `min_ratio` (raio / distância, ~fração de pixel).
+#[derive(Clone, Copy)]
+pub struct Cull {
+    pub planes: [Vec4; 6],
+    pub eye: Vec3,
+    pub min_ratio: f32,
+}
+
 pub struct Batch {
     v: Vec<Vertex>,
     i: Vec<u16>,
     done: Vec<(Vec<Vertex>, Vec<u16>)>,
+    pool: Vec<(Vec<Vertex>, Vec<u16>)>,
     uv: Vec2,
     light: Vec3,
+    pub cull: Option<Cull>,
 }
 
 impl Batch {
@@ -27,8 +37,10 @@ impl Batch {
             v: Vec::new(),
             i: Vec::new(),
             done: Vec::new(),
+            pool: Vec::new(),
             uv: vec2((u0 + u1) * 0.5, (v0 + v1) * 0.5),
             light: vec3(0.4, 1.0, 0.3).normalize(),
+            cull: None,
         }
     }
 
@@ -43,23 +55,32 @@ impl Batch {
     }
 
     pub fn cube_ex(&mut self, m: &Mat4, c: Vec3, s: Vec3, col: Color, lit: bool) {
+        let h = s * 0.5;
+        let wc = m.transform_point3(c);
+        let axes = [m.x_axis.truncate(), m.y_axis.truncate(), m.z_axis.truncate()];
+        if let Some(cull) = &self.cull {
+            let r = h.length() * axes.iter().map(|a| a.length_squared()).fold(0.0, f32::max).sqrt();
+            if r < wc.distance(cull.eye) * cull.min_ratio || !crate::chunks::sphere_visible(&cull.planes, wc, r) {
+                return;
+            }
+        }
         crate::prof::add(&crate::prof::CUBES, 1);
         if self.v.len() > 15000 {
-            self.done.push((std::mem::take(&mut self.v), std::mem::take(&mut self.i)));
+            let (v, i) = self.pool.pop().unwrap_or_default();
+            self.done.push((std::mem::replace(&mut self.v, v), std::mem::replace(&mut self.i, i)));
         }
-        let h = s * 0.5;
+        let (ex, ey, ez) = (axes[0] * h.x, axes[1] * h.y, axes[2] * h.z);
         let mut p = [Vec3::ZERO; 8];
         for (k, pk) in p.iter_mut().enumerate() {
-            let o = vec3(
-                if k & 1 != 0 { h.x } else { -h.x },
-                if k & 2 != 0 { h.y } else { -h.y },
-                if k & 4 != 0 { h.z } else { -h.z },
-            );
-            *pk = m.transform_point3(c + o);
+            let sx = if k & 1 != 0 { ex } else { -ex };
+            let sy = if k & 2 != 0 { ey } else { -ey };
+            let sz = if k & 4 != 0 { ez } else { -ez };
+            *pk = wc + sx + sy + sz;
         }
-        for (q, n) in FACES.iter() {
+        let units = axes.map(|a| a.normalize_or_zero());
+        for (f, (q, _)) in FACES.iter().enumerate() {
             let shade = if lit {
-                let nw = m.transform_vector3(Vec3::from_array(*n)).normalize_or_zero();
+                let nw = if f % 2 == 0 { units[f / 2] } else { -units[f / 2] };
                 0.5 + 0.45 * nw.dot(self.light).max(0.0) + 0.12 * nw.y.max(0.0)
             } else {
                 1.0
@@ -87,14 +108,15 @@ impl Batch {
         }
     }
 
+    /// Desenha e esvazia, guardando os buffers pro próximo frame (sem realocar).
     pub fn flush(&mut self, tex: &Texture2D) {
-        if !self.v.is_empty() {
-            self.done.push((std::mem::take(&mut self.v), std::mem::take(&mut self.i)));
-        }
-        for (v, i) in self.done.drain(..) {
-            crate::prof::add(&crate::prof::CALLS, 1);
-            crate::prof::add(&crate::prof::VERTS, v.len());
-            draw_mesh(&Mesh { vertices: v, indices: i, texture: Some(tex.clone()) });
+        self.redraw(tex);
+        self.v.clear();
+        self.i.clear();
+        for (mut v, mut i) in self.done.drain(..) {
+            v.clear();
+            i.clear();
+            self.pool.push((v, i));
         }
     }
 }

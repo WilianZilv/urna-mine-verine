@@ -244,9 +244,9 @@ impl Hub {
                 let r = player.pos - c;
                 let (d, lat) = (r.dot(n), r.x * n.z - r.z * n.x);
                 if lat.abs() < 1.5 && d < 0.35 && d > -1.0 && r.y < 3.5 {
-                    const CH: [&str; 6] = ["steve", "skatista", "bandido", "bandido", "niko", "portal"];
+                    const CH: [&str; 8] = ["steve", "skatista", "bandido", "bandido", "niko", "portal", "mario", "wolverine"];
                     let hex = format!("#{:02x}{:02x}{:02x}", (col.r * 255.0) as u8, (col.g * 255.0) as u8, (col.b * 255.0) as u8);
-                    out = Some(json!({"t": "hub", "k": "enter", "p": p.id, "col": hex, "ch": CH[(ch as usize).min(5)]}));
+                    out = Some(json!({"t": "hub", "k": "enter", "p": p.id, "col": hex, "ch": CH[(ch as usize).min(7)]}));
                     self.pending = 4.0;
                     self.msg = Some((format!("ABRINDO {}...", p.name.to_uppercase()), 2.0));
                     player.pos = c + n * 0.6;

@@ -9,6 +9,7 @@ const LOOKS = {
     skatista: { name: "Skatista", skin: "#c8956f", hair: "#2a1a10", eye: "#3a2a18", shirt: "#f2f2f2", sleeve: "#f2f2f2", pants: "#4a6fa8", shoes: "#1c1c1c", hat: "#d83a2e" },
     bandido: { name: "Bandido", skin: "#a87458", hair: "#1c1c1c", eye: "#2a1a10", shirt: "#e8e8e8", sleeve: "#2a2a2a", pants: "#2e3a5c", shoes: "#3a2414", jacket: "#2a2a2a" },
     portal: { name: "Arma de Portal", skin: "#d8a27e", hair: "#3a2414", eye: "#3a5a2a", shirt: "#f2f2f2", sleeve: "#f08a24", pants: "#f08a24", shoes: "#5c5c5c" },
+    wolverine: { name: "Wolverine", skin: "#c8946c", hair: "#f2c418", eye: "#f2f2f2", shirt: "#f2c418", sleeve: "#2a4fb8", glove: "#2a4fb8", pants: "#2a4fb8", shoes: "#1c2a5a", claws: "#d8dde4" },
 };
 
 function model(L) {
@@ -30,7 +31,8 @@ function model(L) {
     if (L.jacket) body.push({ pos: [-p(2.6), p(18), p(0.2)], size: [p(2.8), p(12.2), p(4.2)], color: L.jacket }, { pos: [p(2.6), p(18), p(0.2)], size: [p(2.8), p(12.2), p(4.2)], color: L.jacket });
     const arm = (s) => [
         { pos: [s * p(6), p(21.5), 0], size: [p(4), p(5), p(4)], color: L.sleeve },
-        { pos: [s * p(6), p(15.5), 0], size: [p(4), p(7), p(4)], color: L.skin },
+        { pos: [s * p(6), p(15.5), 0], size: [p(4), p(7), p(4)], color: L.glove || L.skin },
+        ...(L.claws ? [-1, 0, 1].map((k) => ({ pos: [s * p(6) + k * p(1.3), p(9), p(1.5)], size: [p(0.5), p(7), p(0.5)], color: L.claws })) : []),
     ];
     const leg = (s) => [
         { pos: [s * p(2), p(7), 0], size: [p(4), p(10), p(4)], color: L.pants },

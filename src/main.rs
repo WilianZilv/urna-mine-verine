@@ -42,6 +42,7 @@ mod kaiju;
 mod zeppelin;
 #[cfg(target_arch = "wasm32")]
 mod web;
+mod wolvie;
 mod world;
 
 use actors::{Ev, FState, Fighter, VKind, Villager};
@@ -99,7 +100,7 @@ struct Remote {
     yaw: f32,
     walk: f32,
     look: Look,
-    /// Personagem: 0 Steve, 1 skatista, 2 bandido, 3 bandido dirigindo.
+    /// Personagem: 0 Steve, 1 skatista, 2 bandido, 3 bandido dirigindo, 4 niko, 5 portal, 6 encanador, 7 wolverine.
     ch: u8,
     /// Skin de mod ("id@versao", carimbada pelo servidor) e velocidade estimada pros quadros do avatar.
     av: Option<String>,
@@ -237,6 +238,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
         3 => ["FREIO", "-", "-", "SAIR"],
         5 => ["PULA", "AZUL", "LARANJA", "CUBO"],
         6 => ["PULA", "SOCO", "AGACHA", "-"],
+        7 => ["PULA", "GARRA", "BOTE", "DEFESA"],
         _ => ["PULA", "BATE", "POE", "VOA"],
     };
     [
@@ -251,13 +253,15 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     ]
 }
 
-const CHARS: [(&str, &str); 6] = [
-    ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT"),
-    ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano"),
-    ("SKATISTA", "SKATE 3: flick-it, grind, manual"),
-    ("BANDIDO", "GTA 3: arsenal completo + carro"),
-    ("ARMA DE PORTAL", "portais azul/laranja + cubo"),
-    ("ENCANADOR", "pulo triplo, mortal, sentada"),
+/// Cards do menu: (nome, descrição, código do personagem escolhido).
+const CHARS: [(&str, &str, u8); 7] = [
+    ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT", 0),
+    ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano", 1),
+    ("SKATISTA", "SKATE 3: flick-it, grind, manual", 2),
+    ("BANDIDO", "GTA 3: arsenal completo + carro", 3),
+    ("ARMA DE PORTAL", "portais azul/laranja + cubo", 5),
+    ("ENCANADOR", "pulo triplo, mortal, sentada", 6),
+    ("WOLVERINE", "garras, bote, furia, fator de cura", 7),
 ];
 
 fn char_cards(sw: f32, sh: f32) -> [Rect; CHARS.len()] {
@@ -471,6 +475,7 @@ async fn main() {
     let mut kaiju = kaiju::Kaiju::new(audio.rate);
     let mut zeppelin = zeppelin::Zeppelin::new(audio.rate);
     let mut mario = mario::Mario::new(audio.rate);
+    let mut wolvie = wolvie::Wolvie::new(audio.rate);
     let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
     let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
@@ -485,7 +490,7 @@ async fn main() {
     let mut grabbed = false;
     let mut last_mouse: Vec2 = mouse_position().into();
     let mut show_help = !mobile && sk_test.is_none();
-    let mut muted = false;
+    let mut muted = wolvie.demo_on();
     let mut banner: Option<(String, f32)> = Some(("BEM-VINDO A VILA. O HOUSE TA TOCANDO.".into(), 4.0));
     let mut wolverine_called = false;
     // (hp do último frame, segundos de barrinha) de cada lutador; funciona igual no host e nos clientes.
@@ -607,8 +612,9 @@ async fn main() {
                         r.av = m["av"].as_str().map(String::from);
                     }
                     portals.on_p(id, &m);
+                    wolvie.on_p(id, &m);
                     if let Some((dmg, dir)) = steve.on_p(id, &m, my_id) {
-                        player.knock += dir * 6.0 + up * 3.0;
+                        player.knock += (dir * 6.0 + up * 3.0) * wolvie.damage(dmg * 5.0, dir);
                         if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
                             b.hurt(dmg * 5.0);
                         }
@@ -673,7 +679,7 @@ async fn main() {
                                 }
                                 let d = (player.pos + up).distance(p);
                                 if d < r * 2.2 {
-                                    let k = 1.0 - d / (r * 2.2);
+                                    let k = (1.0 - d / (r * 2.2)) * wolvie.blast(plan.o);
                                     let dir = (player.pos - p).normalize_or_zero();
                                     player.knock += vec3(dir.x, 0.0, dir.z) * 14.0 * k + up * 9.0 * k;
                                     steve.hurt(24.0 * k);
@@ -811,16 +817,21 @@ async fn main() {
             _ if niko.is_some() => 4,
             _ if portals.active => 5,
             _ if mario.me.is_some() => 6,
+            _ if wolvie.me.is_some() => 7,
             _ => 0,
         };
         let mut buttons = touch_buttons(sw, sh, ch);
         if ch == 0 && !steve.creative {
             buttons[3].2 = "AGACHA";
         }
+        if ch == 7 && wolvie.rage_full() {
+            buttons[3].2 = "FURIA";
+        }
         let (mut tap_hit, mut tap_place) = (false, false);
         let (mut pick_char, mut car_toggle, mut sk_ollie, mut cycle_weapon): (Option<usize>, bool, bool, i32) = (None, false, false, 0);
         let mut niko_dive = false;
         let mut m_tap = [false; 3];
+        let mut w_tap = [false; 4];
         let ts = touches();
         if !ts.is_empty() && !mobile {
             mobile = true;
@@ -866,6 +877,7 @@ async fn main() {
                             (0, 1) => sk_ollie = true,
                             (1..=3, 5) => portals.tap(b),
                             (0..=2, 6) => m_tap[b] = true,
+                            (0..=3, 7) => w_tap[b] = true,
                             (1, 0) => tap_hit = true,
                             (2, 0) => tap_place = true,
                             (2, 2) => cycle_weapon = 1,
@@ -939,7 +951,7 @@ async fn main() {
             set_cursor_grab(true);
             show_mouse(false);
         }
-        if grabbed && typing.is_none() && (is_key_pressed(KeyCode::Tab) || is_key_pressed(KeyCode::Escape)) {
+        if grabbed && typing.is_none() && ((is_key_pressed(KeyCode::Tab) && ch != 7) || is_key_pressed(KeyCode::Escape)) {
             grabbed = false;
             set_cursor_grab(false);
             show_mouse(true);
@@ -1005,7 +1017,7 @@ async fn main() {
             if is_key_pressed(KeyCode::K) && !fighters[3].spawned {
                 send(json!({"t": "a", "k": "wolv"}), &mut loopback);
             }
-            if is_key_pressed(KeyCode::R) {
+            if is_key_pressed(KeyCode::R) && ch != 7 {
                 send(json!({"t": "w", "k": "reset"}), &mut loopback);
             }
             if is_key_pressed(KeyCode::C) {
@@ -1051,8 +1063,11 @@ async fn main() {
                 }
             }
         }
+        if wolvie.demo_pick() {
+            pick_char = CHARS.iter().position(|c| c.2 == 7);
+        }
         if let Some(m) = pick_char {
-            let c = if m >= 4 { m + 1 } else { m };
+            let c = CHARS[m].2;
             chars_open = false;
             if let Some(s) = skater.take() {
                 player.pos = s.pos;
@@ -1063,6 +1078,7 @@ async fn main() {
             }
             niko = None;
             mario.me = None;
+            wolvie.me = None;
             portals.active = c == 5;
             player.vel = Vec3::ZERO;
             player.fly = false;
@@ -1073,6 +1089,7 @@ async fn main() {
                 4 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
                 5 => {}
                 6 => mario.me = Some(mario::Body::new(player.pos, fw.x.atan2(fw.z))),
+                7 => wolvie.me = Some(wolvie::Body::new(player.pos, fw.x.atan2(fw.z))),
                 _ => steve.set_mode(c == 1, &mut player),
             }
             banner = Some((format!("PERSONAGEM: {}", CHARS[m].0), 2.0));
@@ -1182,6 +1199,18 @@ async fn main() {
             }
             player.pos = mario.me.as_ref().map_or(player.pos, |b| b.pos);
             player.vel = Vec3::ZERO;
+            let d = vec2(player.pos.x - before.x, player.pos.z - before.z).length();
+            moving = d > 0.001;
+            gta_walk += d * 3.0;
+        } else if wolvie.me.is_some() {
+            let inp = wolvie::Intent::read(active, active && grabbed && !just_grabbed, player.stick, w_tap, [btn(0), btn(1), btn(2), btn(3)], wolvie.rage_full());
+            let mut tg = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
+            tg.extend(mario.target(&npcs));
+            let others: Vec<(u64, Vec3)> = remotes.iter().map(|(id, r)| (*id, r.pos)).collect();
+            let before = player.pos;
+            for v in wolvie.play(&world, dt, &inp, &mut player, &tg, &others, &mut fx) {
+                send(v, &mut loopback);
+            }
             let d = vec2(player.pos.x - before.x, player.pos.z - before.z).length();
             moving = d > 0.001;
             gta_walk += d * 3.0;
@@ -1297,6 +1326,8 @@ async fn main() {
             };
             cam_smooth = Some(e);
             (e, look.map(|l| (l - e).normalize()).unwrap_or(player.forward()))
+        } else if let Some(c) = wolvie.camera(&world, &player, dt) {
+            c
         } else if niko.is_some() || mario.me.is_some() {
             let fw = player.forward();
             let right = vec3(-fw.z, 0.0, fw.x).normalize_or_zero();
@@ -1470,6 +1501,7 @@ async fn main() {
             if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
                 b.hurt(mod_hurt * 3.0);
             }
+            wolvie.damage(mod_hurt * 3.0, Vec3::ZERO);
         }
         fx.shake = fx.shake.max(mod_shake);
         for (c, p) in mods.sfx.drain(..) {
@@ -1566,6 +1598,9 @@ async fn main() {
         for (c, p, v) in mario.sfx.drain(..) {
             play_at(&audio, &c, p, eye, v, muted, in_club);
         }
+        for (c, p, v) in wolvie.sfx.drain(..) {
+            play_at(&audio, &c, p, eye, v, muted, in_club);
+        }
         for r in remotes.values_mut() {
             let moved = r.pos.distance(r.target);
             r.walk += moved * 3.0;
@@ -1640,11 +1675,13 @@ async fn main() {
                 (Some(s), _) => s.heading,
                 (_, Some(b)) if b.driving => car.yaw,
                 _ if mario.me.is_some() => mario.me.as_ref().map_or(0.0, |b| b.yaw),
+                _ if wolvie.me.is_some() => wolvie.yaw(),
                 _ => fw.x.atan2(fw.z),
             };
             let mut pm = json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch});
             steve.fill_p(&mut pm, ch, player.sel);
             portals.fill_p(&mut pm);
+            wolvie.fill_p(&mut pm);
             net.send(pm.to_string());
             if is_host {
                 let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
@@ -1813,6 +1850,7 @@ async fn main() {
                 3 => gta::draw_car(&mut opaque, r.pos, r.yaw, 0.0, r.walk, true),
                 2 => gta::draw_remote(&mut opaque, r.pos, r.yaw, r.walk, moving),
                 6 => mario::draw_remote(&mut opaque, &mut trans, r.pos, r.yaw, r.walk, moving, r.vy, time),
+                7 => wolvie.draw_remote(&mut opaque, *rid, r.pos, r.yaw, r.walk, if moving { r.spd } else { 0.0 }, r.vy, time),
                 0 | 5 if r.av.as_deref().is_some_and(|a| uni.draw(&mut opaque, a, r.pos, r.yaw, if moving { r.spd } else { 0.0 }, r.vy.abs() > 1.5, time)) => {}
                 _ => {
                     let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
@@ -1848,6 +1886,7 @@ async fn main() {
         kaiju.draw(&mut opaque, &mut trans, &world, &mut labels, time, npcs.kaiju());
         zeppelin.draw(&mut opaque, &mut trans, &world, &mut labels, time, eye, npcs.zeppelin());
         mario.draw(&mut opaque, &mut trans, &mut labels, time, npcs.get(npc::MARIO, 0));
+        wolvie.draw(&mut opaque, &mut trans, time);
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
@@ -2077,6 +2116,7 @@ async fn main() {
             steve.draw_hud(&atlas, player.sel, sw, sh, slot, mobile, &player.bob_matrix());
         }
         portals.hud(sw, sh);
+        wolvie.hud(dt, sw, sh, &targets, |p| project(&vp, p), |s, x, y, z, c| text_centered(s, x, y, z, c, true), mobile);
 
         draw_text(&format!("URNA-MINE-VERINE  |  {} FPS  |  disparos da urna: {}", get_fps(), urna.shots), 12.0, sh - 80.0, 20.0, WHITE);
         let now_playing = if telao.live { format!("TELAO: {}", telao.title) } else { "house sintetizado 124 BPM (telao carregando...)".to_string() };
@@ -2106,6 +2146,12 @@ async fn main() {
                     "RODA / Q / E / 1-9 troca arma | F carro | todo NPC morre (ate a urna) e o procurado sobe",
                     "CARRO: W acelera | S re/freio | A/D vira | ESPACO freio de mao (drift)",
                     "C troca personagem | T chat | H ajuda",
+                ],
+                7 => [
+                    "WOLVERINE: WASD | SHIFT corre | ESPACO pula / segura na parede = escala | CTRL ou V rola | X garras",
+                    "ESQ combo (direcao varia o golpe) | segura ESQ ou F pesado | S+F gancho (lanca) | F no ar mergulho | SHIFT+F tornado",
+                    "E BOTE (trava: TAB/meio) | montado: ESQ no tempo do anel, F estocada, ESPACO solta | DIR defende (na hora reflete laser)",
+                    "R FURIA com a barra cheia | fator de cura sozinho | C troca personagem | T chat | H ajuda",
                 ],
                 _ if steve.creative => [
                     "CRIATIVO: WASD andar | ESPACO pular | 2x W ou CTRL corre | SHIFT agacha | 2x ESPACO voa (SHIFT desce)",
@@ -2164,7 +2210,13 @@ async fn main() {
             text_centered("ESCOLHE O PERSONAGEM", sw * 0.5, sh * 0.5 - (sh * 0.36).min(200.0) * 0.5 - 24.0, 34.0, WHITE, true);
             uni.draw_wardrobe(sw, sh, |s, x, y, z, c| text_centered(s, x, y, z, c, true));
             for (i, r) in char_cards(sw, sh).iter().enumerate() {
-                let sel = i == [steve.creative as usize, 2, 3, 3, 4, 5][ch as usize];
+                let code = match ch {
+                    0 => steve.creative as u8,
+                    1 => 2,
+                    2 | 3 => 3,
+                    c => c,
+                };
+                let sel = CHARS[i].2 == code;
                 draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.1, 0.1, 0.15, 0.9));
                 draw_rectangle_lines(r.x, r.y, r.w, r.h, if sel { 4.0 } else { 2.0 }, if sel { Color::new(1.0, 0.85, 0.3, 1.0) } else { GRAY });
                 text_centered(&format!("{}", i + 1), r.x + r.w * 0.5, r.y + r.h * 0.25, (r.w * 0.3).min(44.0), Color::new(1.0, 0.85, 0.3, 1.0), false);
@@ -2176,7 +2228,7 @@ async fn main() {
                     text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.86, (r.w / 14.0).min(15.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
                 }
             }
-            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-5 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
+            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-7 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
             let qb = quality_button(sw, sh);
             draw_rectangle(qb.x, qb.y, qb.w, qb.h, Color::new(0.1, 0.1, 0.15, 0.9));
             draw_rectangle_lines(qb.x, qb.y, qb.w, qb.h, 2.0, Color::new(0.45, 1.0, 1.0, 1.0));
@@ -2189,6 +2241,9 @@ async fn main() {
             if t.after_frame(sk) {
                 std::process::exit(0);
             }
+        }
+        if wolvie.after_frame() {
+            std::process::exit(0);
         }
         next_frame().await;
     }

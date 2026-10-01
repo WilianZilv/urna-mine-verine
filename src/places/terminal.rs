@@ -94,11 +94,13 @@ pub struct Terminal {
     warps: Vec<(Vec3, f32)>,
     /// Carimbos do passaporte: destinos visitados nesta sessão.
     stamps: [bool; 8],
+    /// Tour dos Poderes (copiado de places::tour todo frame): (carimbos, minutos restantes).
+    pub tour: Option<(usize, i32)>,
 }
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8] }
+        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8], tour: None }
     }
 
     fn warp(&mut self, at: Vec3) {
@@ -227,6 +229,10 @@ impl Terminal {
             }
         }
         draw_text(&format!("embarque no portao GAME HUB ({:02})", HUB_GATE + 1), x1 + 30.0, 898.0, 30.0, GOLD);
+        match self.tour {
+            Some((n, min)) => text_right(&format!("TEU TOUR DOS PODERES: {n}/5 - {min} MIN"), x1 + w1 - 40.0, 898.0, 30.0, GOLD),
+            None => text_right("TOUR DOS PODERES: /tour", x1 + w1 - 40.0, 898.0, 30.0, CYAN),
+        }
 
         text_mid("/viajar destino (5 moedas)  -  ou anda no portao", TW * 0.5, 970.0, 52.0, GOLD);
         text_mid("/destinos lista tudo  -  moedas ficticias, passagem vai pro cofre da IA", TW * 0.5, 1008.0, 26.0, SOFT);
@@ -299,7 +305,7 @@ impl Place for Terminal {
         if eye.distance(BOARD.c) > 110.0 {
             return;
         }
-        let mut key = format!("{}|{}|{:?}|{:?}", self.got, self.total, self.trips, self.stamps);
+        let mut key = format!("{}|{}|{:?}|{:?}|{:?}", self.got, self.total, self.trips, self.stamps, self.tour);
         for p in &self.portals {
             key += &format!("|{}:{}:{}", p.name, p.by, p.n);
         }

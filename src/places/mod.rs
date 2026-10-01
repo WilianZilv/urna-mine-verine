@@ -13,6 +13,7 @@ pub mod banco;
 pub mod bolsa;
 pub mod congresso;
 pub mod terminal;
+pub mod tour;
 pub mod tv;
 
 /// Tamanho lógico de toda tela (as funções de desenho de crate::lab::panel usam esse espaço).
@@ -54,19 +55,20 @@ pub struct Places {
     pub tv: tv::Tv,
     pub banco: banco::Banco,
     pub terminal: terminal::Terminal,
+    pub tour: tour::Tour,
 }
 
 impl Places {
     pub fn new() -> Self {
-        Places { congresso: congresso::Congresso::new(), bolsa: bolsa::Bolsa::new(), tv: tv::Tv::new(), banco: banco::Banco::new(), terminal: terminal::Terminal::new() }
+        Places { congresso: congresso::Congresso::new(), bolsa: bolsa::Bolsa::new(), tv: tv::Tv::new(), banco: banco::Banco::new(), terminal: terminal::Terminal::new(), tour: tour::Tour::new() }
     }
 
-    fn all(&mut self) -> [&mut dyn Place; 5] {
-        [&mut self.congresso, &mut self.bolsa, &mut self.tv, &mut self.banco, &mut self.terminal]
+    fn all(&mut self) -> [&mut dyn Place; 6] {
+        [&mut self.congresso, &mut self.bolsa, &mut self.tv, &mut self.banco, &mut self.terminal, &mut self.tour]
     }
 
-    fn each(&self) -> [&dyn Place; 5] {
-        [&self.congresso, &self.bolsa, &self.tv, &self.banco, &self.terminal]
+    fn each(&self) -> [&dyn Place; 6] {
+        [&self.congresso, &self.bolsa, &self.tv, &self.banco, &self.terminal, &self.tour]
     }
 
     pub fn on_msg(&mut self, m: &Value) {
@@ -77,6 +79,7 @@ impl Places {
             "tv" => &mut self.tv,
             "banco" => &mut self.banco,
             "term" | "go" => &mut self.terminal,
+            "tour" => &mut self.tour,
             _ => return,
         };
         p.on_msg(m);
@@ -94,6 +97,7 @@ impl Places {
         for p in self.all() {
             p.update(player, dt, time, online, &mut out);
         }
+        self.terminal.tour = self.tour.board();
         out
     }
 

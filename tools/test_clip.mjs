@@ -3,7 +3,7 @@
 // q=high: buffer rolante (salva na hora). q=low: grava os próximos 10s.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 
@@ -56,6 +56,9 @@ if (mobile) {
 } else {
     await cmd("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false }, sessionId);
 }
+// Tom de teste no master do jogo (primeiro GainNode criado) pra conferir que o áudio entra no clipe.
+await cmd("Page.addScriptToEvaluateOnNewDocument", { source: "const _cg = AudioContext.prototype.createGain; AudioContext.prototype.createGain = function () { const g = _cg.call(this); if (!window.__master) window.__master = g; return g; };" }, sessionId);
+if (process.env.CLIP_WEBM) await cmd("Page.addScriptToEvaluateOnNewDocument", { source: "const _its = MediaRecorder.isTypeSupported; MediaRecorder.isTypeSupported = (t) => !t.startsWith('video/mp4') && _its(t);" }, sessionId);
 await cmd("Page.navigate", { url: `http://127.0.0.1:${HTTP}/?nome=clip&${q}` }, sessionId);
 await sleep(3000);
 if (mobile) {
@@ -63,7 +66,8 @@ if (mobile) {
 } else {
     for (const type of ["mousePressed", "mouseReleased"]) await cmd("Input.dispatchMouseEvent", { type, x: 640, y: 360, button: "left", clickCount: 1 }, sessionId);
 }
-await sleep(12000);
+await cmd("Runtime.evaluate", { expression: "{ const c = window.__master.context, o = c.createOscillator(), g = c.createGain(); g.gain.value = 0.3; o.connect(g).connect(window.__master); o.start(); }" }, sessionId);
+await sleep(+(process.env.CLIP_PLAY_MS || 12000));
 const t0 = Date.now();
 if (mobile) {
     // Botão CLIPE: r = 412*0.085 = 35.02, centro (r*7.7+8, sh*0.3)
@@ -77,14 +81,8 @@ let file = null;
 for (let i = 0; i < 60 && !file; i++) {
     await sleep(500);
     file = readdirSync(dir).find((f) => /^urna-clip-\d{6}\.(webm|mp4)$/.test(f));
-    if (q.includes("low") && i === 4) {
-        const shot = await cmd("Page.captureScreenshot", { format: "png" }, sessionId);
-        writeFileSync(join(dir, "rec.png"), Buffer.from(shot.data, "base64"));
-    }
 }
 await sleep(1500);
-const shot = await cmd("Page.captureScreenshot", { format: "png" }, sessionId);
-writeFileSync(join(dir, "after.png"), Buffer.from(shot.data, "base64"));
 const clip = await cmd("Runtime.evaluate", { expression: "navigator.clipboard.readText().catch(e => 'ERR ' + e)", awaitPromise: true }, sessionId);
 console.log(file ? `file: ${join(dir, file)} ${statSync(join(dir, file)).size} bytes after ${((Date.now() - t0) / 1000).toFixed(1)}s` : "NO FILE");
 console.log("clipboard:", clip.result?.value);

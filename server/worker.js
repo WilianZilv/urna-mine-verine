@@ -140,6 +140,7 @@ export class Room extends DurableObject {
         this.host = 0;
         this.log = [];
         this.tv = null;
+        this.tvAt = Date.now();
         this.queue = [];
         this.busy = false;
         this.brain = new Brain(env, ctx.storage);
@@ -219,6 +220,7 @@ export class Room extends DurableObject {
         const tv = ops.find((o) => o.op === "tv");
         if (tv) {
             this.tv = tv.url;
+            this.tvAt = Date.now();
             this.broadcast({ t: "tv", id: 0, n: "IA", u: tv.url });
         }
         this.pushWorld({ t: "w", k: "ai", id: 0, n: job.name, cmd: job.text, say: String(out.say || "").slice(0, 160), ops: ops.filter((o) => o.op !== "tv") });
@@ -262,7 +264,7 @@ export class Room extends DurableObject {
             this.clients.set(id, c);
             if (!this.clients.has(this.host)) this.host = id;
             const players = [...this.clients].map(([i, x]) => [i, x.name]);
-            this.send(c, { t: "welcome", id, host: this.host, log: this.log, tv: this.tv, players });
+            this.send(c, { t: "welcome", id, host: this.host, log: this.log, tv: this.tv, tvEl: Date.now() - this.tvAt, players });
             this.broadcast({ t: "join", id, n: c.name }, id);
             this.eco.join(c);
             this.lab.join(c);
@@ -307,6 +309,7 @@ export class Room extends DurableObject {
                 break;
             case "tv":
                 this.tv = String(m.u || "").slice(0, 500);
+                this.tvAt = Date.now();
                 this.broadcast(m);
                 break;
             case "a": {

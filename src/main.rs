@@ -583,6 +583,7 @@ async fn main() {
                         tv_src = u.to_string();
                         telao.load(&tv_src);
                     }
+                    telao.sync(m["tvEl"].as_f64().unwrap_or(0.0) / 1000.0);
                     chat.push((format!("* conectado como {my_name} ({} online)", remotes.len() + 1), get_time()));
                     banner = Some(("ONLINE! T ABRE O CHAT".into(), 3.0));
                 }
@@ -633,6 +634,7 @@ async fn main() {
                 "tv" => {
                     tv_src = m["u"].as_str().unwrap_or(telao::DEFAULT_URL).to_string();
                     telao.load(&tv_src);
+                    telao.sync(0.0);
                     banner = Some((format!("{} TROCOU O TELAO", m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes))), 2.5));
                 }
                 "w" => match {

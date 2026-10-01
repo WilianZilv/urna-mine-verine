@@ -175,6 +175,9 @@ impl Telao {
         thread::spawn(move || run(src, generation, sb, ftx, mtx, rate, ch));
     }
 
+    /// Só sincroniza no navegador; no nativo o ffmpeg toca do começo.
+    pub fn sync(&mut self, _elapsed: f64) {}
+
     pub fn set_volume(&mut self, v: f32) {
         self.sb.set_volume(v);
     }

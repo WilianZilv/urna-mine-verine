@@ -25,6 +25,11 @@ impl Telao {
         self.live = false;
     }
 
+    /// Linha do tempo compartilhada: o vídeo começou `elapsed` segundos atrás no servidor.
+    pub fn sync(&mut self, elapsed: f64) {
+        unsafe { urna_yt_sync(elapsed) };
+    }
+
     pub fn set_volume(&mut self, v: f32) {
         self.vol = v;
     }

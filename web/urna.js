@@ -149,6 +149,21 @@
         loadThumbs(id);
         if (ytReady) player.loadVideoById(id);
     }
+    // Todo mundo na mesma linha do tempo: servidor manda há quantos segundos o vídeo começou; segue
+    // pelo relógio local (sem depender do relógio do PC) e corrige quando desvia mais de 2 s.
+    let syncBase = null;
+    function ytSync(elapsed) {
+        syncBase = performance.now() / 1000 - elapsed;
+        ytResync();
+    }
+    function ytResync() {
+        if (!ytReady || ytState !== 1 || syncBase === null) return;
+        const dur = player.getDuration() || 0, d = player.getVideoData();
+        if (dur <= 0 || (d && d.isLive)) return;
+        const t = (performance.now() / 1000 - syncBase) % dur;
+        if (Math.abs(player.getCurrentTime() - t) > 2) player.seekTo(t, true);
+    }
+    setInterval(ytResync, 5000);
     // Cores do vídeo pras luzes do clube: o iframe é de outra origem (pixel ilegível), então mistura as
     // miniaturas do YouTube (capa + quadros a 25/50/75%) pela posição do player. Passam pelo proxy /api/ytthumb.
     const thumbCtx = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }).getContext("2d", { willReadFrequently: true });
@@ -193,7 +208,7 @@
                 onStateChange: (e) => {
                     ytState = e.data;
                     if (e.data === 0) player.seekTo(0);
-                    if (e.data === 1) { const d = player.getVideoData(); ytTitle = (d && d.title) || ""; }
+                    if (e.data === 1) { const d = player.getVideoData(); ytTitle = (d && d.title) || ""; ytResync(); }
                 },
             },
         });
@@ -293,6 +308,7 @@
                 urna_audio_volume: (id, vol) => { const g = voices.get(id); if (g) g.gain.value = vol; },
                 urna_yt_load: (p, n) => ytLoad(videoId(str(p, n).trim())),
                 urna_yt_state: () => ytState,
+                urna_yt_sync: (elapsed) => ytSync(elapsed),
                 urna_yt_title: (p, cap) => {
                     if (!ytTitle || ytTitle === titleSent) return 0;
                     const r = put(enc.encode(ytTitle), p, cap);

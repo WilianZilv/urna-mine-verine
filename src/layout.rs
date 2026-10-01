@@ -59,9 +59,6 @@ pub const HUB_D: IVec2 = ivec2(150, 110);
 pub const fn lab(v: Vec3) -> Vec3 {
     shift(v, LAB_D)
 }
-pub const fn modz(v: Vec3) -> Vec3 {
-    shift(v, MODZ_D)
-}
 pub const fn hub(v: Vec3) -> Vec3 {
     shift(v, HUB_D)
 }

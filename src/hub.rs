@@ -20,7 +20,7 @@ const SLOTS: usize = 8;
 const SIGN: Vec3 = layout::hub(vec3(120.6, G as f32 + 6.5, 88.0));
 const SITE: &str = "urna-mine-verine.wilianzilv.workers.dev";
 /// Placas que abrem as instruções: (centro, normal da frente, meia largura, meia altura, caminho).
-const SIGNS: [(Vec3, Vec3, f32, f32, &str); 2] = [(SIGN, vec3(-1.0, 0.0, 0.0), 6.0, 2.5, "hub.txt"), (layout::modz(vec3(103.5, G as f32 + 7.5, 31.8)), vec3(0.0, 0.0, 1.0), 7.5, 4.0, "modding.txt")];
+const SIGNS: [(Vec3, Vec3, f32, f32, &str); 1] = [(SIGN, vec3(-1.0, 0.0, 0.0), 6.0, 2.5, "hub.txt")];
 
 /// Abre o link numa aba nova (precisa vir logo depois de clique/tecla); bloqueado = copia. Retorna a linha do chat.
 pub fn open_url(url: &str) -> String {

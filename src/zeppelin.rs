@@ -145,6 +145,9 @@ fn detail(d: f32) -> u8 {
     }
 }
 
+/// Ronco e metralhadora mudos: só as bombas fazem barulho.
+const ENGINE_SFX: bool = false;
+
 struct Clips {
     drone: Clip,
     gun: Clip,
@@ -261,7 +264,9 @@ impl Zeppelin {
         }
         if plan.r < 1.5 {
             self.tracers.push((plan.o, plan.hit, 0.0));
-            self.sfx.push((self.clips.gun.clone(), plan.o, 0.5));
+            if ENGINE_SFX {
+                self.sfx.push((self.clips.gun.clone(), plan.o, 0.5));
+            }
             self.aim.retain(|a| a.0.distance(plan.o) > 3.0);
             self.aim.push((plan.o, plan.hit, 1.2));
         }
@@ -276,10 +281,12 @@ impl Zeppelin {
         let c = m.transform_point3(Vec3::ZERO);
         let d = c.distance(eye);
 
-        let id = *self.drone.get_or_insert_with(|| audio.play(&self.clips.drone, 0.0, true));
-        let k = if alive { 1.0 } else { (1.0 - t / FALL).max(0.0) };
-        let vol = if muted || in_club { 0.0 } else { 0.18 * k * (1.0 - (d - 30.0).max(0.0) / 70.0).clamp(0.0, 1.0).powi(2) };
-        audio.set_volume(id, vol);
+        if ENGINE_SFX {
+            let id = *self.drone.get_or_insert_with(|| audio.play(&self.clips.drone, 0.0, true));
+            let k = if alive { 1.0 } else { (1.0 - t / FALL).max(0.0) };
+            let vol = if muted || in_club { 0.0 } else { 0.18 * k * (1.0 - (d - 30.0).max(0.0) / 70.0).clamp(0.0, 1.0).powi(2) };
+            audio.set_volume(id, vol);
+        }
         for (clip, p, base) in self.sfx.drain(..) {
             let v = (base / (1.0 + p.distance(eye) / 22.0)).clamp(0.0, 1.0);
             if !muted && !in_club && v > 0.02 {

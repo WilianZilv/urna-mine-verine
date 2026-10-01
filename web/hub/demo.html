@@ -9,38 +9,80 @@
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         #hud { position: absolute; left: 10px; top: 8px; pointer-events: none; text-shadow: 0 1px 2px #000; }
         #sair { position: absolute; right: 10px; top: 8px; font: bold 13px monospace; background: #ff3d7f; color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+        #vida { position: absolute; right: 10px; top: 44px; font: bold 13px monospace; background: #2fa84f; color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; display: none; }
     </style>
 </head>
 <body>
     <canvas id="c"></canvas>
     <div id="hud">conectando ao Urna...</div>
     <button id="sair" type="button">SAIR PRO URNA</button>
+    <button id="vida" type="button">+1 VIDA (3 moedas)</button>
     <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js"></script>
+    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-canvas2d.js"></script>
     <script>
         "use strict";
-        // Demo de jogo externo: pega os votos verdes (CONFIRMA), desvia dos vermelhos. Usa o SDK UPP.
-        const cv = document.getElementById("c"), g = cv.getContext("2d"), hud = document.getElementById("hud");
-        let W = 0, H = 0, x = 0.5, keys = {}, items = [], score = 0, lives = 3, t = 0, last = performance.now();
-        let me = { name: "convidado", color: "#00e5ff", character: "?" }, online = false, sentScore = 0, got30 = false;
+        // Demo de jogo externo: pega os votos verdes (CONFIRMA), desvia dos vermelhos. Usa o SDK UPP:
+        // avatar do jogador (passaporte) desenhado com urna-avatar-canvas2d, outros jogadores do Urna via presenca,
+        // premio com grant() (o servidor limita) e vida extra com spend() (o jogador confirma na tela do Urna).
+        const HOST = "https://urna-mine-verine.wilianzilv.workers.dev";
+        const cv = document.getElementById("c"), g = cv.getContext("2d"), hud = document.getElementById("hud"), vida = document.getElementById("vida");
+        let W = 0, H = 0, x = 0.5, px = 0.5, keys = {}, items = [], score = 0, lives = 3, t = 0, last = performance.now();
+        let me = { name: "convidado", color: "#00e5ff", character: "?" }, online = false, sentScore = 0, got30 = false, msg = "", msgT = 0;
+        let av = null, speed = 0;
+        const others = new Map(), avCache = new Map();
         const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; };
         addEventListener("resize", resize); resize();
         addEventListener("keydown", (e) => { keys[e.key] = true; });
         addEventListener("keyup", (e) => { keys[e.key] = false; });
         cv.addEventListener("pointermove", (e) => { x = e.clientX / W; });
-        document.getElementById("sair").onclick = () => (online ? UrnaPortal.exit("botao") : (location.href = "https://urna-mine-verine.wilianzilv.workers.dev/?hub=chuva-de-votos"));
+        const say = (s) => { msg = s; msgT = 4; };
+        document.getElementById("sair").onclick = () => (online ? UrnaPortal.exit("botao") : (location.href = `${HOST}/?hub=chuva-de-votos`));
+        vida.onclick = async () => {
+            const r = await UrnaPortal.spend({ coins: 3, reason: "vida extra na Chuva de Votos", key: `vida-${Date.now()}` });
+            if (r.ok) { lives++; say(`+1 vida! saldo no Urna: ${r.wallet.coins}`); } else say(`sem vida extra (${r.error})`);
+        };
 
-        UrnaPortal.connect({ portalId: "chuva-de-votos" }).then((s) => {
+        // Avatar de outro jogador: ref "id@versao" -> pacote publico do registro de mods (cache).
+        function avatarOf(ref) {
+            if (!ref) return null;
+            if (!avCache.has(ref)) {
+                avCache.set(ref, null);
+                const [id, v] = ref.split("@");
+                fetch(`${HOST}/api/mods/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`).then((r) => r.json()).then((pkg) => avCache.set(ref, UrnaAvatar2D.create(pkg, { view: "front", size: 128 }))).catch(() => { });
+            }
+            return avCache.get(ref);
+        }
+
+        UrnaPortal.connect({ portalId: "chuva-de-votos" }).then(async (s) => {
             if (!s) return void (hud.dataset.off = "1");
             online = true;
             me = { ...me, ...s.player };
+            av = UrnaAvatar2D.create(s.avatar, { view: "front", size: 128 });
+            vida.style.display = "block";
             UrnaPortal.event("chat", "entrei na Chuva de Votos!");
+            const pr = UrnaPortal.presence;
+            pr.on("player", (p) => others.set(p.sid, p));
+            pr.on("leave", (p) => others.delete(p.sid));
+            await pr.join();
         });
+
+        function drawPlayer(cx, name, color, sprite, moving, alpha) {
+            g.globalAlpha = alpha;
+            g.fillStyle = color || "#00e5ff";
+            g.fillRect(cx - 40, H * 0.9 - 8, 80, 16);
+            if (sprite) sprite.draw(g, cx, H * 0.9 - 8, Math.min(90, H * 0.14), { speed: moving ? 3 : 0 }, t);
+            g.fillStyle = "#fff"; g.font = "bold 13px monospace"; g.textAlign = "center";
+            g.fillText(name, cx, H * 0.9 - (sprite ? Math.min(90, H * 0.14) + 14 : 14));
+            g.globalAlpha = 1;
+        }
 
         function frame(now) {
             const dt = Math.min(0.05, (now - last) / 1000);
             last = now; t += dt;
             x += ((keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0)) * dt * 0.9;
             x = Math.max(0.05, Math.min(0.95, x));
+            speed = speed * 0.8 + (Math.abs(x - px) / dt) * 0.2;
+            px = x;
             if (Math.random() < dt * (2 + t * 0.05)) items.push({ x: Math.random() * 0.9 + 0.05, y: -0.05, good: Math.random() < 0.7, v: 0.25 + Math.random() * 0.25 });
             for (const it of items) {
                 it.y += it.v * dt;
@@ -52,7 +94,13 @@
             items = items.filter((it) => !it.hit && it.y < 1.1);
             if (lives <= 0) { score = 0; lives = 3; items = []; t = 0; }
             if (online && score >= sentScore + 10) { sentScore = score; UrnaPortal.event("score", score * 100); }
-            if (online && score >= 30 && !got30) { got30 = true; UrnaPortal.event("achievement", "30 votos confirmados"); }
+            if (online && score >= 30 && !got30) {
+                got30 = true;
+                UrnaPortal.event("achievement", "30 votos confirmados");
+                UrnaPortal.grant({ coins: 5, reason: "30 votos confirmados na Chuva de Votos", key: `chuva-30-${new Date().toISOString().slice(0, 10)}` })
+                    .then((r) => say(r.ok ? `+${r.granted.coins} moedas no Urna (grant)!` : `premio: ${r.message || r.error}`));
+            }
+            if (online) UrnaPortal.presence.update({ x: Math.round(x * 1000) / 1000, moving: speed > 0.05, score });
 
             g.fillStyle = "#0b0820"; g.fillRect(0, 0, W, H);
             for (let i = 0; i < 40; i++) { g.fillStyle = `hsla(${(i * 37 + t * 20) % 360},80%,60%,0.15)`; g.fillRect((i * 97) % W, ((i * 53 + t * 30) % H), 3, 3); }
@@ -62,11 +110,11 @@
                 g.fillStyle = "#000"; g.font = "bold 10px monospace"; g.textAlign = "center";
                 g.fillText(it.good ? "OK" : "X", it.x * W, it.y * H + 4);
             }
-            g.fillStyle = me.color || "#00e5ff";
-            g.fillRect(x * W - 40, H * 0.9 - 8, 80, 16);
-            g.fillStyle = "#fff"; g.font = "bold 13px monospace"; g.textAlign = "center";
-            g.fillText(me.name, x * W, H * 0.9 - 14);
-            hud.textContent = `${online ? "conectado ao Urna como " + me.name + " (" + me.character + ")" : hud.dataset.off ? "fora do Urna: modo convidado" : "conectando ao Urna..."} | votos ${score} | vidas ${lives} | setas/mouse`;
+            for (const o of others.values()) if (o.s && typeof o.s.x === "number") drawPlayer(o.s.x * W, `${o.name} (${o.s.score || 0})`, o.color, avatarOf(o.avatar), o.s.moving, 0.45);
+            drawPlayer(x * W, me.name, me.color, av, speed > 0.05, 1);
+            msgT -= dt;
+            const status = online ? `conectado ao Urna como ${me.name}${av ? " (avatar do passaporte)" : ""} | ${others.size} do Urna aqui` : hud.dataset.off ? "fora do Urna: modo convidado" : "conectando ao Urna...";
+            hud.textContent = `${status} | votos ${score} | vidas ${lives} | setas/mouse${msgT > 0 ? " | " + msg : ""}`;
             requestAnimationFrame(frame);
         }
         requestAnimationFrame(frame);

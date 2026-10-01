@@ -1,6 +1,7 @@
 // Teste offline da Bolsa (server/bolsa.js) com places/room/eco falsos: node tools/test_bolsa.mjs
 import assert from "node:assert/strict";
-import { Bolsa } from "../server/bolsa.js";
+import { Bolsa, modSymbol } from "../server/bolsa.js";
+const r2 = (v) => Math.round(v * 100) / 100;
 
 const chat = [], sent = [];
 const eco = {
@@ -151,4 +152,119 @@ console.log(chat.filter((l) => l.startsWith("ALL")).join("\n"));
 say("carteira");
 console.log(chat.slice(-4).join("\n"));
 console.log(snap.hot);
+
+// ------------------------------------------------ acoes de mods
+assert.equal(modSymbol("King Kong", new Set()), "KING");
+assert.equal(modSymbol("King Kong", new Set(["KING"])), "KINGK");
+assert.equal(modSymbol("King", new Set(["KING"])), "KIN2");
+assert.equal(modSymbol("Lula Robo", new Set(["LULA", "LULAR"])), "LUL2");
+assert.equal(modSymbol("Ox!", new Set()), "OXMO");
+assert.equal(modSymbol("Ção Ébrio", new Set()), "CAOE");
+
+const npc = (id, name, at, extra = {}) => ({ id, v: "1.0.0", creator: "bot", at, pkg: { manifest: { name }, behavior: { stats: { hp: 100 }, spawn: { max_instances: extra.inst ?? 1 } } } });
+const active = [];
+room.mods = { list: (k) => (k === "npc" ? [...active].sort((a, b) => a.at - b.at) : []) };
+const T0 = Date.now();
+Math.random = () => 0.25;
+active.push(npc("king-kong", "King Kong", T0 - 1000, { inst: 2 }), npc("kingzao", "Kingzao", T0 - 500), npc("lula-robo", "Lula Robo", T0));
+b.tick(T0, true);
+assert.deepEqual(Object.keys(b.s.m).sort(), ["KING", "KINGZ", "LULAR"]);
+assert.equal(b.s.m.KING.n, "KING KONG");
+assert.ok(chat.some((l) => /ALL BOLSA: KING KONG \(KING\) estreou na bolsa a 50\.00/.test(l)));
+let ms = sent.at(-1);
+assert.equal(ms.tk.length, 8, "tickers fixos intactos");
+assert.equal(ms.mk.length, 3);
+assert.equal(ms.mk[0].c, "bot");
+const syms = [...TK_SYMS(), ...ms.mk.map((t) => t.s)];
+assert.equal(new Set(syms).size, syms.length, "simbolos unicos");
+function TK_SYMS() { return ms.tk.map((t) => t.s); }
+
+// impulsos: porrada (g 8, indice achatado) sobe so o mod certo; dano >= hp conta abate
+assert.equal(b.s.p.KING, 50);
+for (let i = 0; i < 10; i++) b.onHit(ana, { k: "hit", g: 8, i: 1, dmg: 50 }); // 2a instancia do King Kong (hp 100): 5 abates
+b.onHit(ana, { k: "hit", g: 8, i: 2, dmg: 5 }); // Kingzao
+b.onHit(ana, { k: "hit", g: 8, i: 99, dmg: 5 }); // fora da lista: ignora
+b.tick(T0 + 20000, true);
+assert.equal(b.s.p.KING, r2(50 * 1.02 * 1.08 * Math.exp(0.003)));
+assert.equal(b.s.why.KING, "abatido na arena (viralizou)");
+assert.equal(b.s.p.KINGZ, r2(50 * 1.002 * Math.exp(0.003)));
+assert.equal(b.s.p.LULAR, r2(50 * Math.exp(0.003)));
+assert.equal(b.s.why.LULAR, "hype de lancamento");
+assert.ok(b.s.pop["king-kong"] > b.s.pop.kingzao);
+// esquecido depois do hype: cai devagar
+b.s.m.LULAR.at = T0 - 2 * 3600000;
+b.s.m.LULAR.idle = 20;
+const pl2 = b.s.p.LULAR;
+b.tick(T0 + 40000, true);
+assert.ok(b.s.p.LULAR < pl2);
+assert.equal(b.s.why.LULAR, "esquecido no canto da zona");
+// versao nova da um empurrao
+active[0].v = "1.1.0";
+b.tick(T0 + 60000, true);
+assert.equal(b.s.m.KING.v, "1.1.0");
+assert.equal(b.s.why.KING, "versao nova (v1.1.0)");
+
+// compra de acao de mod e /bolsa mods
+eco.s.w.ana.c = 5000;
+const t3 = total();
+say("investir KING 10");
+assert.equal(b.s.pos.ana.KING, 10);
+say("investir kingzao 4");
+assert.equal(b.s.pos.ana.KINGZ, 4);
+assert.equal(total(), t3);
+say("bolsa mods");
+assert.match(chat.at(-1), /^BOLSA: MODS: KING \d+\.\d\d .*KING KONG por bot/);
+say("bolsa");
+assert.match(chat.at(-1), /3 mods: \/bolsa mods/);
+
+// deslistagem: mod desativado paga o ultimo preco do cofre
+const pK = b.s.p.KING;
+const w0 = eco.s.w.ana.c, tr0 = eco.s.tr;
+active.splice(0, 1);
+b.tick(T0 + 80000, true);
+assert.equal(b.s.m.KING, undefined);
+assert.equal(b.s.p.KING, undefined);
+assert.equal(b.s.pos.ana.KING, undefined);
+assert.equal(eco.s.w.ana.c, w0 + Math.round(pK * 10));
+assert.equal(eco.s.tr, tr0 - Math.round(pK * 10));
+assert.equal(total(), t3);
+assert.match(chat.filter((l) => l.startsWith("ALL")).at(-1), /KING KONG \(KING\) saiu da bolsa \(mod desativado\)/);
+assert.equal(sent.at(-1).mk.length, 2);
+assert.equal(b.value("ana"), Math.round(Object.entries(b.s.pos.ana).reduce((v, [S, n]) => v + b.s.p[S] * n, 0)));
+
+// cofre curto: paga o que da acima da reserva e registra
+const pZ = b.s.p.KINGZ;
+eco.s.tr = 300 + 50;
+const t4 = total();
+active.splice(0, 1);
+b.tick(T0 + 100000, true);
+assert.equal(b.s.pos.ana?.KINGZ, undefined);
+assert.equal(eco.s.tr, 300 + 50 - Math.floor(Math.round(pZ * 4) * Math.min(1, 50 / Math.round(pZ * 4))));
+assert.ok(eco.s.tr >= 300, "reserva respeitada");
+assert.equal(total(), t4);
+assert.ok(chat.some((l) => /^\[ledger\] Ana: KINGZ saiu da bolsa: 4 x/.test(l)));
+assert.match(chat.filter((l) => l.startsWith("ALL")).at(-1), /cofre curto/);
+eco.s.tr = 2000;
+
+// limite: no maximo 6 mods listados (os mais populares); quem cai do top e deslistado
+for (let i = 0; i < 9; i++) active.push(npc(`m${i}`, `Mod Numero ${i}`, T0 + 1000 + i));
+b.tick(T0 + 120000, true);
+assert.equal(Object.keys(b.s.m).length, 6);
+assert.ok(Object.values(b.s.m).some((m) => m.id === "lula-robo"), "listado tem vantagem");
+const out = active.find((a) => !Object.values(b.s.m).some((m) => m.id === a.id));
+for (let i = 0; i < 60; i++) b.onHit(ana, { k: "hit", g: 8, i: active.indexOf(out), dmg: 1 });
+b.tick(T0 + 140000, true);
+assert.ok(Object.values(b.s.m).some((m) => m.id === out.id), "mod popular entra");
+assert.equal(Object.keys(b.s.m).length, 6);
+assert.match(chat.filter((l) => l.startsWith("ALL")).join("\n"), /caiu do top 6/);
+const all = sent.at(-1);
+const s3 = [...all.tk, ...all.mk].map((t) => t.s);
+assert.equal(new Set(s3).size, s3.length);
+assert.equal(all.tk.length, 8);
+// estado sobrevive a reload
+const b2 = new Bolsa(pl, JSON.parse(JSON.stringify(b.s)));
+assert.equal(b2.modTk().length, 6);
+assert.ok(b2.find(all.mk[0].s));
+Math.random = rnd;
+console.log(chat.filter((l) => l.startsWith("ALL BOLSA")).slice(-4).join("\n"));
 console.log("OK test_bolsa");

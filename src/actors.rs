@@ -130,9 +130,11 @@ pub fn spawn_villagers() -> Vec<Villager> {
     vs
 }
 
-pub fn update_villagers(vs: &mut [Villager], world: &World, dt: f32, time: f32) {
+/// `dead(i)`: villager morto só cai com a física e fica onde parou.
+pub fn update_villagers(vs: &mut [Villager], world: &World, dt: f32, time: f32, dead: impl Fn(usize) -> bool) {
     let dj = vec3(12.3, G as f32, 64.5);
-    for v in vs.iter_mut() {
+    for (i, v) in vs.iter_mut().enumerate() {
+        let dead = dead(i);
         if v.airborne {
             v.vel.y -= 25.0 * dt;
             v.pos += v.vel * dt;
@@ -145,10 +147,13 @@ pub fn update_villagers(vs: &mut [Villager], world: &World, dt: f32, time: f32) 
                 v.airborne = false;
                 v.vel = Vec3::ZERO;
                 v.spin = 0.0;
-                if v.kind != VKind::Wanderer {
+                if v.kind != VKind::Wanderer && !dead {
                     v.pos = v.home;
                 }
             }
+            continue;
+        }
+        if dead {
             continue;
         }
         match v.kind {
@@ -217,6 +222,11 @@ pub struct Guest {
     pub pos: Vec3,
     pub yaw: f32,
     pub phase: f32,
+}
+
+/// Pose de quem morreu: braços abertos, estirado (o `lean` vem do `root`).
+pub fn dead_pose() -> Pose {
+    Pose { arm_l: -0.3, arm_r: -0.3, arm_l_out: 1.4, arm_r_out: 1.3, ..Default::default() }
 }
 
 pub fn spawn_guests() -> Vec<Guest> {

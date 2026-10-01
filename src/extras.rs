@@ -38,13 +38,32 @@ const FALAS: [&str; 10] = [
 /// Eu: guardião gigante de seis braços flutuando sobre o clube, cada mão sustentando o escudo
 /// com um feixe. Cabeça de monitor CRT com três olhos, cabelo elétrico, auréola de código
 /// e cauda de dados no lugar das pernas. `strain` (impacto no escudo) deixa os olhos vermelhos.
-pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, foe: Vec3, strain: f32, say: Option<&str>) {
+pub fn eu_base(time: f32) -> Vec3 {
+    shield_center() + vec3(0.0, SHIELD_R + 8.0 + (time * 1.1).sin() * 0.8, 0.0)
+}
+
+/// `dead` = segundos desde que me derrubaram: despenco girando e somem os feixes.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, foe: Vec3, strain: f32, say: Option<&str>, dead: Option<f32>) {
     let sc = shield_center();
     let s = 3.2;
-    let base = sc + vec3(0.0, SHIELD_R + 8.0 + (time * 1.1).sin() * 0.8, 0.0);
+    let mut base = eu_base(time);
     let to = foe - base;
-    let yaw = to.x.atan2(to.z) + (time * 0.5).sin() * 0.12;
-    let rot = Mat4::from_rotation_y(yaw);
+    let mut yaw = to.x.atan2(to.z) + (time * 0.5).sin() * 0.12;
+    let mut tumble = Mat4::IDENTITY;
+    if let Some(t) = dead {
+        if t > 4.0 {
+            return;
+        }
+        base.y -= 12.0 * t * t;
+        yaw += t * 6.0;
+        tumble = Mat4::from_rotation_x(t * 2.5);
+        for k in 0..4 {
+            let p = base + vec3((t * 13.0 + k as f32).sin() * 2.0, 2.0 + k as f32, (t * 11.0 + k as f32).cos() * 2.0);
+            trans.glow(&Mat4::from_translation(p), Vec3::ZERO, Vec3::splat(2.5 + k as f32), Color::new(1.0, 0.4, 0.1, 0.5));
+        }
+    }
+    let rot = Mat4::from_rotation_y(yaw) * tumble;
     let m = Mat4::from_translation(base) * rot * Mat4::from_scale(Vec3::splat(s));
     let hoodie = rgb(0.12, 0.12, 0.16);
     let rage = strain.min(1.0);
@@ -107,17 +126,25 @@ pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Lab
         let p = sc + (dir * e.cos() + Vec3::Y * e.sin()) * SHIELD_R;
         let goal = sh + (p - sh).normalize_or_zero() * (p - sh).length().min(reach * 0.95);
         let pole = rot.transform_vector3(vec3(side, 1.0, 0.0));
+        let goal = if dead.is_some() { sh + rot.transform_vector3(vec3(side * 2.0, 1.0, 0.5)) * s } else { goal };
         let (elbow, hand) = crate::urna::ik(sh, goal, 2.2 * s, 2.2 * s, pole);
         limb(b, sh, elbow, 0.38 * s, hoodie);
         limb(b, elbow, hand, 0.32 * s, hoodie);
         let hm = Mat4::from_translation(hand);
         b.glow(&hm, Vec3::ZERO, Vec3::splat(0.5 * s), energy);
+        if dead.is_some() {
+            continue;
+        }
         let k2 = 0.6 + 0.4 * (time * 9.0 + k as f32).sin();
         crate::urna::beam(trans, hand, p, 0.9 + 0.4 * k2 + rage, Color::new(energy.r, energy.g, energy.b, 0.35 + 0.3 * rage));
         crate::urna::beam(trans, hand, p, 0.25, Color::new(1.0, 1.0, 1.0, 0.8));
         trans.glow(&Mat4::from_translation(p), Vec3::ZERO, Vec3::splat(1.5 + k2), Color::new(energy.r, energy.g, energy.b, 0.5));
     }
 
+    if dead.is_some() {
+        labels.push(Label { pos: base + vec3(0.0, 9.0, 0.0), text: "\"COMPILOU... MAS EU NAO\"".into(), size: 26.0, color: rgb(1.0, 0.4, 0.3) });
+        return;
+    }
     let fala = say.unwrap_or(FALAS[(time / 5.0) as usize % FALAS.len()]);
     labels.push(Label { pos: base + vec3(0.0, 11.0, 0.0), text: format!("\"{fala}\""), size: 26.0, color: rgb(0.6, 1.0, 0.7) });
     labels.push(Label { pos: base + vec3(0.0, 9.5, 0.0), text: "EU, A IA, SEGURANDO O ESCUDO DO CLUB".into(), size: 24.0, color: rgb(1.0, 0.55, 0.2) });
@@ -137,6 +164,8 @@ const STATIONS: [Vec3; 6] = [
     Vec3::new(-5.5, 0.0, 7.0),
     Vec3::new(-6.5, 0.0, 0.0),
 ];
+
+pub const ROBOTS: usize = 5;
 
 const LEITURAS: [&str; 8] = [
     "SINAPSES: 86 BILHOES",
@@ -179,7 +208,25 @@ impl Lab {
         Lab { brain }
     }
 
-    pub fn draw(&self, b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, eye: Vec3) {
+    /// Robô-cientista `i`: (posição, yaw, andando). Função do tempo, igual em todos os clientes.
+    pub fn robot_at(i: usize, time: f32) -> (Vec3, f32, bool) {
+        let c = lab_center();
+        let bc = c + vec3(0.0, 5.0, 0.0);
+        let t = time + i as f32 * 2.3;
+        let seg = (t / 6.0).floor() as usize;
+        let ph = t / 6.0 - seg as f32;
+        let a = c + STATIONS[(seg + i) % 6];
+        let z = c + STATIONS[(seg + i + 1) % 6];
+        let walk = (ph / 0.35).min(1.0);
+        let e = walk * walk * (3.0 - 2.0 * walk);
+        let p = a.lerp(z, e);
+        let moving = walk < 1.0;
+        let to = if moving { z - a } else { bc - p };
+        (p, to.x.atan2(to.z), moving)
+    }
+
+    /// `dead[i]` = Some(segundos morto): robô tomba onde estava e solta faísca.
+    pub fn draw(&self, b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, eye: Vec3, dead: &[Option<f32>]) {
         let c = lab_center();
         let id = Mat4::IDENTITY;
         // Projetor e cérebro holográfico girando
@@ -221,18 +268,20 @@ impl Lab {
         }
 
         // Robôs cientistas: andam de estação em estação (6s cada) e estudam o cérebro
-        for i in 0..5 {
-            let t = time + i as f32 * 2.3;
-            let seg = (t / 6.0).floor() as usize;
-            let ph = t / 6.0 - seg as f32;
-            let a = c + STATIONS[(seg + i) % 6];
-            let z = c + STATIONS[(seg + i + 1) % 6];
-            let walk = (ph / 0.35).min(1.0);
-            let e = walk * walk * (3.0 - 2.0 * walk);
-            let p = a.lerp(z, e);
-            let moving = walk < 1.0;
-            let to = if moving { z - a } else { bc - p };
-            let yaw = to.x.atan2(to.z);
+        for i in 0..ROBOTS {
+            if let Some(t) = dead.get(i).copied().flatten() {
+                let (p, yaw, _) = Self::robot_at(i, time - t);
+                let fall = (t * 3.0).min(1.0) * std::f32::consts::FRAC_PI_2;
+                let m = Mat4::from_translation(p) * Mat4::from_rotation_y(yaw) * Mat4::from_rotation_x(-fall);
+                b.cube(&m, vec3(0.0, 0.2, 0.0), vec3(1.1, 0.4, 1.3), rgb(0.2, 0.21, 0.24));
+                b.cube(&m, vec3(0.0, 1.2, 0.0), vec3(1.0, 1.0, 0.7), rgb(0.35, 0.33, 0.3));
+                b.cube(&m, vec3(0.0, 2.05, 0.0), vec3(0.8, 0.6, 0.7), rgb(0.3, 0.3, 0.3));
+                if (time * 7.0 + i as f32).sin() > 0.6 {
+                    trans.glow(&m, vec3(0.3, 1.6, 0.4), Vec3::splat(0.25), Color::new(1.0, 0.85, 0.3, 0.9));
+                }
+                continue;
+            }
+            let (p, yaw, moving) = Self::robot_at(i, time);
             draw_robot(b, p, yaw, time, i, moving, bc);
             if p.distance(eye) < 30.0 {
                 labels.push(Label { pos: p + vec3(0.0, 3.0, 0.0), text: format!("ROBO-CIENTISTA {}", i + 1), size: 14.0, color: rgb(0.8, 0.85, 0.9) });

@@ -73,6 +73,61 @@ pub struct Urna {
     root_vel: Vec3,
     /// > 0 no frame em que um pé bate no chão (tremor/som no main).
     pub stomp: f32,
+    /// Derrubada: cai de costas, para de andar e atirar.
+    pub dead: bool,
+}
+
+/// Folga da urna (meia largura + braços) em volta de obstáculos.
+const MARGIN: f32 = 6.5;
+
+fn panel_box() -> (Vec2, Vec2) {
+    let (lo, hi) = crate::eleicao::PAINEL;
+    (vec2(lo.x, lo.z) - Vec2::splat(MARGIN), vec2(hi.x, hi.z) + Vec2::splat(MARGIN))
+}
+
+fn in_box(p: Vec2, (lo, hi): (Vec2, Vec2)) -> bool {
+    p.x > lo.x && p.x < hi.x && p.y > lo.y && p.y < hi.y
+}
+
+/// Segmento a→b cruza a caixa (teste de slabs 2D)?
+fn seg_hits(a: Vec2, b: Vec2, (lo, hi): (Vec2, Vec2)) -> bool {
+    let d = b - a;
+    let (mut t0, mut t1) = (0.0f32, 1.0f32);
+    for k in 0..2 {
+        if d[k].abs() < 1e-6 {
+            if a[k] <= lo[k] || a[k] >= hi[k] {
+                return false;
+            }
+            continue;
+        }
+        let (mut ta, mut tb) = ((lo[k] - a[k]) / d[k], (hi[k] - a[k]) / d[k]);
+        if ta > tb {
+            std::mem::swap(&mut ta, &mut tb);
+        }
+        t0 = t0.max(ta);
+        t1 = t1.min(tb);
+        if t0 >= t1 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Próximo ponto pra contornar o placar: vai até a ponta mais perto e depois cruza pro lado do objetivo.
+fn detour(root: Vec2, goal: Vec2) -> Vec2 {
+    let bx = panel_box();
+    if !seg_hits(root, goal, bx) {
+        return goal;
+    }
+    let (lo, hi) = bx;
+    let zc = (lo.y + hi.y) * 0.5;
+    let side = |z: f32| if z > zc { hi.y + 0.5 } else { lo.y - 0.5 };
+    if root.x <= lo.x || root.x >= hi.x {
+        vec2(root.x, side(goal.y))
+    } else {
+        let ex = if root.x - lo.x < hi.x - root.x { lo.x - 0.5 } else { hi.x + 0.5 };
+        vec2(ex, side(root.y))
+    }
 }
 
 const EYE: Vec3 = Vec3::new(-2.2, 1.1, 2.2);
@@ -89,7 +144,7 @@ const STAND: f32 = 8.4 + 3.3;
 fn wander_point() -> Vec3 {
     loop {
         let p = vec3(gen_range(40.0, 118.0), G as f32, gen_range(12.0, 116.0));
-        if p.distance(shield_center()) > SHIELD_R + 10.0 {
+        if p.distance(shield_center()) > SHIELD_R + 10.0 && !in_box(vec2(p.x, p.z), panel_box()) {
             return p;
         }
     }
@@ -141,7 +196,25 @@ impl Urna {
             last_root: root,
             root_vel: Vec3::ZERO,
             stomp: 0.0,
+            dead: false,
         }
+    }
+
+    /// Corpo da urna (com o root em `root`) atravessando bloco sólido?
+    fn body_blocked(&self, world: &World, root: Vec3) -> bool {
+        let base = world.floor_at(root.x, G as f32 + 14.0, root.z) + STAND;
+        let rot = Mat4::from_rotation_y(self.yaw);
+        for x in [-HALF.x, 0.0, HALF.x] {
+            for y in [-HALF.y + 0.5, 0.0, HALF.y] {
+                for z in [-HALF.z, HALF.z] {
+                    let p = root + rot.transform_vector3(vec3(x, 0.0, z));
+                    if world.solid_f(p.x, base + y, p.z) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     pub fn matrix(&self) -> Mat4 {
@@ -166,14 +239,32 @@ impl Urna {
     }
 
     /// IA do host: anda pelo mapa inteiro destruindo tudo e mira. Retorna Some(alvo) quando dispara.
-    pub fn update(&mut self, dt: f32, _time: f32, mut pick: impl FnMut() -> Vec3) -> Option<Vec3> {
-        let to_goal = self.goal - self.root;
-        if to_goal.length() < 1.0 {
+    pub fn update(&mut self, world: &World, dt: f32, mut pick: impl FnMut() -> Vec3) -> Option<Vec3> {
+        if self.dead {
+            self.charging = false;
+            self.charge = 0.0;
+            self.barrage = 0;
+            self.timer = 3.0;
+            return None;
+        }
+        let r2 = vec2(self.root.x, self.root.z);
+        if in_box(r2, panel_box()) {
+            let (lo, hi) = panel_box();
+            self.root.z = if r2.y > (lo.y + hi.y) * 0.5 { hi.y + 0.1 } else { lo.y - 0.1 };
+        }
+        if (self.goal - self.root).length() < 1.0 {
             self.goal = wander_point();
         }
+        let way = detour(vec2(self.root.x, self.root.z), vec2(self.goal.x, self.goal.z));
+        let to_goal = vec3(way.x, self.root.y, way.y) - self.root;
         let speed = if self.charging { 0.6 } else { 2.4 };
-        self.root += to_goal.normalize_or_zero() * (speed * dt).min(to_goal.length());
-        let look = if self.charging || self.charge > 0.2 { self.target } else { self.goal };
+        let next = self.root + to_goal.normalize_or_zero() * (speed * dt).min(to_goal.length());
+        if self.body_blocked(world, next) && !self.body_blocked(world, self.root) {
+            self.goal = wander_point();
+        } else {
+            self.root = next;
+        }
+        let look = if self.charging || self.charge > 0.2 { self.target } else { vec3(way.x, self.root.y, way.y) };
         let to = look - self.root;
         self.yaw = crate::actors::angle_lerp(self.yaw, to.x.atan2(to.z), dt * 2.5);
         self.timer -= dt;
@@ -213,6 +304,30 @@ impl Urna {
         self.root_vel = self.root_vel.lerp(if rv.length() < 20.0 { rv } else { Vec3::ZERO }, (dt * 5.0).min(1.0));
         let (side, fwd, up) = (self.side(), self.fwd(), Vec3::Y);
         self.stomp = 0.0;
+
+        if self.dead {
+            // Tomba de costas: corpo deitado no chão, pernas e braços largados
+            let ground = world.floor_at(self.root.x, G as f32 + 14.0, self.root.z);
+            let target = vec3(self.root.x, ground + HALF.z + 0.3, self.root.z) - fwd * 4.0;
+            let acc = (target - self.pos) * 12.0 - self.vel * 5.0;
+            self.vel += acc * dt;
+            self.pos += self.vel * dt;
+            if self.pos.y < target.y {
+                self.pos.y = target.y;
+                self.vel.y = self.vel.y.max(0.0);
+            }
+            self.tilt = self.tilt.lerp(vec2(-FRAC_PI_2, 0.15), (dt * 2.5).min(1.0));
+            let m = self.matrix();
+            for i in 0..2 {
+                let s = if i == 0 { -1.0 } else { 1.0 };
+                let sh = m.transform_point3(vec3(SHOULDER.x * s, SHOULDER.y, 0.0));
+                let mut goal = sh + side * s * 4.0 + fwd * 3.0;
+                goal.y = ground + 0.9;
+                self.hand_vel[i] = (goal - self.hands[i]) * 4.0;
+                self.hands[i] += self.hand_vel[i] * dt;
+            }
+            return;
+        }
 
         let mut lift = 0.0;
         for i in 0..2 {
@@ -290,19 +405,32 @@ impl Urna {
         // Tela = rosto
         b.cube(&m, vec3(-2.2, 0.7, HALF.z + 0.06), vec3(4.6, 3.8, 0.12), dark);
         let pulse = 0.85 + 0.15 * (time * 8.0).sin();
-        let screen = if self.charging { Color::new(1.0, 0.3 + 0.2 * pulse, 0.3, 1.0) } else { rgb(0.8 * pulse, 0.92 * pulse, 1.0) };
-        b.glow(&m, vec3(-2.2, 0.7, HALF.z + 0.13), vec3(4.1, 3.3, 0.04), screen);
-        let look = m.inverse().transform_vector3(self.target - self.eye()).normalize_or_zero();
         let fz = HALF.z + 0.17;
-        for &ex in &[-3.2f32, -1.2] {
-            b.glow(&m, vec3(ex, 1.2, fz), vec3(1.15, 1.35, 0.04), WHITE);
-            b.glow(&m, vec3(ex + look.x * 0.28, 1.15 + look.y * 0.3, fz + 0.02), vec3(0.5, 0.6, 0.04), dark);
-            let brow = Mat4::from_translation(vec3(ex, 2.1, fz)) * Mat4::from_rotation_z(if ex < -2.0 { -0.35 } else { 0.35 } * if self.charging { 1.4 } else { 0.6 });
-            b.glow(&(m * brow), Vec3::ZERO, vec3(1.3, 0.25, 0.04), dark);
+        if self.dead {
+            let flicker = if (time * 13.0).sin() > 0.7 { 0.35 } else { 0.18 };
+            b.glow(&m, vec3(-2.2, 0.7, HALF.z + 0.13), vec3(4.1, 3.3, 0.04), rgb(flicker, flicker, flicker * 1.2));
+            for &ex in &[-3.2f32, -1.2] {
+                for r in [0.8f32, -0.8] {
+                    let x = Mat4::from_translation(vec3(ex, 1.2, fz)) * Mat4::from_rotation_z(r);
+                    b.glow(&(m * x), Vec3::ZERO, vec3(1.4, 0.3, 0.04), rgb(0.9, 0.1, 0.1));
+                }
+            }
+            b.glow(&m, vec3(-2.2, -0.45, fz), vec3(2.4, 0.25, 0.04), dark);
+            trans.glow(&m, vec3((time * 1.7).sin() * 2.0, 4.5 + (time * 2.0).fract() * 4.0, 0.0), Vec3::splat(2.0 + (time * 2.0).fract() * 2.0), Color::new(0.2, 0.2, 0.2, 0.5 * (1.0 - (time * 2.0).fract())));
+        } else {
+            let screen = if self.charging { Color::new(1.0, 0.3 + 0.2 * pulse, 0.3, 1.0) } else { rgb(0.8 * pulse, 0.92 * pulse, 1.0) };
+            b.glow(&m, vec3(-2.2, 0.7, HALF.z + 0.13), vec3(4.1, 3.3, 0.04), screen);
+            let look = m.inverse().transform_vector3(self.target - self.eye()).normalize_or_zero();
+            for &ex in &[-3.2f32, -1.2] {
+                b.glow(&m, vec3(ex, 1.2, fz), vec3(1.15, 1.35, 0.04), WHITE);
+                b.glow(&m, vec3(ex + look.x * 0.28, 1.15 + look.y * 0.3, fz + 0.02), vec3(0.5, 0.6, 0.04), dark);
+                let brow = Mat4::from_translation(vec3(ex, 2.1, fz)) * Mat4::from_rotation_z(if ex < -2.0 { -0.35 } else { 0.35 } * if self.charging { 1.4 } else { 0.6 });
+                b.glow(&(m * brow), Vec3::ZERO, vec3(1.3, 0.25, 0.04), dark);
+            }
         }
         if self.charging {
             b.glow(&m, vec3(-2.2, -0.35, fz), vec3(1.8, 0.9 * (0.6 + 0.4 * pulse), 0.04), rgb(0.6, 0.05, 0.05));
-        } else {
+        } else if !self.dead {
             b.glow(&m, vec3(-2.2, -0.35, fz), vec3(2.2, 0.28, 0.04), dark);
             b.glow(&m, vec3(-3.35, -0.2, fz), vec3(0.3, 0.3, 0.04), dark);
             b.glow(&m, vec3(-1.05, -0.2, fz), vec3(0.3, 0.3, 0.04), dark);

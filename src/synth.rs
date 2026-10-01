@@ -167,6 +167,24 @@ pub fn gun(sr: u32) -> Vec<f32> {
     })
 }
 
+/// Loop de motor (4 cilindros) com ciclo inteiro pra emendar sem clique. Vários tons cruzados = rotação.
+pub fn engine(sr: u32, hz: f32) -> Vec<f32> {
+    let cycles = (hz * 0.5).round().max(1.0);
+    let n = (cycles / hz * sr as f32) as usize;
+    let hz = cycles * sr as f32 / n as f32;
+    let mut lp = 0.0;
+    let out: Vec<f32> = (0..2 * n)
+        .map(|i| {
+            let ph = (hz * (i % n) as f32 / sr as f32).fract();
+            let pulse = (-ph * 9.0).exp() * 2.0 - 0.35;
+            let rumble = (TAU * ph).sin() * 0.5 + (TAU * 2.0 * ph).sin() * 0.3;
+            lp += (pulse + rumble - lp) * 0.3;
+            (lp * 1.3).tanh() * 0.6
+        })
+        .collect();
+    out[n..].to_vec()
+}
+
 pub fn laser(sr: u32) -> Vec<f32> {
     let mut ph = 0.0;
     render(sr, 0.45, move |t, _| {

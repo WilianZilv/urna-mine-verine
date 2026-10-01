@@ -13,6 +13,7 @@ mod extras;
 mod gta;
 mod models;
 mod mp;
+mod npc;
 #[cfg_attr(target_arch = "wasm32", path = "net_web.rs")]
 mod net;
 mod player;
@@ -359,11 +360,11 @@ async fn main() {
         gun: Arc::new(synth::gun(sr)),
     };
     let house = audio.play(&Arc::new(synth::house_loop(sr)), 0.6, true);
+    let engine: Vec<u64> = [38.0, 58.0, 88.0, 130.0].iter().map(|hz| audio.play(&Arc::new(synth::engine(sr, *hz)), 0.0, true)).collect();
     let mut telao = Telao::new(&audio);
     let mut tv_src = initial_source();
     telao.load(&tv_src);
     let guests = actors::spawn_guests();
-    let bandido_look = gta::look();
     let relogio = eleicao::Relogio::new();
     let lab = extras::Lab::new();
     let mut club_k = 0.0f32;
@@ -411,6 +412,9 @@ async fn main() {
 
     let mut player = Player::new();
     let (mut villagers, mut fighters) = spawn_actors();
+    let mut npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
+    let mut cam_smooth: Option<Vec3> = None;
+    let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
     let mut urna = Urna::new();
     let mut fx = Fx::default();
     let mut texts: Vec<FloatText> = Vec::new();
@@ -555,12 +559,34 @@ async fn main() {
                                 if is_host {
                                     actors::blast_fighters(&mut fighters, p, r, time, &mut events);
                                     actors::blast_villagers(&mut villagers, p, r);
+                                    let by_player = !m["by"].is_null();
+                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, time) {
+                                        let reach = r * 1.8 + rad * 0.5;
+                                        let d = c.distance(p);
+                                        if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player) {
+                                            continue;
+                                        }
+                                        let k = 1.0 - d / reach;
+                                        let dmg = if g >= npc::URNA { 150.0 } else { 70.0 } * k;
+                                        if npc_hit(&mut npcs, &mut villagers, g, i, dmg, (c - p).normalize_or_zero(), c, &mut events) {
+                                            let mut v = mp::shot(&urna::Plan { o: urna.root + up * 1.5, hit: urna.root + up * 1.5, r: 6.0, deflect: false });
+                                            v["by"] = json!(2);
+                                            send(v, &mut loopback);
+                                        }
+                                    }
                                 }
                                 let d = (player.pos + up).distance(p);
                                 if d < r * 2.2 {
                                     let k = 1.0 - d / (r * 2.2);
                                     let dir = (player.pos - p).normalize_or_zero();
                                     player.knock += vec3(dir.x, 0.0, dir.z) * 14.0 * k + up * 9.0 * k;
+                                    if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
+                                        b.hurt(90.0 * k);
+                                    }
+                                }
+                                let dc = car.pos.distance(p);
+                                if dc < r * 2.2 {
+                                    car.damage(130.0 * (1.0 - dc / (r * 2.2)));
                                 }
                                 if r > 5.0 {
                                     texts.push(FloatText { pos: p + up * 3.0, text: "CONFIRMA!!!".into(), color: rgb_green(), t: 0.0, big: true });
@@ -603,6 +629,7 @@ async fn main() {
                             chunks = build_all(&mut world, &atlas.tex);
                             let w_on = fighters[3].spawned;
                             (villagers, fighters) = spawn_actors();
+                            npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
                             if w_on {
                                 fighters[3].spawn_wolverine();
                             }
@@ -613,7 +640,21 @@ async fn main() {
                 "a" if is_host => {
                     let i = m["i"].as_u64().unwrap_or(0) as usize;
                     let fwh = mp::get_v3(&m["d"]);
-                    match m["k"].as_str().unwrap_or("") {
+                    let g = m["g"].as_u64().unwrap_or(0) as u8;
+                    let k = match m["k"].as_str().unwrap_or("") {
+                        "hit" if g == npc::FIGHTER => "pf",
+                        "hit" => "npc",
+                        k => k,
+                    };
+                    match k {
+                        "npc" => {
+                            let dmg = m["dmg"].as_f64().unwrap_or(6.0) as f32;
+                            if npc_hit(&mut npcs, &mut villagers, g, i, dmg, fwh, mp::get_v3(&m["p"]), &mut events) {
+                                let mut v = mp::shot(&urna::Plan { o: urna.root + up * 1.5, hit: urna.root + up * 1.5, r: 6.0, deflect: false });
+                                v["by"] = json!(2);
+                                send(v, &mut loopback);
+                            }
+                        }
                         "pf" if i < fighters.len() => {
                             let f = &mut fighters[i];
                             if f.active() {
@@ -635,8 +676,9 @@ async fn main() {
                             let v = &mut villagers[i];
                             v.airborne = true;
                             v.vel = fwh * 8.0 + up * 7.0;
+                            let at = v.pos + up;
                             events.push(Ev::Text { pos: v.pos + up * 2.2, text: "HMMM!".into(), color: WHITE, big: false });
-                            events.push(Ev::Hit { pos: v.pos + up, claws: false });
+                            npc_hit(&mut npcs, &mut villagers, npc::VILLAGER, i, 10.0, fwh, at, &mut events);
                         }
                         "wolv" if !fighters[3].spawned => {
                             fighters[3].spawn_wolverine();
@@ -649,6 +691,7 @@ async fn main() {
                     let target = mp::f(&m["time"]) as f64 - (get_time() - start);
                     time_offset = if (target - time_offset).abs() > 1.0 { target } else { time_offset + (target - time_offset) * 0.1 };
                     mp::apply_snapshot(&m, &mut urna, &mut fighters, &mut villagers, &mut fpos, &mut vpos, &mut events);
+                    npcs.apply(&m["n"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 _ => {}
@@ -852,7 +895,7 @@ async fn main() {
             let fw = player.forward();
             match c {
                 1 => skater = Some(skate::Skater::new(player.pos, fw.x.atan2(fw.z))),
-                2 => bandido = Some(gta::Bandido::new()),
+                2 => bandido = Some(gta::Bandido::new(fw.x.atan2(fw.z))),
                 3 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
                 _ => {}
             }
@@ -862,11 +905,17 @@ async fn main() {
             if let Some(b) = bandido.as_mut() {
                 if b.driving {
                     b.driving = false;
+                    car.door = 1.0;
                     let l = vec3(car.fwd().z, 0.0, -car.fwd().x);
                     player.pos = [car.pos + l * 1.8, car.pos - l * 1.8].into_iter().find(|p| !player.collides_at(&world, *p)).unwrap_or(car.pos + up * 2.0);
                     player.vel = Vec3::ZERO;
+                    b.body_yaw = car.yaw;
+                } else if player.pos.distance(car.pos) < 4.0 && car.wreck > 0.0 {
+                    banner = Some(("ESSE AI JA ERA. ESPERA OUTRO APARECER NA VAGA".into(), 2.0));
                 } else if player.pos.distance(car.pos) < 4.0 {
                     b.driving = true;
+                    b.aiming = false;
+                    car.door = 1.0;
                 } else {
                     banner = Some(("CHEGA PERTO DO CARRO (PERTO DA TORRE)".into(), 2.0));
                 }
@@ -893,6 +942,9 @@ async fn main() {
         let key = |k: KeyCode| active && is_key_down(k);
         let btn = |i: usize| held.values().any(|b| *b == i);
         let steer = ((key(KeyCode::A) as i32 - key(KeyCode::D) as i32) as f32 - player.stick.x).clamp(-1.0, 1.0);
+        let pos_before = player.pos;
+        let wasted = bandido.as_ref().is_some_and(|b| b.wasted > 0.0);
+        let active = active && !wasted;
         let mut moving = false;
         if let Some(sk) = skater.as_mut() {
             let inp = skate::Input {
@@ -961,14 +1013,70 @@ async fn main() {
                 player.knock = Vec3::ZERO;
             }
         }
+        // Carro: física mesmo estacionado, dano, fumaça, explosão e ronco do motor
+        let driving_now = bandido.as_ref().is_some_and(|b| b.driving);
+        if !driving_now {
+            car.update(&world, dt, 0.0, 0.0, true);
+        }
+        if car.tick(&world, dt) {
+            let mut v = mp::shot(&urna::Plan { o: car.pos + up, hit: car.pos + up, r: 3.5, deflect: false });
+            v["by"] = json!(1);
+            send(v, &mut loopback);
+            if let Some(b) = bandido.as_mut() {
+                b.crime(1.0);
+                if b.driving {
+                    b.driving = false;
+                    player.pos = car.pos + up * 2.5;
+                    player.vel = Vec3::ZERO;
+                }
+            }
+        }
+        if let Some((p, col, fire)) = car.smoke() {
+            let jitter = vec3(gen_range(-0.3, 0.3), 0.0, gen_range(-0.3, 0.3));
+            fx.particles.push(urna::Particle { pos: p + jitter, vel: vec3(gen_range(-0.5, 0.5), gen_range(2.0, 3.5), gen_range(-0.5, 0.5)), col, life: gen_range(1.0, 1.8), size: gen_range(0.4, 0.8), gravity: false });
+            if fire {
+                fx.particles.push(urna::Particle { pos: p + jitter * 2.0, vel: vec3(0.0, gen_range(1.0, 2.5), 0.0), col: Color::new(1.0, gen_range(0.3, 0.7), 0.05, 1.0), life: 0.4, size: gen_range(0.3, 0.6), gravity: false });
+            }
+        }
+        let rev = (car.speed().abs() / 28.0 * 3.0 + if driving_now && (key(KeyCode::W) || key(KeyCode::S) || player.stick.y.abs() > 0.3) { 0.6 } else { 0.0 }).min(3.0);
+        for (k, id) in engine.iter().enumerate() {
+            let v = if driving_now && !muted && car.wreck <= 0.0 { (1.0 - (rev - k as f32).abs()).max(0.0) * 0.3 } else { 0.0 };
+            audio.set_volume(*id, v);
+        }
         let (eye, fw) = if let Some(sk) = &skater {
             let (e, t) = sk.camera();
             (e, (t - e).normalize())
-        } else if bandido.as_ref().is_some_and(|b| b.driving) {
-            let f = car.fwd();
-            let e = car.pos + up * 3.2 - f * 7.5;
-            (e, (car.pos + up * 1.2 + f * 4.0 - e).normalize())
-        } else if bandido.is_some() || niko.is_some() {
+        } else if let Some(b) = bandido.as_mut() {
+            // Câmera solta atrás (a pé), por cima do ombro mirando, mira telescópica na sniper/bazuca,
+            // e no carro atrasada na velocidade (drift aparece). Posição suavizada, direção não (mira precisa).
+            b.aiming = !b.driving && b.wasted <= 0.0 && grabbed && active && is_mouse_button_down(MouseButton::Right);
+            let (want_e, look) = if b.driving {
+                let f = car.fwd();
+                let back = -(car.vel.normalize_or(f) * 0.35 + f * 0.65).normalize_or(f);
+                let e = car.pos + up * 3.0 + back * 7.5;
+                (e, Some(car.pos + up * 1.2 + f * 4.0))
+            } else {
+                let fw = player.forward();
+                let right = vec3(-fw.z, 0.0, fw.x).normalize_or_zero();
+                let head = player.pos + up * 1.65;
+                let want = if b.aiming && matches!(b.weapon, 7 | 8) {
+                    fw * 0.35 + right * 0.12
+                } else if b.aiming {
+                    -fw * 1.9 + right * 0.75 + up * 0.1
+                } else {
+                    -fw * 3.6 + right * 0.45 + up * 0.35
+                };
+                let dist = world.raycast(head, want.normalize(), want.length()).map(|h| (h.2 - 0.3).max(0.2)).unwrap_or(want.length());
+                (head + want.normalize() * dist, None)
+            };
+            let k = 1.0 - (-dt * if b.driving { 6.0 } else if b.aiming { 25.0 } else { 14.0 }).exp();
+            let e = match cam_smooth {
+                Some(c) if c.distance(want_e) < 15.0 => c.lerp(want_e, k),
+                _ => want_e,
+            };
+            cam_smooth = Some(e);
+            (e, look.map(|l| (l - e).normalize()).unwrap_or(player.forward()))
+        } else if niko.is_some() {
             let fw = player.forward();
             let right = vec3(-fw.z, 0.0, fw.x).normalize_or_zero();
             let head = player.pos + up * 1.7;
@@ -980,32 +1088,70 @@ async fn main() {
         };
         let pick = if ch == 0 { world.raycast(eye, fw, 6.0) } else { None };
 
+        let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, time);
         if let Some(b) = bandido.as_mut() {
-            let mut targets: Vec<gta::Target> = fighters.iter().enumerate().filter(|(_, f)| f.spawned).map(|(i, f)| (f.pos + up, 0.8, i, true)).collect();
-            targets.extend(villagers.iter().enumerate().map(|(i, v)| (v.pos + up, 0.7, i, false)));
             let mut outs = Vec::new();
             if b.driving {
                 let spd = car.speed().abs();
                 if spd > 4.0 && b.hit_cd <= 0.0 {
                     for t in &targets {
                         if vec2(t.0.x - car.pos.x, t.0.z - car.pos.z).length() < 2.4 && (t.0.y - car.pos.y).abs() < 2.5 {
-                            outs.push(gta::Out::Hit { i: t.2, fighter: t.3, dmg: spd * 1.5, dir: car.fwd() });
+                            outs.push(gta::Out::Hit { i: t.2, g: t.3, dmg: spd * 1.5, dir: car.fwd(), at: t.0 });
                             b.hit_cd = 0.3;
+                            b.crime(0.25);
+                            car.damage(spd * 0.15);
                         }
                     }
                 }
-            } else {
+            } else if b.wasted <= 0.0 {
                 let wpn = &gta::ARSENAL[b.weapon];
                 let mouse_fire = grabbed && !just_grabbed && active && if wpn.auto { is_mouse_button_down(MouseButton::Left) } else { is_mouse_button_pressed(MouseButton::Left) };
+                // Mira travada: botão direito (menos sniper/bazuca, que é na mão) ou automática no celular
+                if b.aiming && !matches!(b.weapon, 7 | 8) {
+                    b.pick_lock(&world, eye, fw, &targets, 0.95);
+                } else if btn(1) {
+                    b.pick_lock(&world, eye, fw, &targets, 0.8);
+                } else if !b.aiming {
+                    b.lock = None;
+                }
                 if mouse_fire || btn(1) {
-                    b.fire(&world, eye, fw, gta::Bandido::muzzle(player.pos, fw), player.pos + up, &targets, &mut outs);
+                    let muzzle = b.muzzle(player.pos, fw);
+                    b.fire(&world, eye, fw, muzzle, player.pos + up, &targets, &mut outs);
+                }
+                let k = b.take_kick(dt);
+                if k != 0.0 {
+                    player.pitch = (player.pitch + k).clamp(-1.55, 1.55);
+                    player.yaw += gen_range(-0.3, 0.3) * k.max(0.0);
                 }
             }
-            b.update(&world, dt, &targets, &mut outs);
+            b.update(&world, dt, &targets, &mut outs, fw, player.pos - pos_before);
+            if b.wasted > 0.0 {
+                b.wasted -= dt;
+                if b.wasted <= 0.0 {
+                    let cash = b.cash - b.cash / 10;
+                    *b = gta::Bandido::new(fw.x.atan2(fw.z));
+                    b.cash = cash;
+                    player.pos = player::Player::spawn();
+                    player.vel = Vec3::ZERO;
+                    banner = Some(("HOSPITAL DA VILA: -10% DA GRANA".into(), 3.0));
+                }
+            }
             let wname = if b.driving { "ATROPELADO" } else { gta::ARSENAL[b.weapon].name };
             for o in outs {
                 match o {
-                    gta::Out::Hit { i, fighter, dmg, dir } => send(json!({"t": "a", "k": if fighter { "pf" } else { "pv" }, "i": i, "d": mp::v3(dir), "dmg": dmg, "w": wname}), &mut loopback),
+                    gta::Out::Hit { i, g, dmg, dir, at } => {
+                        send(json!({"t": "a", "k": "hit", "g": g, "i": i, "d": mp::v3(dir), "p": mp::v3(at), "dmg": dmg, "w": wname}), &mut loopback);
+                        b.crime(if g == npc::FIGHTER { 0.04 } else { 0.08 });
+                        b.cash += dmg as u32;
+                        if !recent_hits.iter().any(|h| (h.0, h.1) == (g, i)) {
+                            recent_hits.push((g, i, time));
+                        }
+                        let metal = matches!(g, npc::ROBOT | npc::URNA | npc::EU);
+                        for _ in 0..if metal { 5 } else { 8 } {
+                            let col = if metal { Color::new(1.0, 0.85, 0.4, 1.0) } else { Color::new(gen_range(0.5, 0.75), 0.02, 0.02, 1.0) };
+                            fx.particles.push(urna::Particle { pos: at, vel: dir * gen_range(1.0, 4.0) + vec3(gen_range(-1.5, 1.5), gen_range(0.5, 3.0), gen_range(-1.5, 1.5)), col, life: gen_range(0.3, 0.7), size: gen_range(0.05, 0.12), gravity: !metal });
+                        }
+                    }
                     gta::Out::Boom(p, r) => {
                         let mut v = mp::shot(&urna::Plan { o: p, hit: p, r, deflect: false });
                         v["by"] = json!(1);
@@ -1015,32 +1161,50 @@ async fn main() {
                         for _ in 0..4 {
                             fx.particles.push(urna::Particle { pos: p, vel: vec3(gen_range(-3.0, 3.0), gen_range(0.0, 3.0), gen_range(-3.0, 3.0)), col: Color::new(1.0, 0.85, 0.4, 1.0), life: 0.25, size: 0.05, gravity: false });
                         }
+                        for _ in 0..3 {
+                            fx.particles.push(urna::Particle { pos: p, vel: vec3(gen_range(-1.5, 1.5), gen_range(1.0, 3.0), gen_range(-1.5, 1.5)), col: Color::new(0.45, 0.42, 0.38, 1.0), life: gen_range(0.3, 0.6), size: 0.08, gravity: true });
+                        }
                     }
                     gta::Out::Bang(p) => play_at(&audio, &sfx.gun, p, eye, 0.8, muted, in_club),
+                    gta::Out::Casing(p, v) => fx.particles.push(urna::Particle { pos: p, vel: v, col: Color::new(0.85, 0.65, 0.25, 1.0), life: 0.8, size: 0.04, gravity: true }),
                 }
             }
+            // Quem eu acertei e morreu em seguida conta como abate: mais procurado, mais grana
+            recent_hits.retain(|&(g, i, t)| {
+                let dead = if g == npc::FIGHTER { !fighters[i].active() } else { !npcs.alive(g, i) };
+                if dead {
+                    b.crime(if g >= npc::URNA { 3.0 } else { 0.7 });
+                    let reward = match g {
+                        npc::URNA => 5000,
+                        npc::EU => 2000,
+                        npc::FIGHTER => 500,
+                        _ => 100,
+                    };
+                    b.cash += reward;
+                    texts.push(FloatText { pos: player.pos + up * 2.4, text: format!("+${reward}"), color: Color::new(0.4, 0.9, 0.4, 1.0), t: 0.0, big: g >= npc::URNA });
+                }
+                !dead && time - t < 3.0
+            });
         }
 
         if ch == 0 && (tap_hit || (grabbed && !just_grabbed && is_mouse_button_pressed(MouseButton::Left))) {
             // Soco em lutador/villager tem prioridade sobre quebrar bloco
-            let mut best: Option<(f32, usize, bool)> = None;
-            for (i, f) in fighters.iter().enumerate() {
-                if let Some(t) = f.spawned.then(|| urna::ray_sphere(eye, fw, f.pos + up, 0.75)).flatten() {
-                    if t < 4.5 && best.is_none_or(|b| t < b.0) {
-                        best = Some((t, i, true));
-                    }
-                }
-            }
-            for (i, v) in villagers.iter().enumerate() {
-                if let Some(t) = urna::ray_sphere(eye, fw, v.pos + up, 0.7) {
-                    if t < 4.5 && best.is_none_or(|b| t < b.0) {
-                        best = Some((t, i, false));
+            let mut best: Option<(f32, usize, u8)> = None;
+            for &(c, r, i, g) in &targets {
+                if let Some(t) = urna::ray_sphere(eye, fw, c, r) {
+                    if t < 4.5 + r - 0.75 && best.is_none_or(|b| t < b.0) {
+                        best = Some((t, i, g));
                     }
                 }
             }
             let fwh = vec3(fw.x, 0.0, fw.z).normalize_or_zero();
-            if let Some((_, i, is_f)) = best {
-                send(json!({"t": "a", "k": if is_f { "pf" } else { "pv" }, "i": i, "d": mp::v3(fwh)}), &mut loopback);
+            if let Some((t, i, g)) = best {
+                let k = match g {
+                    npc::FIGHTER => "pf",
+                    npc::VILLAGER => "pv",
+                    _ => "hit",
+                };
+                send(json!({"t": "a", "k": k, "g": g, "i": i, "d": mp::v3(fwh), "p": mp::v3(eye + fw * t), "dmg": 6.0}), &mut loopback);
             } else if let Some((p, _, _)) = pick {
                 if p.y > 0 {
                     let b = world.get(p.x, p.y, p.z);
@@ -1078,8 +1242,30 @@ async fn main() {
             play_at(&audio, &sfx.boom, eye, eye, 1.0, muted, false);
         }
         was_event = evento;
+        for d in npcs.tick(dt, is_host) {
+            match d.g {
+                npc::VILLAGER => {
+                    if let Some(v) = villagers.get_mut(d.i) {
+                        v.pos = v.home;
+                        v.vel = Vec3::ZERO;
+                        v.airborne = false;
+                        v.spin = 0.0;
+                    }
+                }
+                npc::URNA => {
+                    urna.pos.y += 30.0;
+                    events.push(Ev::Banner("A URNA VOLTOU. 2o TURNO!".into()));
+                }
+                npc::EU => events.push(Ev::Banner("RECOMPILEI. VOLTEI.".into())),
+                _ => {}
+            }
+        }
+        if urna.dead && npcs.urna().alive() && !is_host {
+            urna.pos.y += 30.0;
+        }
+        urna.dead = !npcs.urna().alive();
         if is_host {
-            actors::update_villagers(&mut villagers, &world, dt, time);
+            actors::update_villagers(&mut villagers, &world, dt, time, |i| !npcs.alive(npc::VILLAGER, i));
             actors::update_fighters(&mut fighters, &world, dt, time, &mut events);
             if (evento || ai_rage > 0.0) && !urna.charging {
                 urna.timer = urna.timer.min(0.35);
@@ -1089,7 +1275,7 @@ async fn main() {
             let shot_target = {
                 let fs = &fighters;
                 let vs = &villagers;
-                urna.update(dt, time, || {
+                urna.update(&world, dt, || {
                     let roll = gen_range(0.0, 1.0);
                     let active: Vec<Vec3> = fs.iter().filter(|f| f.active()).map(|f| f.pos + vec3(0.0, 0.9, 0.0)).collect();
                     if roll < 0.35 && !active.is_empty() {
@@ -1200,7 +1386,9 @@ async fn main() {
             };
             net.send(json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch}).to_string());
             if is_host {
-                net.send(mp::snapshot(time, &urna, &fighters, &villagers, &ev_out).to_string());
+                let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
+                s["n"] = npcs.snapshot();
+                net.send(s.to_string());
                 ev_out.clear();
             }
         }
@@ -1243,7 +1431,13 @@ async fn main() {
             position: eye + shake,
             target: eye + shake + fw,
             up,
-            fovy: if bandido.as_ref().is_some_and(|b| !b.driving && b.weapon == 7) && grabbed && is_mouse_button_down(MouseButton::Right) { 18f32 } else { 70f32 }.to_radians(),
+            fovy: match bandido.as_ref().filter(|b| b.aiming) {
+                Some(b) if b.weapon == 7 => 18f32,
+                Some(b) if b.weapon == 8 => 45f32,
+                Some(_) => 58f32,
+                None => 70f32,
+            }
+            .to_radians(),
             ..Default::default()
         };
         set_camera(&cam);
@@ -1272,6 +1466,11 @@ async fn main() {
         relogio.draw(&mut opaque, time);
         let bf = beat.fract();
         for (i, v) in villagers.iter().enumerate() {
+            if let Some(d) = npcs.get(npc::VILLAGER, i).filter(|d| !d.alive()) {
+                let m = root(v.pos, v.yaw, d.lean(), 0.0) * Mat4::from_rotation_x(v.spin);
+                draw_villager(&mut opaque, &v.look, &m, 0.0, 0.0, 0.0, 0.0, 0.0);
+                continue;
+            }
             let m = root(v.pos, v.yaw, 0.0, 0.0) * Mat4::from_rotation_x(v.spin);
             let (bounce, nod, arms, phase, walk_amt) = match v.kind {
                 VKind::Dancer => ((beat * std::f32::consts::PI).sin().abs() * 0.18, (beat * std::f32::consts::TAU).sin() * 0.25, if v.arms_up { 1.0 } else { 0.0 }, beat * std::f32::consts::PI + v.phase, 0.25),
@@ -1297,8 +1496,14 @@ async fn main() {
             labels.push(Label { pos: top, text: f.flag_text.to_string(), size: 22.0, color: f.flag.0 });
             labels.push(Label { pos: f.pos + up * 2.3, text: f.name.to_string(), size: 24.0, color: if f.berserk > 0.0 { RED } else { WHITE } });
         }
-        for g in &guests {
-            let pose = actors::guest_pose(g, beat);
+        for (i, g) in guests.iter().enumerate() {
+            let life = npcs.get(npc::GUEST, i).copied();
+            if let Some(d) = life.filter(|d| !d.alive()) {
+                draw_humanoid(&mut opaque, &g.look, &actors::dead_pose(), &root(g.pos, g.yaw, d.lean(), 0.0));
+                continue;
+            }
+            let mut pose = actors::guest_pose(g, beat);
+            pose.flash = life.map(|d| d.flash).unwrap_or(0.0);
             let m = root(g.pos, g.yaw, 0.0, pose.bounce);
             draw_humanoid(&mut opaque, &g.look, &pose, &m);
             if g.pos.distance(eye) < 45.0 {
@@ -1310,14 +1515,10 @@ async fn main() {
             match r.ch {
                 1 => skate::Skater::new(r.pos, r.yaw).draw(&mut opaque, r.look.shirt, time),
                 3 => gta::draw_car(&mut opaque, r.pos, r.yaw, 0.0, r.walk, true),
+                2 => gta::draw_remote(&mut opaque, r.pos, r.yaw, r.walk, moving),
                 _ => {
-                    let arm = if r.ch == 2 { -std::f32::consts::FRAC_PI_2 } else { -0.2 };
-                    let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: arm, ..Default::default() };
-                    let look = match r.ch {
-                        2 => &bandido_look,
-                        4 => &niko_look,
-                        _ => &r.look,
-                    };
+                    let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
+                    let look = if r.ch == 4 { &niko_look } else { &r.look };
                     draw_humanoid(&mut opaque, look, &pose, &root(r.pos, r.yaw, 0.0, 0.0));
                 }
             }
@@ -1337,12 +1538,14 @@ async fn main() {
         if let Some(n) = &niko {
             n.draw(&mut opaque);
         }
-        if let Some(b) = bandido.as_ref().filter(|b| !b.driving) {
+        if let Some(b) = bandido.as_ref().filter(|b| !b.driving && !(b.aiming && matches!(b.weapon, 7 | 8))) {
             b.draw(&mut opaque, &mut trans, player.pos, fw, gta_walk, moving, time);
         }
         urna.draw(&mut opaque, &mut trans, time);
-        extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()));
-        lab.draw(&mut opaque, &mut trans, time, &mut labels, eye);
+        let eu_dead = (!npcs.eu().alive()).then(|| npcs.eu().t);
+        extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()), eu_dead);
+        let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
+        lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         eco.draw_world(&mut opaque, &mut labels, eye, time);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
@@ -1410,6 +1613,29 @@ async fn main() {
                 draw_rectangle(s.x - w * 0.5, s.y, w * k, 6.0, Color::new(1.0 - k, k, 0.1, 1.0));
             }
         }
+        for &(c, r, i, g) in targets.iter().filter(|t| matches!(t.3, npc::VILLAGER | npc::GUEST | npc::ROBOT)) {
+            let Some(d) = npcs.get(g, i).filter(|d| d.hp < d.max) else { continue };
+            if let Some(s) = project(&vp, c + up * (r + 0.5)) {
+                let k = d.hp / d.max;
+                draw_rectangle(s.x - 22.0, s.y, 44.0, 5.0, Color::new(0.0, 0.0, 0.0, 0.6));
+                draw_rectangle(s.x - 22.0, s.y, 44.0 * k, 5.0, Color::new(1.0 - k, k, 0.1, 1.0));
+            }
+        }
+        // Barras de chefão: urna (e eu, se apanhar)
+        let mut boss_y = 70.0;
+        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false)] {
+            if !(near || d.hp < d.max) {
+                continue;
+            }
+            let w = (screen_width() * 0.45).min(420.0);
+            let x = screen_width() * 0.5 - w * 0.5;
+            let k = d.hp / d.max;
+            draw_rectangle(x - 2.0, boss_y - 2.0, w + 4.0, 16.0, Color::new(0.0, 0.0, 0.0, 0.6));
+            draw_rectangle(x, boss_y, w * k, 12.0, if d.flash > 0.0 { WHITE } else { Color::new(0.85, 0.15, 0.1, 1.0) });
+            let label = if d.alive() { name.to_string() } else { format!("{name} - VOLTA EM {:.0}s", d.down.max(0.0)) };
+            text_centered(&label, screen_width() * 0.5, boss_y + 30.0, 18.0, WHITE, false);
+            boss_y += 40.0;
+        }
         for t in &texts {
             if let Some(s) = project(&vp, t.pos) {
                 let a = (1.0 - t.t / 1.6).clamp(0.0, 1.0);
@@ -1452,14 +1678,20 @@ async fn main() {
             (_, false, net::CONNECTING) => "CONECTANDO...".to_string(),
             _ => "OFFLINE (servidor fora do ar)".to_string(),
         };
+        let hud_y = if let Some(b) = &bandido {
+            draw_gta_hud(b, sw, time);
+            135.0
+        } else {
+            0.0
+        };
         let dim = measure_text(&status, None, 20, 1.0);
-        draw_text(&status, sw - dim.width - 12.0, 84.0, 20.0, if online { Color::new(0.5, 1.0, 0.6, 1.0) } else { GRAY });
+        draw_text(&status, sw - dim.width - 12.0, 84.0 + hud_y, 20.0, if online { Color::new(0.5, 1.0, 0.6, 1.0) } else { GRAY });
         if online {
             let mut names: Vec<&str> = remotes.values().map(|r| r.name.as_str()).collect();
             names.insert(0, my_name.as_str());
             for (i, nm) in names.iter().take(12).enumerate() {
                 let d = measure_text(nm, None, 18, 1.0);
-                draw_text(nm, sw - d.width - 12.0, 106.0 + i as f32 * 20.0, 18.0, WHITE);
+                draw_text(nm, sw - d.width - 12.0, 106.0 + hud_y + i as f32 * 20.0, 18.0, WHITE);
             }
         }
         eco.hud(dt, sw, sh, typing.is_none() && !chars_open);
@@ -1481,9 +1713,49 @@ async fn main() {
             chat.drain(..chat.len() - 100);
         }
 
-        // Mira
-        draw_line(sw * 0.5 - 9.0, sh * 0.5, sw * 0.5 + 9.0, sh * 0.5, 2.0, WHITE);
-        draw_line(sw * 0.5, sh * 0.5 - 9.0, sw * 0.5, sh * 0.5 + 9.0, 2.0, WHITE);
+        // Mira (bandido: alvo travado com marcador na cor da vida dele, luneta na sniper/bazuca)
+        match bandido.as_ref() {
+            Some(b) if b.driving => {}
+            Some(b) => {
+                let lock = b.lock.and_then(|(g, i)| {
+                    let k = if g == npc::FIGHTER { fighters.get(i).map(|f| f.hp / f.max_hp) } else { npcs.get(g, i).map(|d| d.hp / d.max) };
+                    Some((b.locked_pos(&targets)?, k.unwrap_or(1.0)))
+                });
+                if let Some(s) = lock.and_then(|(p, k)| project(&vp, p).map(|s| (s, k))) {
+                    let (s, k) = s;
+                    let col = Color::new((2.0 - 2.0 * k).min(1.0), (2.0 * k).min(1.0), 0.1, 0.95);
+                    let rot = time * 3.0;
+                    for q in 0..4 {
+                        let a = rot + q as f32 * std::f32::consts::FRAC_PI_2;
+                        let (dx, dy) = (a.cos(), a.sin());
+                        let tip = vec2(s.x + dx * 14.0, s.y + dy * 14.0);
+                        let base = vec2(s.x + dx * 26.0, s.y + dy * 26.0);
+                        let perp = vec2(-dy, dx) * 6.0;
+                        draw_triangle(tip, base + perp, base - perp, col);
+                    }
+                } else if b.aiming && matches!(b.weapon, 7 | 8) {
+                    let r = sh * 0.42;
+                    let (cx, cy) = (sw * 0.5, sh * 0.5);
+                    let ink = Color::new(0.0, 0.0, 0.0, 1.0);
+                    draw_rectangle(0.0, 0.0, cx - r, sh, ink);
+                    draw_rectangle(cx + r, 0.0, sw - cx - r, sh, ink);
+                    draw_circle_lines(cx, cy, r + sh * 0.3, sh * 0.6, ink);
+                    draw_line(cx - r, cy, cx + r, cy, 1.5, ink);
+                    draw_line(cx, cy - r, cx, cy + r, 1.5, ink);
+                    draw_circle(cx, cy, 2.5, RED);
+                } else {
+                    let gap = if b.aiming { 4.0 } else { 7.0 };
+                    let col = if b.aiming { Color::new(1.0, 0.3, 0.3, 0.95) } else { Color::new(1.0, 1.0, 1.0, 0.8) };
+                    for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                        draw_line(sw * 0.5 + dx * gap, sh * 0.5 + dy * gap, sw * 0.5 + dx * (gap + 8.0), sh * 0.5 + dy * (gap + 8.0), 2.0, col);
+                    }
+                }
+            }
+            None => {
+                draw_line(sw * 0.5 - 9.0, sh * 0.5, sw * 0.5 + 9.0, sh * 0.5, 2.0, WHITE);
+                draw_line(sw * 0.5, sh * 0.5 - 9.0, sw * 0.5, sh * 0.5 + 9.0, 2.0, WHITE);
+            }
+        }
 
         // Skate: combo e pontos / Bandido: arma atual
         if let Some(sk) = &skater {
@@ -1499,6 +1771,11 @@ async fn main() {
         if let Some(b) = &bandido {
             let txt = if b.driving { "DIRIGINDO - F SAI | ESPACO FREIO DE MAO".to_string() } else { format!("< {}/{}  {} >", b.weapon + 1, gta::ARSENAL.len(), gta::ARSENAL[b.weapon].name) };
             text_centered(&txt, sw * 0.5, sh - 24.0, 26.0, Color::new(1.0, 0.85, 0.3, 1.0), true);
+            if b.wasted > 0.0 {
+                let a = ((4.0 - b.wasted) * 1.5).min(1.0);
+                draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.35, 0.0, 0.0, 0.45 * a));
+                text_centered("WASTED", sw * 0.5, sh * 0.5, (sh * 0.14).max(48.0), Color::new(0.85, 0.1, 0.1, a), false);
+            }
         }
 
         // Hotbar
@@ -1541,8 +1818,8 @@ async fn main() {
                     "C troca personagem | T chat | /comando fala com a IA | H ajuda",
                 ],
                 2 | 3 => [
-                    "BANDIDO: WASD anda | MOUSE mira | ESQ atira (segura nas automaticas) | DIR zoom",
-                    "RODA / Q / E / 1-9 troca arma (12 armas) | F entra/sai do carro (perto da torre)",
+                    "BANDIDO: WASD anda | ESQ atira | DIR segura = mira no ombro + TRAVA no alvo (sniper/bazuca: luneta)",
+                    "RODA / Q / E / 1-9 troca arma | F carro | todo NPC morre (ate a urna) e o procurado sobe",
                     "CARRO: W acelera | S re/freio | A/D vira | ESPACO freio de mao (drift)",
                     "C troca personagem | T chat | H ajuda",
                 ],
@@ -1610,4 +1887,102 @@ fn who(id: u64, online: bool, my_id: u64, my_name: &str, remotes: &HashMap<u64, 
 
 fn rgb_green() -> Color {
     Color::new(0.2, 1.0, 0.35, 1.0)
+}
+
+/// Todo NPC vivo que dá pra acertar: (centro, raio, índice, grupo).
+fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::Guest], npcs: &npc::Npcs, urna: &Urna, time: f32) -> Vec<gta::Target> {
+    let up = Vec3::Y;
+    let mut t: Vec<gta::Target> = fighters.iter().enumerate().filter(|(_, f)| f.active()).map(|(i, f)| (f.pos + up, 0.8, i, npc::FIGHTER)).collect();
+    t.extend(villagers.iter().enumerate().filter(|(i, _)| npcs.alive(npc::VILLAGER, *i)).map(|(i, v)| (v.pos + up * 0.9, 0.7, i, npc::VILLAGER)));
+    t.extend(guests.iter().enumerate().filter(|(i, _)| npcs.alive(npc::GUEST, *i)).map(|(i, g)| (g.pos + up, 0.7, i, npc::GUEST)));
+    t.extend((0..extras::ROBOTS).filter(|i| npcs.alive(npc::ROBOT, *i)).map(|i| (extras::Lab::robot_at(i, time).0 + up * 1.2, 0.9, i, npc::ROBOT)));
+    if npcs.urna().alive() {
+        t.push((urna.pos, 4.6, 0, npc::URNA));
+    }
+    if npcs.eu().alive() {
+        t.push((extras::eu_base(time), 4.0, 0, npc::EU));
+    }
+    t
+}
+
+/// Host: dano num NPC (não lutador). Retorna true se foi a urna que morreu (o main manda a explosão).
+#[allow(clippy::too_many_arguments)]
+fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dmg: f32, dir: Vec3, at: Vec3, events: &mut Vec<Ev>) -> bool {
+    let Some(died) = npcs.hit(g, i, dmg) else { return false };
+    let up = Vec3::Y;
+    if g == npc::VILLAGER && (died || dmg >= 10.0) {
+        if let Some(v) = villagers.get_mut(i) {
+            v.airborne = true;
+            v.vel = dir * (4.0 + dmg * 0.15).min(12.0) + up * (3.0 + dmg * 0.1).min(9.0);
+        }
+    }
+    events.push(Ev::Hit { pos: at, claws: false });
+    if !died {
+        return false;
+    }
+    let (txt, col) = match g {
+        npc::VILLAGER => ("MORREU!", RED),
+        npc::GUEST => ("FOI DE BASE!", RED),
+        npc::ROBOT => ("CURTO-CIRCUITO!", YELLOW),
+        npc::URNA => ("URNA DESTRUIDA!!!", ORANGE),
+        _ => ("A IA CAIU!!!", ORANGE),
+    };
+    events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });
+    match g {
+        npc::URNA => {
+            events.push(Ev::Banner("A URNA CAIU! APURACAO SUSPENSA".into()));
+            events.push(Ev::Shake(1.0));
+        }
+        npc::EU => events.push(Ev::Banner("DERRUBARAM A IA! (O ESCUDO FICA, JA TAVA COMPILADO)".into())),
+        _ => {}
+    }
+    g == npc::URNA
+}
+
+fn draw_star(x: f32, y: f32, r: f32, col: Color) {
+    let p = |k: usize, rr: f32| {
+        let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / 5.0;
+        vec2(x + a.cos() * rr, y + a.sin() * rr)
+    };
+    for k in 0..5 {
+        draw_triangle(vec2(x, y), p(2 * k, r), p(2 * k + 1, r * 0.45), col);
+        draw_triangle(vec2(x, y), p(2 * k + 1, r * 0.45), p(2 * k + 2, r), col);
+    }
+}
+
+/// HUD no clima GTA 3, canto superior direito: arma + munição, relógio, grana, vida, estrelas.
+fn draw_gta_hud(b: &gta::Bandido, sw: f32, time: f32) {
+    let x_r = sw - 12.0;
+    let y = 72.0;
+    let s = 64.0;
+    draw_rectangle(x_r - s, y, s, s, Color::new(0.0, 0.0, 0.0, 0.45));
+    draw_rectangle_lines(x_r - s, y, s, s, 2.0, Color::new(1.0, 1.0, 1.0, 0.6));
+    gta::draw_icon(b.weapon, x_r - s, y, s);
+    let ammo = b.ammo_text();
+    let d = measure_text(&ammo, None, 16, 1.0);
+    draw_text(&ammo, x_r - s * 0.5 - d.width * 0.5, y + s + 15.0, 16.0, WHITE);
+    let tx = x_r - s - 12.0;
+    let right = |txt: &str, yy: f32, size: f32, col: Color| {
+        let d = measure_text(txt, None, size as u16, 1.0);
+        draw_text(txt, tx - d.width + 2.0, yy + 2.0, size, Color::new(0.0, 0.0, 0.0, 0.8));
+        draw_text(txt, tx - d.width, yy, size, col);
+    };
+    let mins = (time * 2.0) as u32;
+    right(&format!("{:02}:{:02}", 8 + mins / 60 % 24, mins % 60), y + 20.0, 26.0, Color::new(0.85, 0.85, 0.8, 1.0));
+    right(&format!("${:08}", b.cash), y + 50.0, 34.0, Color::new(0.38, 0.55, 0.85, 1.0));
+    let hp_col = Color::new(1.0, 0.45, 0.55, 1.0);
+    let hp = format!("{:03}", b.health.ceil() as i32);
+    right(&hp, y + 80.0, 30.0, hp_col);
+    let hd = measure_text(&hp, None, 30, 1.0);
+    let hx = tx - hd.width - 18.0;
+    draw_circle(hx - 5.0, y + 66.0, 6.0, hp_col);
+    draw_circle(hx + 5.0, y + 66.0, 6.0, hp_col);
+    draw_triangle(vec2(hx - 11.0, y + 68.0), vec2(hx + 11.0, y + 68.0), vec2(hx, y + 80.0), hp_col);
+    for k in 0..6u32 {
+        let cx = x_r - 12.0 - k as f32 * 26.0;
+        let on = k < b.stars();
+        let blink = on && b.calm < 3.0 && (time * 6.0).sin() > 0.0;
+        draw_star(cx + 1.5, y + s + 40.0 + 1.5, 11.0, Color::new(0.0, 0.0, 0.0, 0.6));
+        draw_star(cx, y + s + 40.0, 11.0, if blink { WHITE } else if on { Color::new(1.0, 0.8, 0.15, 1.0) } else { Color::new(0.3, 0.3, 0.3, 0.5) });
+    }
 }

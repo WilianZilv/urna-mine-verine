@@ -11,6 +11,9 @@ const ABERTO: f64 = 9.0 * 3600.0;
 /// Duração do evento (fogos + urna enlouquecida).
 pub const EVENTO: f64 = 120.0;
 
+/// Volume do placar (cabe o texto mais largo): obstáculo pra urna e NPCs.
+pub const PAINEL: (Vec3, Vec3) = (Vec3::new(24.0, G as f32 + 10.0, 35.3), Vec3::new(104.0, G as f32 + 28.0, 36.3));
+
 /// Segundos até a abertura (negativo = já abriu). ELEICAO_EM_SEGUNDOS antecipa pra teste.
 pub struct Relogio {
     alvo: f64,

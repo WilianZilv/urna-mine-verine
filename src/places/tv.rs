@@ -38,21 +38,52 @@ pub struct Tv {
     air: Option<(String, String, f64, f64)>,
     /// Patrocínios: (texto, quem, fim em get_time).
     sp: Vec<(String, String, f64)>,
+    /// PLANTAO URGENTE: (texto, fim em get_time, início).
+    urg: Option<(String, f64, f64)>,
     pad: f32,
     cool: f32,
 }
 
 impl Tv {
     pub fn new() -> Self {
-        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], pad: 0.0, cool: 0.0 }
+        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, pad: 0.0, cool: 0.0 }
     }
 
     fn air_now(&self) -> Option<&(String, String, f64, f64)> {
         self.air.as_ref().filter(|a| a.2 > get_time())
     }
 
+    fn urg_now(&self) -> Option<&(String, f64, f64)> {
+        self.urg.as_ref().filter(|u| u.1 > get_time())
+    }
+
+    /// Tela cheia vermelha do PLANTAO URGENTE.
+    fn paint_urg(&self, time: f32, text: &str, end: f64, now: f64) {
+        let blink = (time * 2.5).fract() < 0.5;
+        draw_rectangle(0.0, 0.0, TW, 1024.0, Color::new(0.35, 0.0, 0.02, 1.0));
+        for i in 0..8 {
+            let x = ((time * 300.0 + i as f32 * 320.0) % (TW + 640.0)) - 320.0;
+            draw_triangle(vec2(x, 250.0), vec2(x + 160.0, 250.0), vec2(x - 80.0, 1024.0), Color::new(0.6, 0.0, 0.05, 0.35));
+        }
+        draw_rectangle(0.0, 0.0, TW, 230.0, if blink { RED } else { Color::new(0.75, 0.05, 0.08, 1.0) });
+        draw_rectangle(0.0, 230.0, TW, 12.0, WHITE);
+        text_mid("PLANTAO URGENTE", TW * 0.5, 180.0, 170.0, WHITE);
+        for (j, l) in wrap(text, TW - 160.0, 110.0, 4).iter().enumerate() {
+            text_mid(l, TW * 0.5, 410.0 + j as f32 * 130.0, 110.0, WHITE);
+        }
+        draw_rectangle(0.0, 900.0, TW, 124.0, Color::new(0.02, 0.02, 0.05, 0.95));
+        draw_rectangle(0.0, 900.0, 420.0, 124.0, RED);
+        text_mid("TV URNA", 210.0, 984.0, 80.0, WHITE);
+        draw_text("INTERROMPEMOS A PROGRAMACAO PRA ISSO AI", 460.0, 980.0, 60.0, SOFT);
+        text_right(&format!("{:.0}s", (end - now).max(0.0)), TW - 40.0, 984.0, 80.0, GOLD);
+        holo_fx(time, if blink { 0.3 } else { 0.0 });
+    }
+
     fn paint(&self, time: f32) {
         let now = get_time();
+        if let Some((text, end, _)) = self.urg_now() {
+            return self.paint_urg(time, text, *end, now);
+        }
         let flash = (1.0 - (now - self.fl_t) as f32 / 2.0).clamp(0.0, 1.0);
         // Cabeçalho
         draw_rectangle(0.0, 0.0, TW, 120.0, Color::new(0.5, 0.03, 0.06, 0.95));
@@ -170,6 +201,32 @@ impl Tv {
         text_mid("URNA NEWS", ax, 714.0, 70.0, WHITE);
         text_mid("a noticia que a urna aprova", ax, 752.0, 28.0, SOFT);
     }
+
+    /// Sirene girando no topo da fachada, halo vermelho pulsando em volta do telão e chamariz de longe.
+    fn siren(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let g = G as f32;
+        let p = (time * 6.0).sin() * 0.5 + 0.5;
+        let top = vec3(64.5, g + 18.0, 266.5);
+        b.cube(&id, top + vec3(0.0, 0.25, 0.0), vec3(1.6, 0.5, 1.6), rgb(0.12, 0.12, 0.15));
+        b.glow(&id, top + vec3(0.0, 1.0, 0.0), vec3(1.0, 1.0, 1.0), Color::new(1.0, 0.1 + 0.3 * p, 0.1, 1.0));
+        let beams = crate::quality::pick([1, 2, 2]);
+        for i in 0..beams {
+            let m = Mat4::from_translation(top + vec3(0.0, 1.0, 0.0)) * Mat4::from_rotation_y(time * 5.0 + i as f32 * PI);
+            trans.glow(&m, vec3(0.0, 0.0, 3.0), vec3(0.45, 0.45, 6.0), Color::new(1.0, 0.12, 0.08, 0.55));
+        }
+        let gs = geo();
+        let (x0, x1, y0, y1) = (gs.c.x - gs.w * 0.5, gs.c.x + gs.w * 0.5, gs.c.y - gs.h * 0.5, gs.c.y + gs.h * 0.5);
+        let (z, d) = (265.5, 0.9);
+        let c = Color::new(1.0, 0.08, 0.1, 0.3 + 0.5 * p);
+        trans.glow(&id, vec3(gs.c.x, y1 + d, z), vec3(gs.w + d * 4.0, d, 0.1), c);
+        trans.glow(&id, vec3(gs.c.x, y0 - d, z), vec3(gs.w + d * 4.0, d, 0.1), c);
+        trans.glow(&id, vec3(x0 - d, gs.c.y, z), vec3(d, gs.h, 0.1), c);
+        trans.glow(&id, vec3(x1 + d, gs.c.y, z), vec3(d, gs.h, 0.1), c);
+        if eye.distance(top) < 150.0 {
+            labels.push(Label { pos: top + vec3(0.0, 3.0, 0.0), text: "PLANTAO NA TV URNA".into(), size: 30.0, color: Color::new(1.0, 0.3, 0.3, 1.0) });
+        }
+    }
 }
 
 impl Place for Tv {
@@ -198,6 +255,14 @@ impl Place for Tv {
             };
             (s(&air["name"]), s(&air["q"]), now + air["left"].as_f64().unwrap_or(0.0), start)
         });
+        let u = &m["urg"];
+        self.urg = u.is_object().then(|| {
+            let start = match &self.urg {
+                Some((t, _, st)) if *t == s(&u["text"]) => *st,
+                _ => now,
+            };
+            (s(&u["text"]), now + u["left"].as_f64().unwrap_or(0.0), start)
+        });
         self.sp = m["sp"].as_array().map(|v| v.iter().map(|x| (s(&x["text"]), s(&x["by"]), now + x["left"].as_f64().unwrap_or(0.0))).collect()).unwrap_or_default();
     }
 
@@ -217,7 +282,8 @@ impl Place for Tv {
 
     fn render(&mut self, time: f32, eye: Vec3) {
         let air = self.air_now().map(|a| a.0.clone()).unwrap_or_default();
-        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len()));
+        let urg = self.urg_now().map(|u| u.0.as_str()).unwrap_or("");
+        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg));
         if self.scr.begin(time, eye, &geo(), key, true) {
             self.paint(time);
             self.scr.end();
@@ -225,11 +291,14 @@ impl Place for Tv {
     }
 
     fn draw(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let g = G as f32;
+        if self.urg_now().is_some() && eye.distance(STUDIO) < 160.0 {
+            self.siren(b, trans, labels, time, eye);
+        }
         if eye.distance(STUDIO) > 140.0 {
             return;
         }
-        let id = Mat4::IDENTITY;
-        let g = G as f32;
         let hi = crate::quality::tier() > crate::quality::LOW;
         let air = self.air_now().is_some();
         let metal = rgb(0.12, 0.12, 0.15);

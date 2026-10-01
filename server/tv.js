@@ -11,6 +11,10 @@ const AIR_MS = 40 * 1000;
 const AIR_CD = 2 * 60 * 1000;
 const SP_MIN = 20;
 const SP_MAX = 3;
+const URG_MS = 25 * 1000;
+const URG_CD = 60 * 1000;
+const URG_OLD = 90 * 1000;
+const WATCH_MS = 3 * 1000;
 const FROM = "TV URNA";
 
 const SYS = `Voce e a ancora-robo da TV URNA NEWS, telejornal SATIRICO do jogo URNA-MINE-VERINE (vila voxel, moedas FICTICIAS).
@@ -60,6 +64,19 @@ const clean = (s, n) => {
 };
 const left = (until) => Math.max(0, Math.round((until - Date.now()) / 1000));
 
+/// Lancamento do ledger que vira PLANTAO: [prioridade, texto] ou null. Templates fixos, nada da IA.
+export const urgent = (e) => {
+    const who = String(e?.who ?? ""), what = String(e?.what ?? ""), amt = +e?.amt || 0;
+    let m;
+    if (/^congresso$/i.test(who) || /lei .*aprovad|aprova(da|do|u)? (a )?lei/i.test(what)) return [5, `CONGRESSO APROVA: ${what.replace(/^aprovou:?\s*/i, "")}`];
+    if (/^comprou wolverine/i.test(what)) return [4, `${who} COMPRA WOLVERINE QUE CAI DO CEU; DEFESA CIVIL VOXEL EM ALERTA`];
+    if (who === "IA" && (m = /^construiu: (.*?)( \(\d+ blocos\))?$/.exec(what))) return [3, `IA ERGUE "${m[1]}" SEM LICITACAO; COFRE PAGA ${amt}`];
+    if (/^doou/i.test(what) && amt >= 100) return [3, `DOACAO HISTORICA: ${who} DOA ${amt} MOEDAS FICTICIAS; COFRE CHORA DE EMOCAO`];
+    if (/^comprou fogos/i.test(what) || (who === "IA" && /bancou evento publico: fogos/.test(what))) return [2, `${who} SOLTA FOGOS NA VILA; PETS VOXEL PEDEM SOCORRO`];
+    if (who === "LAB" && (m = /^pesquisou: (.*)$/.exec(what))) return [1, `LAB PESQUISOU: ${m[1]}`];
+    return null;
+};
+
 export class Tv {
     constructor(places, s) {
         this.pl = places;
@@ -69,6 +86,12 @@ export class Tv {
         this.busy = false;
         this.newsAt = 0;
         this.spBusy = new Set();
+        this.urg = null;
+        this.urgAt = 0;
+        this.pend = null;
+        this.seenT = Date.now();
+        this.sibK = {};
+        this.iv = null;
     }
 
     get room() {
@@ -87,6 +110,7 @@ export class Tv {
             ago: this.s.at ? Math.round((now - this.s.at) / 1000) : -1,
             air: this.air ? { name: this.air.name, q: this.air.q, left: left(this.air.until) } : null,
             sp: this.s.sp.filter((x) => x.until > now).map((x) => ({ text: x.text, by: x.by, left: left(x.until) })),
+            urg: this.urg && this.urg.until > now ? { text: this.urg.text, left: left(this.urg.until) } : null,
         };
     }
 
@@ -97,9 +121,48 @@ export class Tv {
     join(c) {
         this.room.send(c, this.snap());
         if (!this.s.at) this.bulletin(null);
+        if (!this.iv) this.iv = setInterval(() => this.watch(Date.now()), WATCH_MS);
+    }
+
+    // ------------------------------------------------ PLANTAO URGENTE (fatos grandes em segundos)
+    watch(now) {
+        if (!this.room.clients?.size) {
+            clearInterval(this.iv);
+            this.iv = null;
+        }
+        if (this.urg && this.urg.until <= now) {
+            this.urg = null;
+            this.push();
+        }
+        for (const e of this.room.eco?.s?.led || []) {
+            if (!(e?.t > this.seenT)) continue;
+            const u = urgent(e);
+            if (u && (!this.pend || u[0] >= this.pend.p)) this.pend = { p: u[0], text: u[1], t: e.t };
+        }
+        const led = this.room.eco?.s?.led;
+        if (led?.length) this.seenT = Math.max(this.seenT, led[led.length - 1].t || 0);
+        for (const [k, p] of [["congresso", this.pl.congresso], ["bolsa", this.pl.bolsa]]) {
+            let x;
+            try {
+                x = p?.news?.()?.[0];
+            } catch (e) { }
+            if (typeof x !== "string" || !x) continue;
+            if (this.sibK[k] !== undefined && this.sibK[k] !== x && (!this.pend || 4 >= this.pend.p)) this.pend = { p: 4, text: x, t: now };
+            this.sibK[k] = x;
+        }
+        if (!this.pend || now - this.urgAt < URG_CD) return;
+        const p = this.pend;
+        this.pend = null;
+        const text = clean(p.text.toUpperCase(), 90);
+        if (!text || now - p.t > URG_OLD) return;
+        this.urgAt = now;
+        this.urg = { text, until: now + URG_MS };
+        this.push();
+        this.pl.say(FROM, `PLANTAO: ${text}`);
     }
 
     tick(now, online) {
+        this.watch(now);
         const n = this.s.sp.length;
         this.s.sp = this.s.sp.filter((x) => x.until > now);
         if (n !== this.s.sp.length) {

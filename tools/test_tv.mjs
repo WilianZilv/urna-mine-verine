@@ -1,5 +1,5 @@
 // Teste offline do server/tv.js com sala/economia falsas e brain null. Uso: node tools/test_tv.mjs
-import { Tv } from "../server/tv.js";
+import { Tv, urgent } from "../server/tv.js";
 import { norm } from "../server/places.js";
 
 let fails = 0;
@@ -93,6 +93,44 @@ tv.sponsor(c, ["vila", "linda", "demais", "20"]);
 await sleep(20);
 s = last();
 ok(eco.w.bot.c === 25 && s.sp.length === 1 && s.sp[0].left > 500 && s.sp[0].left <= 600, `manchete aceita sem IA: ${JSON.stringify(s.sp)}`);
+
+// PLANTAO URGENTE: deteccao + limite de 1 por 60 s
+ok(urgent({ who: "IA", what: "construiu: torre torta (120 blocos)", amt: 80 })?.[1] === 'IA ERGUE "torre torta" SEM LICITACAO; COFRE PAGA 80', "detecta obra da IA");
+ok(urgent({ who: "ana", what: "comprou Wolverine cai do ceu", amt: 120 })?.[0] === 4, "detecta wolverine");
+ok(urgent({ who: "IA", what: "bancou evento publico: fogos", amt: 60 }) !== null, "detecta fogos da IA");
+ok(urgent({ who: "ana", what: "doou pro cofre da IA", amt: 100 }) !== null && urgent({ who: "ana", what: "doou pro cofre da IA", amt: 99 }) === null, "doacao >= 100");
+ok(urgent({ who: "CONGRESSO", what: "aprovou: lei do pulo duplo", amt: 0 })?.[1] === "CONGRESSO APROVA: lei do pulo duplo", "detecta lei");
+ok(urgent({ who: "LAB", what: "pesquisou: gatos (pedido de ana)", amt: 5 }) !== null, "detecta lab");
+ok(urgent({ who: "ana", what: "comprou TNT", amt: 10 }) === null && urgent({ who: "bot", what: "pagou boletim extra da TV URNA", amt: 5 }) === null, "ignora miudeza");
+clearInterval(tv.iv);
+const says = () => bc.filter((m) => m.t === "chat" && /^PLANTAO:/.test(m.m)).map((m) => m.m);
+let T = Date.now() + 1000;
+const ev = (who, what, amt) => eco.s.led.push({ t: T++, who, what, amt });
+ev("ana", "comprou TNT", 10);
+tv.watch(T);
+ok(!says().length && !last().urg, "sem fato grande, sem plantao");
+ev("ana", "doou pro cofre da IA", 150);
+ev("LAB", "pesquisou: gatos", 5);
+tv.watch(T);
+s = last();
+ok(s.urg && /DOACAO HISTORICA: ANA DOA 150/.test(s.urg.text) && s.urg.left >= 24, `plantao escolhe o maior: ${JSON.stringify(s.urg)}`);
+ok(says().length === 1 && /^PLANTAO: DOACAO/.test(says()[0]), "chat PLANTAO");
+ev("IA", "construiu: ponte (50 blocos)", 40);
+tv.watch(T + 10000);
+ok(says().length === 1, "segundo fato em 10 s espera (limite 60 s)");
+tv.watch(T + 30000);
+ok(last().urg === null, "plantao some depois de 25 s");
+tv.watch(T + 61000);
+ok(says().length === 2 && /PONTE/.test(last().urg?.text), "fato pendente sai depois do cooldown");
+pl.congresso = { news: () => ["BOLSA? NAO, CONGRESSO: SESSAO NORMAL"] };
+tv.watch(T + 62000);
+pl.congresso.news = () => ["CONGRESSO DERRUBA LEI DA GRAVIDADE"];
+tv.watch(T + 63000);
+tv.watch(T + 130000);
+ok(says().length === 3 && /GRAVIDADE/.test(says()[2]), "mudanca no news() do congresso vira plantao");
+ev("ana", "doou pro cofre da IA", 500);
+tv.watch(T + 300000);
+ok(says().length === 3, "fato velho (> 90 s) descartado");
 
 console.log(fails ? `${fails} falha(s)` : "tudo ok");
 process.exit(fails ? 1 : 0);

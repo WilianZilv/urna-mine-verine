@@ -49,7 +49,7 @@ if (!desktop) {
 await cmd("Page.navigate", { url: `http://127.0.0.1:${HTTP}/?nome=bench&debug=1&${extra}` }, sessionId);
 await sleep(desktop ? 15000 : 40000);
 const eval_ = async (expr) => (await cmd("Runtime.evaluate", { expression: expr, returnByValue: true }, sessionId)).result?.value;
-console.log("touch:", await eval_(`navigator.maxTouchPoints + " coarse=" + matchMedia("(pointer: coarse)").matches + " dpr=" + devicePixelRatio`));
+console.log("touch:", await eval_(`navigator.maxTouchPoints + " coarse=" + matchMedia("(pointer: coarse)").matches + " dpr=" + devicePixelRatio + " msaa=" + (glcanvas.getContext("webgl") || glcanvas.getContext("webgl2"))?.getContextAttributes().antialias`));
 const samples = [];
 for (let i = 0; i < secs; i++) {
     await sleep(1000);

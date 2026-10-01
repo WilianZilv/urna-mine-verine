@@ -106,6 +106,17 @@
         return "matrix3d(" + [t[0], t[3], 0, t[6], t[1], t[4], 0, t[7], 0, 0, 1, 0, t[2], t[5], 0, t[8]].join(",") + ")";
     }
 
+    // Celular fora da qualidade ALTA: WebGL sem MSAA (o contexto é criado uma vez só, no load).
+    const touch = navigator.maxTouchPoints > 0 && matchMedia("(pointer: coarse)").matches;
+    let savedQ = null;
+    try { savedQ = localStorage.getItem("urna_q"); } catch (e) { }
+    if (touch && (new URLSearchParams(location.search).get("q") || savedQ) !== "high") {
+        const getContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+            return getContext.call(this, type, /webgl/.test(type) ? Object.assign({ antialias: false }, attrs) : attrs);
+        };
+    }
+
     let pendingPrompt = null;
 
     miniquad_add_plugin({

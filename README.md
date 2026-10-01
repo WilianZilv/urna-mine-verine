@@ -215,6 +215,14 @@ Wolverine é diferente.
 - Explosão: cratera esférica com borda irregular, detritos com a cor do bloco, bola de fogo,
   tremor de câmera proporcional à distância, knockback em lutadores/villagers/jogador.
 
+### Bolsonaro Voador (céu da vila, `src/voador.rs`)
+- Homenagem ao jogo mobile de 2016: o Jair de um universo paralelo que **voa e atira laser
+  pelos olhos**. Terno, faixa presidencial verde-amarela, cabelo grisalho repartido, capa.
+- Rota em função do tempo sincronizado (curvas inclinadas, mergulho a cada 26s); o host escolhe
+  alvos (jogadores, lutadores, villagers, a urna) e os tiros quebram bloco como os da urna.
+- Falas satíricas ("TALKEY?", "ESSA URNA AI NAO E AUDITAVEL!"). Matável: 900 HP, barra de
+  chefão por perto, despenca e volta em 60s (+$2500 pro bandido que derrubar).
+
 ---
 
 ## Sistema de combate

@@ -27,6 +27,7 @@ mod synth;
 #[cfg_attr(target_arch = "wasm32", path = "telao_web.rs")]
 mod telao;
 mod urna;
+mod voador;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod world;
@@ -421,6 +422,7 @@ async fn main() {
     let mut steve = steve::Steve::new();
     let (mut villagers, mut fighters) = spawn_actors();
     let mut npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
+    let mut voador = voador::Voador::new();
     let mut cam_smooth: Option<Vec3> = None;
     let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
     let mut urna = Urna::new();
@@ -545,7 +547,6 @@ async fn main() {
                         }
                     }
                 }
-                }
                 "chat" => {
                     let who = m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes));
                     chat.push((format!("{who}: {}", m["m"].as_str().unwrap_or("")), get_time()));
@@ -563,6 +564,9 @@ async fn main() {
                         let eye = player.eye();
                         if m["by"].is_null() {
                             urna.recoil();
+                            play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
+                        } else if m["by"] == voador::BY {
+                            voador.on_shot(&plan, time, &mut fx);
                             play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
                         }
                         match shot {
@@ -1215,6 +1219,7 @@ async fn main() {
                     let reward = match g {
                         npc::URNA => 5000,
                         npc::EU => 2000,
+                        npc::VOADOR => 2500,
                         npc::GUARD => 1000,
                         npc::FIGHTER => 500,
                         _ => 100,
@@ -1265,6 +1270,7 @@ async fn main() {
                     events.push(Ev::Banner("A URNA VOLTOU. 2o TURNO!".into()));
                 }
                 npc::EU => events.push(Ev::Banner("RECOMPILEI. VOLTEI.".into())),
+                npc::VOADOR => events.push(Ev::Banner("O BOLSONARO VOADOR VOLTOU A VOAR, TALKEY?".into())),
                 npc::GUARD => events.push(Ev::Banner("SINAPSE-9 REINICIOU. O LAB SEGUE LENDO.".into())),
                 _ => {}
             }
@@ -1305,6 +1311,11 @@ async fn main() {
             if let Some(target) = shot_target {
                 let plan = urna::plan(&world, urna.eye(), target, if evento { 0.5 } else { 0.15 });
                 send(mp::shot(&plan), &mut loopback);
+            }
+            if let Some(plan) = voador.think(&world, dt, time, &targets, &fighters, &villagers, &npcs, urna.pos, &mut events) {
+                let mut v = mp::shot(&plan);
+                v["by"] = json!(voador::BY);
+                send(v, &mut loopback);
             }
         } else {
             let k = (dt * 12.0).min(1.0);
@@ -1555,6 +1566,7 @@ async fn main() {
         urna.draw(&mut opaque, &mut trans, time);
         let eu_dead = (!npcs.eu().alive()).then(|| npcs.eu().t);
         extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()), eu_dead);
+        voador.draw(&mut opaque, &mut trans, &world, time, dt, &mut labels, npcs.voador());
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
@@ -1638,7 +1650,7 @@ async fn main() {
         }
         // Barras de chefão: urna (e eu, se apanhar)
         let mut boss_y = 70.0;
-        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false)] {
+        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false), ("BOLSONARO VOADOR", npcs.voador(), voador::pos(time).distance(eye) < 60.0)] {
             if !(near || d.hp < d.max) {
                 continue;
             }
@@ -1914,6 +1926,9 @@ fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::G
     if npcs.eu().alive() {
         t.push((extras::eu_base(time), 4.0, 0, npc::EU));
     }
+    if npcs.voador().alive() {
+        t.push((voador::pos(time), 2.6, 0, npc::VOADOR));
+    }
     if npcs.guard().alive() {
         let (c, r) = lab::guard_target(time);
         t.push((c, r, 0, npc::GUARD));
@@ -1941,6 +1956,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::GUEST => ("FOI DE BASE!", RED),
         npc::ROBOT => ("CURTO-CIRCUITO!", YELLOW),
         npc::URNA => ("URNA DESTRUIDA!!!", ORANGE),
+        npc::VOADOR => ("MITO ABATIDO!!!", ORANGE),
         npc::GUARD => ("SINAPSE-9 DESLIGOU!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
@@ -1951,6 +1967,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
             events.push(Ev::Shake(1.0));
         }
         npc::EU => events.push(Ev::Banner("DERRUBARAM A IA! (O ESCUDO FICA, JA TAVA COMPILADO)".into())),
+        npc::VOADOR => events.push(Ev::Banner("DERRUBARAM O BOLSONARO VOADOR! ELE VAI RECORRER...".into())),
         _ => {}
     }
     g == npc::URNA

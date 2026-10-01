@@ -13,13 +13,16 @@ pub struct Player {
     pub fly: bool,
     pub on_ground: bool,
     pub sel: usize,
+    /// Joystick virtual (x = direita, y = frente) e botão de pulo do celular.
+    pub stick: Vec2,
+    pub jump_held: bool,
 }
 
 pub const HOTBAR: [u8; 9] = [GRASS, DIRT, STONE, PLANKS, LOG, COBBLE, GLASS, BRICK, NEON];
 
 impl Player {
     pub fn new() -> Self {
-        Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0 }
+        Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0, stick: Vec2::ZERO, jump_held: false }
     }
 
     pub fn spawn() -> Vec3 {
@@ -77,8 +80,10 @@ impl Player {
                 self.vel.y = 0.0;
             }
         }
-        let wish = wish.normalize_or_zero();
-        let sprint = input && is_key_down(KeyCode::LeftShift);
+        let stick = if input { self.stick } else { Vec2::ZERO };
+        let wish = if stick.length() > 0.1 { f * stick.y + r * stick.x } else { wish.normalize_or_zero() };
+        let jump = input && (is_key_down(KeyCode::Space) || self.jump_held);
+        let sprint = input && (is_key_down(KeyCode::LeftShift) || stick.length() > 0.95);
         let speed = if self.fly {
             if sprint { 25.0 } else { 12.0 }
         } else if sprint {
@@ -89,12 +94,12 @@ impl Player {
         self.vel.x = wish.x * speed + self.knock.x;
         self.vel.z = wish.z * speed + self.knock.z;
         if self.fly {
-            let up = input && is_key_down(KeyCode::Space);
+            let up = jump;
             let down = input && is_key_down(KeyCode::LeftControl);
             self.vel.y = (up as i32 - down as i32) as f32 * speed + self.knock.y;
         } else {
             self.vel.y -= 28.0 * dt;
-            if input && self.on_ground && is_key_down(KeyCode::Space) {
+            if self.on_ground && jump {
                 self.vel.y = 8.4;
             }
             self.vel.y += self.knock.y;

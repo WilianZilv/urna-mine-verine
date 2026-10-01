@@ -34,7 +34,8 @@ impl Relogio {
         let f = self.faltam();
         if f > 0.0 {
             let s = f as u64;
-            ["FALTAM".into(), format!("{}D {:02}:{:02}:{:02}", s / 86400, s / 3600 % 24, s / 60 % 60, s % 60), "PRAS ELEICOES 2026".into()]
+            let d = s / 86400;
+            ["FALTAM".into(), format!("{d} {} {:02}:{:02}:{:02}", if d == 1 { "DIA" } else { "DIAS" }, s / 3600 % 24, s / 60 % 60, s % 60), "PRAS ELEICOES 2026".into()]
         } else if f + ABERTO > 0.0 {
             let s = (f + ABERTO) as u64;
             ["URNAS ABERTAS!".into(), format!("FECHA EM {:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60), "VAI VOTAR!".into()]
@@ -49,7 +50,7 @@ impl Relogio {
         let (cx, z, top) = (64.0, 36.0, G as f32 + 27.0);
         let px = 0.8;
         let linhas = self.linhas();
-        let scale = |l: usize, t: &str| if l == 1 && t.len() <= 12 { 1.5 } else { 1.0 };
+        let scale = |l: usize, t: &str| if l == 1 && t.len() <= 16 { 1.5 } else { 1.0 };
         let largura = linhas.iter().enumerate().map(|(l, t)| t.len() as f32 * 4.0 * px * scale(l, t)).fold(0.0, f32::max);
         b.cube(&id, vec3(cx, top - 10.0 * px, z - 0.4), vec3(largura + 3.0, 22.0 * px, 0.4), Color::new(0.04, 0.04, 0.06, 1.0));
         let pulse = 0.75 + 0.25 * (time * 4.0).sin();

@@ -44,51 +44,142 @@ pub enum Shot {
     Exploded(Vec3, f32),
 }
 
-pub struct Urna {
-    pub base: Vec3,
+pub struct Foot {
     pub pos: Vec3,
+    from: Vec3,
+    to: Vec3,
+    t: f32,
+}
+
+/// Urna caricata de pernas e braços. `root` (chão sob o corpo) e mira vêm da IA do host;
+/// pés, corpo e mãos são física procedural local (`animate`), igual em todos os clientes.
+pub struct Urna {
+    pub root: Vec3,
+    pub pos: Vec3,
+    vel: Vec3,
     pub yaw: f32,
+    tilt: Vec2,
     pub charging: bool,
     pub timer: f32,
     pub charge: f32,
     pub target: Vec3,
     pub barrage: u32,
     pub shots: u32,
+    orbit: f32,
+    orbit_goal: f32,
+    feet: [Foot; 2],
+    hands: [Vec3; 2],
+    hand_vel: [Vec3; 2],
+    last_root: Vec3,
+    root_vel: Vec3,
+    /// > 0 no frame em que um pé bate no chão (tremor/som no main).
+    pub stomp: f32,
 }
 
-const EYE: Vec3 = Vec3::new(-3.2, 0.8, 1.8);
+const EYE: Vec3 = Vec3::new(-2.2, 1.1, 2.2);
+const HALF: Vec3 = Vec3::new(5.0, 3.5, 2.0);
+const HIP: Vec3 = Vec3::new(2.4, -3.3, 0.0);
+const SHOULDER: Vec3 = Vec3::new(5.5, 1.6, 0.0);
+const THIGH: f32 = 4.6;
+const SHIN: f32 = 4.6;
+const UPPER: f32 = 4.3;
+const FORE: f32 = 4.3;
+const STAND: f32 = 8.4 + 3.3;
+const ORBIT_R: f32 = 28.0;
+
+fn orbit_point(a: f32) -> Vec3 {
+    let c = shield_center();
+    vec3(c.x + ORBIT_R * a.cos(), G as f32, c.z + ORBIT_R * a.sin())
+}
+
+/// IK de dois ossos: retorna (joelho/cotovelo, ponta alcançável).
+fn ik(a: Vec3, t: Vec3, l1: f32, l2: f32, pole: Vec3) -> (Vec3, Vec3) {
+    let d = t - a;
+    let dist = d.length().clamp(0.05, l1 + l2 - 0.01);
+    let dir = d.normalize_or(Vec3::NEG_Y);
+    let x = (l1 * l1 - l2 * l2 + dist * dist) / (2.0 * dist);
+    let h = (l1 * l1 - x * x).max(0.0).sqrt();
+    let bend = (pole - dir * pole.dot(dir)).normalize_or(Vec3::Y);
+    (a + dir * x + bend * h, a + dir * dist)
+}
+
+/// Caixa esticada entre dois pontos.
+pub fn limb(b: &mut Batch, a: Vec3, c: Vec3, w: f32, col: Color) {
+    let d = c - a;
+    let len = d.length();
+    if len < 1e-3 {
+        return;
+    }
+    let m = Mat4::from_rotation_translation(Quat::from_rotation_arc(Vec3::Y, d / len), (a + c) * 0.5);
+    b.cube(&m, Vec3::ZERO, vec3(w, len, w), col);
+}
 
 impl Urna {
     pub fn new() -> Self {
-        let base = vec3(108.0, G as f32 + 8.0, 64.5);
-        Urna { base, pos: base, yaw: -FRAC_PI_2, charging: false, timer: 5.0, charge: 0.0, target: arena_center(), barrage: 0, shots: 0 }
+        let root = orbit_point(0.0);
+        let side = vec3(0.0, 0.0, 1.0);
+        let foot = |s: f32| Foot { pos: root + side * s * HIP.x, from: root, to: root, t: 1.0 };
+        Urna {
+            root,
+            pos: root + vec3(0.0, STAND, 0.0),
+            vel: Vec3::ZERO,
+            yaw: -FRAC_PI_2,
+            tilt: Vec2::ZERO,
+            charging: false,
+            timer: 5.0,
+            charge: 0.0,
+            target: arena_center(),
+            barrage: 0,
+            shots: 0,
+            orbit: 0.0,
+            orbit_goal: 0.0,
+            feet: [foot(-1.0), foot(1.0)],
+            hands: [root; 2],
+            hand_vel: [Vec3::ZERO; 2],
+            last_root: root,
+            root_vel: Vec3::ZERO,
+            stomp: 0.0,
+        }
     }
 
     pub fn matrix(&self) -> Mat4 {
-        Mat4::from_translation(self.pos) * Mat4::from_rotation_y(self.yaw)
+        Mat4::from_translation(self.pos) * Mat4::from_rotation_y(self.yaw) * Mat4::from_rotation_x(self.tilt.x) * Mat4::from_rotation_z(self.tilt.y)
     }
 
     pub fn eye(&self) -> Vec3 {
         self.matrix().transform_point3(EYE)
     }
 
-    pub fn bob(&mut self, time: f32) {
-        self.pos = self.base + vec3(0.0, (time * 0.9).sin() * 0.6, 0.0);
+    fn side(&self) -> Vec3 {
+        vec3(self.yaw.cos(), 0.0, -self.yaw.sin())
     }
 
-    /// Retorna Some(alvo) quando dispara neste frame.
-    pub fn update(&mut self, dt: f32, time: f32, mut pick: impl FnMut() -> Vec3) -> Option<Vec3> {
-        self.bob(time);
-        let to = self.target - self.pos;
-        let want = to.x.atan2(to.z);
-        self.yaw = crate::actors::angle_lerp(self.yaw, want, dt * 3.0);
+    fn fwd(&self) -> Vec3 {
+        vec3(self.yaw.sin(), 0.0, self.yaw.cos())
+    }
+
+    /// Coice do disparo (todos os clientes, ao aplicar o tiro).
+    pub fn recoil(&mut self) {
+        self.vel += -self.fwd() * 7.0 + vec3(0.0, 3.0, 0.0);
+    }
+
+    /// IA do host: patrulha em volta do clube e mira. Retorna Some(alvo) quando dispara.
+    pub fn update(&mut self, dt: f32, _time: f32, mut pick: impl FnMut() -> Vec3) -> Option<Vec3> {
+        if (self.orbit - self.orbit_goal).abs() < 0.02 {
+            self.orbit_goal = gen_range(-0.85, 0.85);
+        }
+        self.orbit += (self.orbit_goal - self.orbit).clamp(-dt * 0.075, dt * 0.075);
+        self.root = orbit_point(self.orbit);
+        let look = if self.charging || self.charge > 0.2 { self.target } else { shield_center() };
+        let to = look - self.root;
+        self.yaw = crate::actors::angle_lerp(self.yaw, to.x.atan2(to.z), dt * 2.5);
         self.timer -= dt;
         if !self.charging {
             self.charge = (self.charge - dt * 3.0).max(0.0);
             if self.timer <= 0.0 {
                 self.target = pick();
                 self.charging = true;
-                self.timer = if self.barrage > 0 { 0.3 } else { 0.8 };
+                self.timer = if self.barrage > 0 { 0.3 } else { 0.9 };
             }
             return None;
         }
@@ -111,56 +202,174 @@ impl Urna {
         Some(self.target)
     }
 
-    pub fn draw(&self, b: &mut Batch, time: f32) {
-        let m = self.matrix();
-        let beige = rgb(0.87, 0.84, 0.77);
-        let panel = rgb(0.78, 0.75, 0.68);
-        let dark = rgb(0.12, 0.12, 0.13);
-        // Corpo
-        b.cube(&m, vec3(0.0, 0.0, 0.0), vec3(14.0, 9.0, 3.0), beige);
-        b.cube(&m, vec3(0.0, -0.3, 1.45), vec3(13.4, 7.6, 0.2), panel);
-        // Faixa "JUSTIÇA ELEITORAL"
-        b.cube(&m, vec3(0.0, 3.95, 1.55), vec3(13.6, 0.7, 0.1), rgb(0.25, 0.27, 0.3));
-        b.cube(&m, vec3(-6.0, 3.95, 1.62), vec3(0.6, 0.5, 0.05), rgb(0.1, 0.55, 0.2));
-        b.cube(&m, vec3(-6.0, 3.95, 1.66), vec3(0.3, 0.3, 0.05), rgb(1.0, 0.85, 0.1));
-        // Tela (lado esquerdo do eleitor = -X local)
-        b.cube(&m, vec3(-3.2, 0.8, 1.6), vec3(6.0, 4.6, 0.12), dark);
-        let pulse = 0.85 + 0.15 * (time * 8.0).sin();
-        let screen = if self.charging { Color::new(1.0, 0.25 + 0.2 * pulse, 0.25, 1.0) } else { rgb(0.82 * pulse, 0.92 * pulse, 1.0) };
-        b.glow(&m, vec3(-3.2, 0.8, 1.68), vec3(5.2, 3.8, 0.05), screen);
-        // "foto do candidato" e texto
-        b.glow(&m, vec3(-4.6, 1.3, 1.72), vec3(1.4, 1.8, 0.04), rgb(0.35, 0.35, 0.4));
-        for k in 0..3 {
-            b.glow(&m, vec3(-2.4, 2.0 - k as f32 * 0.6, 1.72), vec3(2.6, 0.25, 0.04), rgb(0.15, 0.15, 0.2));
+    /// Física procedural: passos com pé plantado no terreno, corpo em mola, mãos segurando o escudo.
+    pub fn animate(&mut self, world: &World, dt: f32, time: f32) {
+        let dt = dt.max(1e-4);
+        let rv = (self.root - self.last_root) / dt;
+        self.last_root = self.root;
+        self.root_vel = self.root_vel.lerp(if rv.length() < 20.0 { rv } else { Vec3::ZERO }, (dt * 5.0).min(1.0));
+        let (side, fwd, up) = (self.side(), self.fwd(), Vec3::Y);
+        self.stomp = 0.0;
+
+        let mut lift = 0.0;
+        for i in 0..2 {
+            let s = if i == 0 { -1.0 } else { 1.0 };
+            let mut want = self.root + side * s * HIP.x + self.root_vel * 0.45;
+            want.y = world.floor_at(want.x, G as f32 + 14.0, want.z);
+            let other_planted = self.feet[1 - i].t >= 1.0;
+            let f = &mut self.feet[i];
+            if f.t >= 1.0 {
+                let off = vec2(f.pos.x - want.x, f.pos.z - want.z).length();
+                if other_planted && (off > 1.7 || (f.pos.y - want.y).abs() > 1.5) {
+                    f.from = f.pos;
+                    f.to = want + self.root_vel * 0.25;
+                    f.to.y = world.floor_at(f.to.x, G as f32 + 14.0, f.to.z);
+                    f.t = 0.0;
+                }
+            } else {
+                f.t = (f.t + dt / 0.5).min(1.0);
+                let e = f.t * f.t * (3.0 - 2.0 * f.t);
+                f.pos = f.from.lerp(f.to, e) + up * (f.t * std::f32::consts::PI).sin() * 1.5;
+                lift = (f.t * std::f32::consts::PI).sin();
+                if f.t >= 1.0 {
+                    f.pos = f.to;
+                    self.stomp = 1.0;
+                }
+            }
         }
-        // Teclado (lado direito = +X local)
-        b.cube(&m, vec3(3.6, -0.2, 1.6), vec3(5.2, 6.4, 0.12), rgb(0.2, 0.2, 0.22));
+
+        // Corpo: mola amortecida (peso) acima dos pés
+        let ground = (self.feet[0].pos.y + self.feet[1].pos.y) * 0.5;
+        let target = vec3(self.root.x, ground + STAND + lift * 0.5, self.root.z);
+        let acc = (target - self.pos) * 45.0 - self.vel * 8.0;
+        self.vel += acc * dt;
+        self.pos += self.vel * dt;
+        let off = self.pos - target;
+        let sway = (time * 3.2).sin() * 0.03 * self.root_vel.length().min(2.0);
+        self.tilt = self.tilt.lerp(vec2(off.dot(fwd) * -0.06 + self.vel.dot(fwd) * 0.02, off.dot(side) * 0.06 + sway), (dt * 8.0).min(1.0));
+
+        // Mãos: empurrando o escudo do clube
+        let m = self.matrix();
+        let sc = shield_center();
+        let toward = (self.pos - sc).normalize_or(Vec3::X);
+        let surf = sc + toward * (SHIELD_R + 0.5);
+        for i in 0..2 {
+            let s = if i == 0 { -1.0 } else { 1.0 };
+            let sh = m.transform_point3(vec3(SHOULDER.x * s, SHOULDER.y, 0.0));
+            let mut goal = surf + side * s * 4.0 + up * (2.5 + (time * 1.7 + i as f32 * 2.0).sin() * 0.7);
+            let reach = UPPER + FORE - 0.3;
+            if goal.distance(sh) > reach {
+                goal = sh + (goal - sh).normalize() * reach;
+            }
+            let a = (goal - self.hands[i]) * 30.0 - self.hand_vel[i] * 6.0;
+            self.hand_vel[i] += a * dt;
+            self.hands[i] += self.hand_vel[i] * dt;
+        }
+    }
+
+    pub fn draw(&self, b: &mut Batch, trans: &mut Batch, time: f32) {
+        let m = self.matrix();
+        let beige = rgb(0.9, 0.87, 0.78);
+        let panel = rgb(0.8, 0.77, 0.69);
+        let dark = rgb(0.12, 0.12, 0.13);
+        let (side, fwd, up) = (self.side(), self.fwd(), Vec3::Y);
+
+        // Corpo
+        b.cube(&m, Vec3::ZERO, HALF * 2.0, beige);
+        b.cube(&m, vec3(0.0, -0.3, HALF.z), vec3(9.6, 6.2, 0.15), panel);
+        // Faixa "JUSTIÇA ELEITORAL" com brasão
+        b.cube(&m, vec3(0.4, 3.05, HALF.z + 0.05), vec3(8.4, 0.55, 0.1), rgb(0.25, 0.27, 0.3));
+        b.cube(&m, vec3(-4.3, 3.05, HALF.z + 0.08), vec3(0.6, 0.6, 0.05), rgb(0.1, 0.55, 0.2));
+        b.glow(&m, vec3(-4.3, 3.05, HALF.z + 0.12), vec3(0.3, 0.3, 0.04), rgb(1.0, 0.85, 0.1));
+
+        // Tela = rosto
+        b.cube(&m, vec3(-2.2, 0.7, HALF.z + 0.06), vec3(4.6, 3.8, 0.12), dark);
+        let pulse = 0.85 + 0.15 * (time * 8.0).sin();
+        let screen = if self.charging { Color::new(1.0, 0.3 + 0.2 * pulse, 0.3, 1.0) } else { rgb(0.8 * pulse, 0.92 * pulse, 1.0) };
+        b.glow(&m, vec3(-2.2, 0.7, HALF.z + 0.13), vec3(4.1, 3.3, 0.04), screen);
+        let look = m.inverse().transform_vector3(self.target - self.eye()).normalize_or_zero();
+        let fz = HALF.z + 0.17;
+        for &ex in &[-3.2f32, -1.2] {
+            b.glow(&m, vec3(ex, 1.2, fz), vec3(1.15, 1.35, 0.04), WHITE);
+            b.glow(&m, vec3(ex + look.x * 0.28, 1.15 + look.y * 0.3, fz + 0.02), vec3(0.5, 0.6, 0.04), dark);
+            let brow = Mat4::from_translation(vec3(ex, 2.1, fz)) * Mat4::from_rotation_z(if ex < -2.0 { -0.35 } else { 0.35 } * if self.charging { 1.4 } else { 0.6 });
+            b.glow(&(m * brow), Vec3::ZERO, vec3(1.3, 0.25, 0.04), dark);
+        }
+        if self.charging {
+            b.glow(&m, vec3(-2.2, -0.35, fz), vec3(1.8, 0.9 * (0.6 + 0.4 * pulse), 0.04), rgb(0.6, 0.05, 0.05));
+        } else {
+            b.glow(&m, vec3(-2.2, -0.35, fz), vec3(2.2, 0.28, 0.04), dark);
+            b.glow(&m, vec3(-3.35, -0.2, fz), vec3(0.3, 0.3, 0.04), dark);
+            b.glow(&m, vec3(-1.05, -0.2, fz), vec3(0.3, 0.3, 0.04), dark);
+        }
+
+        // Teclado numérico + BRANCO / CORRIGE / CONFIRMA
+        b.cube(&m, vec3(2.6, -0.3, HALF.z + 0.06), vec3(3.8, 5.6, 0.12), rgb(0.2, 0.2, 0.22));
         for row in 0..4 {
             for col in 0..3 {
                 if row == 3 && col != 1 {
                     continue;
                 }
-                let x = 2.2 + col as f32 * 1.4;
-                let y = 2.0 - row as f32 * 1.1;
-                b.cube(&m, vec3(x, y, 1.72), vec3(1.1, 0.8, 0.2), dark);
-                b.glow(&m, vec3(x, y, 1.83), vec3(0.3, 0.4, 0.02), WHITE);
+                let (x, y) = (1.6 + col as f32 * 1.0, 1.7 - row as f32 * 0.85);
+                b.cube(&m, vec3(x, y, HALF.z + 0.2), vec3(0.8, 0.6, 0.2), dark);
+                b.glow(&m, vec3(x, y, HALF.z + 0.31), vec3(0.2, 0.3, 0.02), WHITE);
             }
         }
-        b.cube(&m, vec3(2.1, -2.6, 1.72), vec3(1.3, 0.8, 0.2), rgb(0.95, 0.95, 0.95));
-        b.cube(&m, vec3(3.6, -2.6, 1.72), vec3(1.3, 0.8, 0.2), rgb(0.95, 0.45, 0.1));
-        b.cube(&m, vec3(5.2, -2.6, 1.72), vec3(1.6, 1.0, 0.2), rgb(0.15, 0.7, 0.25));
-        // Propulsores mágicos
-        for &x in &[-5.0f32, 0.0, 5.0] {
-            let f = 0.7 + 0.3 * (time * 30.0 + x).sin();
-            b.cube(&m, vec3(x, -4.8, 0.0), vec3(1.6, 0.6, 1.6), dark);
-            b.glow(&m, vec3(x, -5.4 - f * 0.5, 0.0), vec3(1.0 * f, 0.8 + f, 1.0 * f), Color::new(1.0, 0.55 * f, 0.1, 1.0));
+        let press = if self.charging { 0.1 } else { 0.0 };
+        b.cube(&m, vec3(1.5, -2.2, HALF.z + 0.2), vec3(0.95, 0.65, 0.2), rgb(0.97, 0.97, 0.97));
+        b.cube(&m, vec3(2.55, -2.2, HALF.z + 0.2), vec3(0.95, 0.65, 0.2), rgb(0.95, 0.45, 0.1));
+        b.cube(&m, vec3(3.75, -2.2, HALF.z + 0.2 - press), vec3(1.25, 0.8, 0.2), rgb(0.15, 0.7, 0.25));
+
+        // Pernas (IK) e tênis
+        for i in 0..2 {
+            let s = if i == 0 { -1.0 } else { 1.0 };
+            let hip = m.transform_point3(vec3(HIP.x * s, HIP.y, 0.0));
+            let ankle = self.feet[i].pos + up * 0.7;
+            let (knee, end) = ik(hip, ankle, THIGH, SHIN, fwd + up * 0.2);
+            limb(b, hip, knee, 1.3, rgb(0.25, 0.25, 0.28));
+            limb(b, knee, end, 1.1, rgb(0.25, 0.25, 0.28));
+            b.cube(&id_at(knee), Vec3::ZERO, Vec3::splat(1.4), rgb(0.2, 0.2, 0.22));
+            let shoe = Mat4::from_translation(end - up * 0.35) * Mat4::from_rotation_y(self.yaw);
+            b.cube(&shoe, vec3(0.0, 0.0, 0.5), vec3(1.8, 1.0, 3.0), rgb(0.95, 0.95, 0.95));
+            b.cube(&shoe, vec3(0.0, -0.4, 0.5), vec3(1.9, 0.25, 3.1), rgb(0.85, 0.15, 0.15));
         }
-        // Olho do laser carregando
+
+        // Braços (IK) com luvas de desenho animado + feixes mágicos até o escudo
+        let sc = shield_center();
+        for i in 0..2 {
+            let s = if i == 0 { -1.0 } else { 1.0 };
+            let sh = m.transform_point3(vec3(SHOULDER.x * s, SHOULDER.y, 0.0));
+            let (elbow, hand) = ik(sh, self.hands[i], UPPER, FORE, -up + side * s * 0.8 - fwd * 0.3);
+            b.cube(&id_at(sh), Vec3::ZERO, Vec3::splat(1.5), beige);
+            limb(b, sh, elbow, 1.0, beige);
+            limb(b, elbow, hand, 0.9, beige);
+            b.cube(&id_at(hand), Vec3::ZERO, Vec3::splat(1.6), WHITE);
+            let k = 0.6 + 0.4 * (time * 9.0 + i as f32).sin();
+            trans.glow(&id_at(hand), Vec3::ZERO, Vec3::splat(2.4 + 0.5 * k), Color::new(0.4, 0.85, 1.0, 0.35 * k));
+            let surf = sc + (hand - sc).normalize_or(Vec3::X) * SHIELD_R;
+            crate::urna::beam(trans, hand, surf, 0.5 + 0.2 * k, Color::new(0.5, 0.9, 1.0, 0.45));
+        }
+
+        // Olhos do laser carregando
         if self.charge > 0.0 {
-            let s = 0.3 + self.charge * 1.4 + (time * 40.0).sin() * 0.1;
-            b.glow(&m, EYE, vec3(s, s, s), Color::new(1.0, 0.2, 0.2, 1.0));
+            let s = 0.3 + self.charge * 1.2 + (time * 40.0).sin() * 0.1;
+            b.glow(&m, EYE + vec3(0.0, 0.0, 0.2), vec3(s, s, s), Color::new(1.0, 0.2, 0.2, 1.0));
         }
     }
+}
+
+fn id_at(p: Vec3) -> Mat4 {
+    Mat4::from_translation(p)
+}
+
+pub fn beam(b: &mut Batch, a: Vec3, c: Vec3, w: f32, col: Color) {
+    let d = c - a;
+    let len = d.length();
+    if len < 1e-3 {
+        return;
+    }
+    let m = Mat4::from_rotation_translation(Quat::from_rotation_arc(Vec3::Y, d / len), (a + c) * 0.5);
+    b.glow(&m, Vec3::ZERO, vec3(w, len, w), col);
 }
 
 pub fn ray_sphere(o: Vec3, d: Vec3, c: Vec3, r: f32) -> Option<f32> {

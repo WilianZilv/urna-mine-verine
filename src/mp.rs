@@ -103,7 +103,7 @@ pub fn snapshot(time: f32, urna: &Urna, fs: &[Fighter], vs: &[Villager], evs: &[
     json!({
         "t": "s",
         "time": time,
-        "u": [r2(urna.yaw), urna.charging, r2(urna.charge), urna.shots],
+        "u": [r2(urna.yaw), urna.charging, r2(urna.charge), urna.shots, r2(urna.root.x), r2(urna.root.z), v3(urna.target)],
         "f": fs.iter().map(fighter).collect::<Vec<_>>(),
         "v": vs.iter().map(villager).collect::<Vec<_>>(),
         "e": evs.iter().map(ev).collect::<Vec<_>>(),
@@ -117,6 +117,11 @@ pub fn apply_snapshot(m: &Value, urna: &mut Urna, fs: &mut [Fighter], vs: &mut [
     urna.charging = u[1].as_bool().unwrap_or(false);
     urna.charge = f(&u[2]);
     urna.shots = u[3].as_u64().unwrap_or(0) as u32;
+    if u[4].is_number() {
+        urna.root.x = f(&u[4]);
+        urna.root.z = f(&u[5]);
+        urna.target = get_v3(&u[6]);
+    }
     fpos.resize(fs.len(), Vec3::ZERO);
     for (i, v) in m["f"].as_array().into_iter().flatten().enumerate().take(fs.len()) {
         fpos[i] = apply_fighter(&mut fs[i], v);

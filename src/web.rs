@@ -14,7 +14,7 @@ unsafe extern "C" {
     pub fn urna_yt_state() -> i32;
     pub fn urna_yt_title(ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_yt_place(x0: f32, y0: f32, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, visible: i32, vol: f32);
-    pub fn urna_prompt(ptr: *mut u8, cap: usize) -> i32;
+    pub fn urna_prompt(msg: *const u8, msg_len: usize, ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_query_name(ptr: *mut u8, cap: usize) -> i32;
 }
 
@@ -35,6 +35,6 @@ pub fn read_string(f: impl Fn(*mut u8, usize) -> i32) -> Option<String> {
     }
 }
 
-pub fn prompt() -> Option<String> {
-    read_string(|p, c| unsafe { urna_prompt(p, c) })
+pub fn prompt(msg: &str) -> Option<String> {
+    read_string(|p, c| unsafe { urna_prompt(msg.as_ptr(), msg.len(), p, c) })
 }

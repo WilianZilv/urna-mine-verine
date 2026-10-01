@@ -8,6 +8,7 @@ mod audio;
 mod batch;
 mod club;
 mod eleicao;
+mod extras;
 mod models;
 mod mp;
 #[cfg_attr(target_arch = "wasm32", path = "net_web.rs")]
@@ -24,6 +25,7 @@ mod world;
 use actors::{Ev, FState, Fighter, VKind, Villager};
 use audio::{Audio, Clip};
 use batch::Batch;
+use extras::Label;
 use macroquad::prelude::*;
 use macroquad::rand::gen_range;
 use models::{Look, Pose, draw_flag, draw_humanoid, draw_villager, rgb, root};
@@ -65,13 +67,6 @@ struct FloatText {
     color: Color,
     t: f32,
     big: bool,
-}
-
-struct Label {
-    pos: Vec3,
-    text: String,
-    size: f32,
-    color: Color,
 }
 
 struct Remote {
@@ -175,6 +170,33 @@ fn remote_look(id: u64) -> Look {
     }
 }
 
+/// Caixa de texto do navegador (celular não tem teclado no jogo).
+#[allow(unused_variables)]
+fn ask_text(msg: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    return web::prompt(msg).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    #[cfg(not(target_arch = "wasm32"))]
+    None
+}
+
+fn tapped() -> bool {
+    touches().iter().any(|t| t.phase == TouchPhase::Started)
+}
+
+/// Botões do celular: (centro, raio, rótulo).
+fn touch_buttons(sw: f32, sh: f32) -> [(Vec2, f32, &'static str); 6] {
+    let r = (sw.min(sh) * 0.085).max(26.0);
+    let (x, y) = (sw - r * 1.4, sh - r * 1.4);
+    [
+        (vec2(x, y), r * 1.15, "PULA"),
+        (vec2(x - r * 2.5, y + r * 0.2), r, "BATE"),
+        (vec2(x - r * 0.4, y - r * 2.4), r, "POE"),
+        (vec2(x - r * 2.7, y - r * 2.0), r * 0.75, "VOA"),
+        (vec2(r * 0.9 + 8.0, sh * 0.3), r * 0.7, "CHAT"),
+        (vec2(r * 2.6 + 8.0, sh * 0.3), r * 0.7, "TELAO"),
+    ]
+}
+
 /// Lê texto digitado (nome / chat). Retorna true no Enter.
 fn type_into(s: &mut String, max: usize) -> bool {
     while let Some(c) = get_char_pressed() {
@@ -201,10 +223,15 @@ async fn ask_name() -> String {
         if type_into(&mut name, 16) && !name.trim().is_empty() {
             return name.trim().to_string();
         }
+        if tapped() {
+            if let Some(n) = ask_text("Teu nome:") {
+                return n.chars().take(16).collect();
+            }
+        }
         clear_background(Color::new(0.05, 0.02, 0.1, 1.0));
         let (cx, cy) = (screen_width() * 0.5, screen_height() * 0.5);
         text_centered("URNA-MINE-VERINE ONLINE", cx, cy - 90.0, 56.0, Color::new(1.0, 0.4, 0.9, 1.0), false);
-        text_centered("DIGITA TEU NOME E APERTA ENTER", cx, cy - 30.0, 30.0, WHITE, false);
+        text_centered("DIGITA TEU NOME E APERTA ENTER (CELULAR: TOCA NA TELA)", cx, cy - 30.0, 26.0, WHITE, false);
         let cursor = if (get_time() * 2.0) as i32 % 2 == 0 { "_" } else { " " };
         text_centered(&format!("{name}{cursor}"), cx, cy + 40.0, 48.0, YELLOW, true);
         next_frame().await;
@@ -235,6 +262,7 @@ fn apply_world(world: &mut World, m: &Value, fx: &mut Fx, avg: &[Color]) -> Opti
 #[macroquad::main(window_conf)]
 async fn main() {
     rand::srand(macroquad::miniquad::date::now() as u64);
+    simulate_mouse_with_touch(false);
     let url = server_url();
     let my_name = if url.is_some() { ask_name().await } else { "JOGADOR".to_string() };
     for _ in 0..2 {
@@ -265,6 +293,12 @@ async fn main() {
     telao.load(&tv_src);
     let guests = actors::spawn_guests();
     let relogio = eleicao::Relogio::new();
+    let lab = extras::Lab::new();
+    // Celular
+    let mut mobile = false;
+    let mut stick: Option<(u64, Vec2)> = None;
+    let mut look_touch: Option<(u64, Vec2)> = None;
+    let mut held: HashMap<u64, usize> = HashMap::new();
 
     // Rede
     let mut net = net::Net::connect(url.as_deref().unwrap_or(""));
@@ -411,6 +445,7 @@ async fn main() {
                 "w" => match apply_world(&mut world, &m, &mut fx, &atlas.avg) {
                     Some((plan, shot)) => {
                         let eye = player.eye();
+                        urna.recoil();
                         play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
                         match shot {
                             Shot::Deflected(p) => {
@@ -494,9 +529,77 @@ async fn main() {
             }
         }
 
+        // ------------------------------------------------ Toque (celular)
+        let (sw, sh) = (screen_width(), screen_height());
+        let buttons = touch_buttons(sw, sh);
+        let (mut tap_hit, mut tap_place) = (false, false);
+        let ts = touches();
+        if !ts.is_empty() && !mobile {
+            mobile = true;
+            show_help = false;
+        }
+        let slot = if mobile { (sw / 13.0).min(48.0) } else { 48.0 };
+        for t in &ts {
+            let p = t.position;
+            match t.phase {
+                TouchPhase::Started => {
+                    let hot = (p.y > sh - slot - 14.0 && (p.x - (sw * 0.5 - slot * 4.5)).abs() < slot * 9.0 && p.x > sw * 0.5 - slot * 4.5).then(|| ((p.x - (sw * 0.5 - slot * 4.5)) / slot) as usize);
+                    if let Some(k) = hot.filter(|k| *k < 9) {
+                        player.sel = k;
+                    } else if let Some(b) = buttons.iter().position(|(c, r, _)| p.distance(*c) < *r) {
+                        held.insert(t.id, b);
+                        match b {
+                            1 => tap_hit = true,
+                            2 => tap_place = true,
+                            3 => {
+                                player.fly = !player.fly;
+                                player.vel.y = 0.0;
+                            }
+                            4 => {
+                                if let Some(m) = ask_text("Mensagem pro chat:") {
+                                    send(json!({"t": "chat", "m": m}), &mut loopback);
+                                }
+                            }
+                            5 => {
+                                if let Some(u) = ask_text("Cola o link do YouTube pro telao:") {
+                                    send(json!({"t": "tv", "u": u}), &mut loopback);
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else if p.x < sw * 0.45 && stick.is_none() {
+                        stick = Some((t.id, p));
+                    } else if look_touch.is_none() {
+                        look_touch = Some((t.id, p));
+                    }
+                }
+                TouchPhase::Moved | TouchPhase::Stationary => {
+                    if let Some((id, last)) = look_touch.filter(|l| l.0 == t.id) {
+                        player.look((p - last) * 2.2);
+                        look_touch = Some((id, p));
+                    }
+                }
+                TouchPhase::Ended | TouchPhase::Cancelled => {
+                    held.remove(&t.id);
+                    if stick.is_some_and(|s| s.0 == t.id) {
+                        stick = None;
+                    }
+                    if look_touch.is_some_and(|l| l.0 == t.id) {
+                        look_touch = None;
+                    }
+                }
+            }
+        }
+        let stick_r = sh.min(sw) * 0.13;
+        player.stick = match stick {
+            Some((id, o)) => ts.iter().find(|t| t.id == id).map(|t| ((t.position - o) / stick_r).clamp_length_max(1.0) * vec2(1.0, -1.0)).unwrap_or(Vec2::ZERO),
+            None => Vec2::ZERO,
+        };
+        player.jump_held = held.values().any(|b| *b == 0);
+
         // ------------------------------------------------ Input
         let mut just_grabbed = false;
-        if !grabbed && is_mouse_button_pressed(MouseButton::Left) {
+        if !mobile && !grabbed && is_mouse_button_pressed(MouseButton::Left) {
             grabbed = true;
             just_grabbed = true;
             set_cursor_grab(true);
@@ -536,7 +639,7 @@ async fn main() {
             }
             if is_key_pressed(KeyCode::Y) {
                 #[cfg(target_arch = "wasm32")]
-                let src = web::prompt();
+                let src = web::prompt("Cola o link do YouTube pro telao:");
                 #[cfg(not(target_arch = "wasm32"))]
                 let src = macroquad::miniquad::window::clipboard_get();
                 match src.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
@@ -568,12 +671,13 @@ async fn main() {
             player.sel = (player.sel + 1) % 9;
         }
 
-        player.update(&world, dt, grabbed && typing.is_none());
+        let active = (grabbed || mobile) && typing.is_none();
+        player.update(&world, dt, active);
         let eye = player.eye();
         let fw = player.forward();
         let pick = world.raycast(eye, fw, 6.0);
 
-        if grabbed && !just_grabbed && is_mouse_button_pressed(MouseButton::Left) {
+        if tap_hit || (grabbed && !just_grabbed && is_mouse_button_pressed(MouseButton::Left)) {
             // Soco em lutador/villager tem prioridade sobre quebrar bloco
             let mut best: Option<(f32, usize, bool)> = None;
             for (i, f) in fighters.iter().enumerate() {
@@ -610,7 +714,7 @@ async fn main() {
                 }
             }
         }
-        if grabbed && is_mouse_button_pressed(MouseButton::Right) {
+        if tap_place || (grabbed && is_mouse_button_pressed(MouseButton::Right)) {
             if let Some((_, prev, _)) = pick {
                 if world.get(prev.x, prev.y, prev.z) == AIR {
                     world.set(prev.x, prev.y, prev.z, HOTBAR[player.sel]);
@@ -664,7 +768,6 @@ async fn main() {
                 send(mp::shot(&plan), &mut loopback);
             }
         } else {
-            urna.bob(time);
             let k = (dt * 12.0).min(1.0);
             for (f, &p) in fighters.iter_mut().zip(&fpos) {
                 f.pos = if f.pos.distance(p) > 6.0 { p } else { f.pos.lerp(p, k) };
@@ -672,6 +775,14 @@ async fn main() {
             for (v, &p) in villagers.iter_mut().zip(&vpos) {
                 v.pos = if v.pos.distance(p) > 6.0 { p } else { v.pos.lerp(p, k) };
             }
+        }
+        urna.animate(&world, dt, time);
+        if urna.stomp > 0.0 {
+            let d = urna.root.distance(eye);
+            if !in_club {
+                fx.shake = fx.shake.max((1.0 - d / 45.0).max(0.0) * 0.5);
+            }
+            play_at(&audio, &sfx.boom, urna.root, eye, 0.35, muted, in_club);
         }
         for r in remotes.values_mut() {
             let moved = r.pos.distance(r.target);
@@ -834,7 +945,9 @@ async fn main() {
         // Telão: moldura presa na parede oeste do clube, virado pro leste
         let (tx, tz0, tz1, ty0, ty1) = (9.21, 56.5, 72.5, G as f32 + 4.5, G as f32 + 13.5);
         opaque.cube(&id, vec3(9.1, (ty0 + ty1) * 0.5, (tz0 + tz1) * 0.5), vec3(0.2, ty1 - ty0 + 0.4, tz1 - tz0 + 0.4), Color::new(0.05, 0.05, 0.06, 1.0));
-        urna.draw(&mut opaque, time);
+        urna.draw(&mut opaque, &mut trans, time);
+        extras::draw_me(&mut opaque, time, &mut labels);
+        lab.draw(&mut opaque, &mut trans, time, &mut labels, eye);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
         draw_mesh(&Mesh {
@@ -906,14 +1019,15 @@ async fn main() {
         // HUD: placar
         let sw = screen_width();
         let sh = screen_height();
-        let panel_w = 230.0;
+        let panel_w = ((sw - 50.0) / 4.0).min(230.0);
+        let name_size = if panel_w < 200.0 { 13.0 } else { 20.0 };
         let n = fighters.len() as f32;
         let x0 = sw * 0.5 - (panel_w * n + 10.0 * (n - 1.0)) * 0.5;
         for (i, f) in fighters.iter().enumerate() {
             let x = x0 + i as f32 * (panel_w + 10.0);
             draw_rectangle(x, 10.0, panel_w, 52.0, Color::new(0.0, 0.0, 0.0, 0.55));
             draw_rectangle(x, 10.0, 6.0, 52.0, f.flag.0);
-            draw_text(f.name, x + 12.0, 30.0, 20.0, WHITE);
+            draw_text(f.name, x + 12.0, 30.0, name_size, WHITE);
             if f.spawned {
                 let k = f.hp / f.max_hp;
                 draw_rectangle(x + 12.0, 38.0, panel_w - 70.0, 12.0, Color::new(0.2, 0.2, 0.2, 1.0));
@@ -968,7 +1082,6 @@ async fn main() {
         draw_line(sw * 0.5, sh * 0.5 - 9.0, sw * 0.5, sh * 0.5 + 9.0, 2.0, WHITE);
 
         // Hotbar
-        let slot = 48.0;
         let hx = sw * 0.5 - slot * 4.5;
         let hy = sh - slot - 14.0;
         for (k, &b) in HOTBAR.iter().enumerate() {
@@ -1012,7 +1125,22 @@ async fn main() {
                 banner = None;
             }
         }
-        if !grabbed {
+        if mobile {
+            if let Some((_, o)) = stick {
+                draw_circle(o.x, o.y, stick_r, Color::new(1.0, 1.0, 1.0, 0.12));
+                draw_circle_lines(o.x, o.y, stick_r, 2.0, Color::new(1.0, 1.0, 1.0, 0.4));
+                let k = o + player.stick * vec2(1.0, -1.0) * stick_r;
+                draw_circle(k.x, k.y, stick_r * 0.42, Color::new(1.0, 1.0, 1.0, 0.45));
+            } else {
+                text_centered("ARRASTA AQUI PRA ANDAR", sw * 0.22, sh * 0.62, 16.0, Color::new(1.0, 1.0, 1.0, 0.5), false);
+            }
+            for (i, (c, r, label)) in buttons.iter().enumerate() {
+                let on = held.values().any(|b| *b == i) || (i == 3 && player.fly);
+                draw_circle(c.x, c.y, *r, Color::new(0.0, 0.0, 0.0, if on { 0.55 } else { 0.32 }));
+                draw_circle_lines(c.x, c.y, *r, 2.0, Color::new(1.0, 1.0, 1.0, 0.55));
+                text_centered(label, c.x, c.y + 6.0, (*r * 0.5).max(13.0), WHITE, false);
+            }
+        } else if !grabbed {
             text_centered("CLIQUE PRA ENTRAR NA VILA", sw * 0.5, sh * 0.5 + 60.0, 36.0, WHITE, true);
         }
 

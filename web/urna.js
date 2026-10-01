@@ -66,6 +66,16 @@
     }
     window.addEventListener("pointerdown", gesture);
     window.addEventListener("keydown", gesture);
+    // Celular: tela cheia deitada no primeiro toque, sem zoom/scroll/menu
+    let fullscreenTried = false;
+    window.addEventListener("touchstart", () => {
+        if (fullscreenTried) return;
+        fullscreenTried = true;
+        const el = document.documentElement;
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (req) Promise.resolve(req.call(el)).then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock("landscape").catch(() => { })).catch(() => { });
+    }, { passive: true });
+    window.addEventListener("contextmenu", (e) => e.preventDefault());
 
     // Homografia: retângulo 640x360 -> 4 pontos na tela (CSS matrix3d).
     function adj(m) {
@@ -151,10 +161,10 @@
                     if (ytReady && Math.abs(v - lastVol) > 2) { player.setVolume(v); lastVol = v; }
                 },
                 urna_query_name: (p, cap) => put(enc.encode((new URLSearchParams(location.search).get("nome") || "").trim()), p, cap),
-                urna_prompt: (p, cap) => {
+                urna_prompt: (mp, mn, p, cap) => {
                     if (pendingPrompt === null) {
                         if (document.exitPointerLock) document.exitPointerLock();
-                        pendingPrompt = enc.encode(window.prompt("Cola o link do YouTube pro telao:", "") || "");
+                        pendingPrompt = enc.encode(window.prompt(str(mp, mn), "") || "");
                     }
                     if (!pendingPrompt.length) { pendingPrompt = null; return 0; }
                     const r = put(pendingPrompt, p, cap);

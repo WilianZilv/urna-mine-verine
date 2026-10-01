@@ -40,6 +40,10 @@ pub const FLOOR_X1: i32 = 32;
 pub const FLOOR_Z0: i32 = 54;
 pub const FLOOR_Z1: i32 = 74;
 pub const SHIELD_R: f32 = 22.0;
+pub const LAB_X0: i32 = 94;
+pub const LAB_X1: i32 = 112;
+pub const LAB_Z0: i32 = 52;
+pub const LAB_Z1: i32 = 76;
 
 pub fn shield_center() -> Vec3 {
     vec3(22.0, G as f32 + 2.0, 64.0)
@@ -290,6 +294,22 @@ impl World {
         }
 
         w.build_club();
+
+        // Laboratório dos robôs cientistas (leste): piso, pilares, paredes de vidro, entrada a oeste
+        let (lx0, lx1, lz0, lz1) = (LAB_X0, LAB_X1, LAB_Z0, LAB_Z1);
+        w.fill(lx0, g, lz0, lx1, g + 8, lz1, AIR);
+        w.fill(lx0, g - 1, lz0, lx1, g - 1, lz1, STONE);
+        w.fill(lx0 + 1, g - 1, lz0 + 1, lx1 - 1, g - 1, lz1 - 1, BLACK);
+        w.fill(lx0, g, lz0, lx1, g + 3, lz0, GLASS);
+        w.fill(lx0, g, lz1, lx1, g + 3, lz1, GLASS);
+        w.fill(lx1, g, lz0, lx1, g + 3, lz1, GLASS);
+        w.fill(lx0, g, lz0, lx0, g + 3, lz1, GLASS);
+        w.fill(lx0, g, 62, lx0, g + 3, 66, AIR);
+        for &(x, z) in &[(lx0, lz0), (lx1, lz0), (lx0, lz1), (lx1, lz1), (lx0, 61), (lx0, 67)] {
+            w.fill(x, g, z, x, g + 4, z, STONE);
+        }
+        w.fill(lx0, g + 4, lz0, lx1, g + 4, lz0, NEON);
+        w.fill(lx0, g + 4, lz1, lx1, g + 4, lz1, NEON);
 
         // Torre de observação (spawn do jogador)
         w.fill(62, g, 104, 65, g + 9, 107, COBBLE);

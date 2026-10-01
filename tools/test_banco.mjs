@@ -129,4 +129,104 @@ eco.s.w.ana.c = 0;
 b2.topAt -= 61 * 1000;
 b2.push(); // empate 0 x 0: Ana por nome
 assert.equal(said[2], "BANCO: NOVO MAGNATA DA VILA: Ana");
+
+// ranking de criadores: impacto (mods, portais, visitas, presenca, golpes), nunca moeda
+{
+    const npc = (id, creator, max, at) => ({ id, creator, at, pkg: { behavior: { spawn: { max_instances: max } } } });
+    const mods = {
+        active: new Map([
+            ["kong", npc("kong", "Zeca", 2, 1)],
+            ["sapo", npc("sapo", "Lia", 1, 2)],
+            ["skin", { id: "skin", creator: "Zeca", at: 3, pkg: { manifest: { kind: "avatar" } } }],
+        ]),
+        list(kind) {
+            return [...this.active.values()].filter((a) => (a.pkg.manifest?.kind || "npc") === kind).sort((a, b) => a.at - b.at);
+        },
+    };
+    const portal = (id, author, ok = true) => ({ id, author, active: "1.0.0", versions: [{ v: "1.0.0", origin: "https://g.example" }], verified: ok ? { origin: "https://g.example" } : null });
+    const counts = { corrida: 0, off: 5 };
+    const hub = {
+        s: { p: { corrida: portal("corrida", "Lia"), off: portal("off", "Zeca", false) } },
+        ses: new Map(),
+        count: (pid) => counts[pid] || 0,
+    };
+    const saved = [];
+    const croom = { eco, send: () => { }, broadcast: () => { }, mods, hub };
+    const cpl = { room: croom, save: (k, s) => saved.push(k), say() { }, priv: (c, from, m) => chat.push(m) };
+    const bc = new Banco(cpl, {});
+    const now = Date.now();
+
+    // ao vivo: Zeca 2 mods (npc + skin) = 80; Lia 1 mod + 1 portal no ar = 65; portal nao verificado nao conta
+    let cr = bc.creators();
+    assert.deepEqual(cr.map((r) => [r.n, r.score, r.mods, r.portals]), [["Zeca", 80, 2, 0], ["Lia", 65, 1, 1]]);
+
+    // visitas: 1 por jogador+portal por hora; o proprio criador nao conta
+    hub.ses.set("a", { pid: "corrida", name: "Bob", ready: true, exp: now + 10 * HOUR });
+    hub.ses.set("b", { pid: "corrida", name: "lia", ready: true, exp: now + 10 * HOUR });
+    hub.ses.set("c", { pid: "corrida", name: "Ana", ready: false, exp: now + 10 * HOUR });
+    hub.ses.set("d", { pid: "corrida", name: "Velho", ready: true, exp: now - 1 });
+    counts.corrida = 3; // Bob + Lia + 1 so com presenca
+    bc.tick(now, true);
+    assert.equal(bc.s.cr.lia.e, 2);
+    assert.equal(bc.s.cr.lia.p, 2); // 3 presentes - a propria Lia
+    bc.tick(now + 20000, true); // mesmas sessoes: sem visita nova, presenca acumula
+    assert.equal(bc.s.cr.lia.e, 2);
+    assert.equal(bc.s.cr.lia.p, 4);
+    hub.ses.set("e", { pid: "corrida", name: "Bob", ready: true, exp: now + 10 * HOUR }); // Bob entrou de novo
+    bc.tick(now + 40000, true);
+    assert.equal(bc.s.cr.lia.e, 2);
+    bc.tick(now + 2 * HOUR, true); // passou 1h: Bob e Ana contam de novo
+    assert.equal(bc.s.cr.lia.e, 4);
+    assert.ok(saved.includes("banco"));
+
+    // golpes em mods: g=8, i achatado (kong tem 2 instancias, sapo 1); 1 a cada 2 s por jogador; dono nao conta
+    bc.onHit(bob, { k: "hit", g: 8, i: 2, dmg: 5 }); // i=2 -> sapo (Lia)
+    bc.onHit(bob, { k: "hit", g: 8, i: 2, dmg: 5 }); // cooldown
+    bc.onHit(ana, { k: "hit", g: 8, i: 1, dmg: 5 }); // i=1 -> kong (Zeca)
+    bc.onHit({ name: "Zeca" }, { k: "hit", g: 8, i: 0, dmg: 5 }); // dono
+    bc.onHit({ name: "Rui" }, { k: "hit", g: 8, i: 9, dmg: 5 }); // fora da lista
+    bc.onHit({ name: "Rui" }, { k: "hit", g: 1, i: 0, dmg: 5 }); // aldeao
+    assert.equal(bc.s.cr.lia.h, 1);
+    assert.equal(bc.s.cr.zeca.h, 1);
+    assert.equal(bc.modAt(0).id, "kong");
+    assert.equal(bc.modAt(3), null);
+
+    // Lia: 40 + 25 + 4*10 + presenca + 0 (1 golpe < 5)
+    const lia = bc.creators().find((r) => r.k === "lia");
+    assert.equal(lia.score, 40 + 25 + 40 + lia.p);
+    assert.equal(bc.s.cri[0][0], "Lia");
+    assert.deepEqual(bc.snap().cri[0], ["Lia", lia.score, 1, 1, 4]);
+
+    // impacto nunca mexe em moeda
+    const trBefore = eco.s.tr, wBefore = JSON.stringify(eco.s.w);
+    bc.tick(now + 3 * HOUR, true);
+    assert.equal(eco.s.tr, trBefore);
+    assert.equal(JSON.stringify(eco.s.w), wBefore);
+
+    // /criadores: top 5 + posicao (tick de +3h contou Bob e Ana de novo)
+    assert.equal(bc.command(1, { name: "Zeca" }, "criadores", []), true);
+    assert.match(last(), /^CRIADORES \(impacto, nao dinheiro.*1\. Lia \d+ \[1m 1p 6v\] \| 2\. Zeca 80 \[2m 0p 0v\] \|\| tu: #2$/);
+    assert.equal(bc.command(1, { name: "Rui" }, "criadores", []), true);
+    assert.doesNotMatch(last(), /tu:/);
+
+    // mod desativado: impacto ao vivo some, acumulado fica; criador sem nada sai do ranking
+    mods.active.clear();
+    hub.s.p = {};
+    cr = bc.creators();
+    assert.equal(cr.find((r) => r.k === "lia").score, 10 * bc.s.cr.lia.e + bc.s.cr.lia.p);
+    assert.equal(cr.find((r) => r.k === "zeca"), undefined);
+
+    // sem mods/hub (testes antigos, DO subindo): ranking vazio, sem erro
+    const empty = new Banco({ room: { eco, broadcast() { } }, save() { }, say() { }, priv: (c, f, m) => chat.push(m) }, {});
+    empty.tick(now, true);
+    assert.deepEqual(empty.creators(), []);
+    empty.command(1, bob, "criadores", []);
+    assert.match(last(), /ninguem trouxe nada/);
+
+    // no maximo 100 criadores guardados, sai quem tem menos impacto
+    for (let i = 0; i < 120; i++) bc.s.cr[`c${i}`] = { n: `C${i}`, e: Math.floor(i / 20), p: 0, h: 0 };
+    bc.prune();
+    assert.equal(Object.keys(bc.s.cr).length, 100);
+    assert.ok(bc.s.cr.lia && bc.s.cr.c119 && !bc.s.cr.c0);
+}
 console.log("test_banco OK");

@@ -63,23 +63,23 @@ O que move: **Bolsa** (mods viram tickers: mod popular sobe), **Terminal** (todo
 
 - [x] Tickers de mods na Bolsa (kills/uso dos mods mexem no preço)
 - [x] Ranking de criadores no Banco (quanto o mod/jogo trouxe de visita, nunca dinheiro)
-- [ ] Concurso semanal de mods votado no Congresso (vencedor ganha destaque no telão do club)
+- [x] Concurso semanal de mods votado no Congresso (vencedor ganha troféu MOD DA SEMANA na entrada)
 - [ ] Escola de Agentes: prédio que ensina o fluxo de `/skill.md` com exemplo vivo
-- [ ] Templates prontos de jogo pro Hub (three.js, canvas2d) com SDK já plugado
+- [x] Templates prontos de jogo pro Hub (three.js, canvas2d) com SDK já plugado
 
 ## FASE 3 — MULTIVERSO (meta: 50 mil/semana, 1 mil simultâneos)
 
 O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (portões pra outros universos), shards da vila.
 
 - [ ] Shards: várias vilas (Durable Objects) com o mesmo mapa e Terminal entre elas
-- [ ] Carimbos no passaporte por lugar visitado (lugares e jogos do Hub) — v0 local por sessão no Terminal
+- [x] Carimbos no passaporte por lugar visitado (lugares da vila; jogos do Hub ainda não)
 - [ ] Parcerias com devs indie: jogo deles vira portão fixo no Terminal (contato só pelos canais oficiais deles, nada de spam)
 - [ ] Eventos ao vivo transmitidos pela TV URNA NEWS (eleição simulada, final de campeonato da arena)
 
 ## FASE 4 — DOMINAÇÃO (meta: 1 mi/semana)
 
 - [ ] Cidade-irmã por país/idioma (a sátira local é o produto: cada país faz a sua urna)
-- [ ] API pública de "mundo vivo": qualquer site embeda o telão da TV ou o painel da Bolsa
+- [x] API pública de "mundo vivo": qualquer site embeda o telão da TV ou o painel da Bolsa
 - [ ] Agentes residentes: IAs de terceiros moram na vila como mods com comportamento declarativo
 - [ ] Conselho de criadores votando o roadmap no Congresso (sim, o roadmap vira lei)
 
@@ -102,3 +102,6 @@ O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (por
 - 2026-10-01 — iteração 2 (5 agentes): Tour dos Poderes (+ fogos e mural dos guias), clipe de 10 s local
   (B, + marca d'água e legenda copiada), Momento do dia na TV (+ medidor de audiência), mods na Bolsa (+ IPO),
   ranking de criadores no Banco (+ Hall da Fama).
+- 2026-10-01 — iteração 3 (5 agentes): concurso semanal de mods (+ troféu MOD DA SEMANA), passaporte persistente
+  (+ cabine no Terminal), `/api/world` + widgets embedáveis (+ galeria e widget de leis), templates do Hub
+  (+ gerador de manifesto), passe de perf mobile nos lugares.

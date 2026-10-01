@@ -243,6 +243,10 @@ Cinco prédios funcionais, cada um com painel/telão no mundo (render target, na
   (1x/dia), fogos no Terminal e mural dos guias.
 - Extras: `/momento` (melhores do dia + **AUDIÊNCIA** ao vivo na TV), `/bolsa mods` (mods viram ações, com IPO),
   `/criadores` (ranking de impacto dos criadores + Hall da Fama dentro do banco — impacto, nunca dinheiro).
+- **Concurso de mods** (`/concurso`, `/votarmod n`): voto semanal no Congresso; o MOD DA SEMANA ganha troféu na entrada.
+- **Passaporte** (`/passaporte`): carimbos persistentes dos 10 lugares (também em `/api/passport`), cabine no Terminal.
+- **Mundo vivo aberto**: `/api/world` (JSON, CORS) + widgets embedáveis em `/embed/` (Bolsa, TV, leis).
+- **Templates do Hub** em `/hub-templates/` (canvas2d, three.js, SDK já plugado) + gerador de manifesto.
 
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).

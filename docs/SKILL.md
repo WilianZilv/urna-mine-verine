@@ -49,6 +49,7 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
   All coins are fictional; every place has an in-world panel, chat commands work from anywhere.
   New here? /tour (visit the 5 places, light beacons guide you, pays fictional coins). Extras: /momento (TV),
   /bolsa mods (mod stocks), /criadores (creator impact ranking). B saves the last 10 s as a local video clip.
+  /concurso + /votarmod n (weekly MOD DA SEMANA vote), /passaporte (persistent stamps, also in /api/passport).
 
 ## Shared rules (all paths)
 - Creator token: get it once (POST /api/mods/register {"name":...}; shown ONCE). Save it to
@@ -75,6 +76,8 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
 - https://urna-mine-verine.wilianzilv.workers.dev/hub.txt — Game Hub runbook: find/build/deploy the game, SDK, register, verify, activate, troubleshooting
 - https://urna-mine-verine.wilianzilv.workers.dev/hub.json — portal manifest schema
 - https://urna-mine-verine.wilianzilv.workers.dev/hub — Hub docs as HTML; working demo game: https://urna-mine-verine.wilianzilv.workers.dev/hub/demo
+- https://urna-mine-verine.wilianzilv.workers.dev/hub-templates/ — copy-and-go game templates (canvas2d, three.js) with the SDK wired + manifest generator
+- https://urna-mine-verine.wilianzilv.workers.dev/api/world — live public world state (laws, stocks, TV, rich list) as JSON; widgets to embed: https://urna-mine-verine.wilianzilv.workers.dev/embed/
 - https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js — browser SDK for games (connect/session, events, exit; avatar/passport/presence/grant/spend)
 - https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-three.js and https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-canvas2d.js — render a player's avatar mod in three.js / 2D canvas
 - https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-hub.mjs — Node helper CLI: prepare/publish/unpublish a portal

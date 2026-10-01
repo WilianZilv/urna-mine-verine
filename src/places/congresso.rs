@@ -89,6 +89,26 @@ struct Contest {
     hist: Vec<(String, Entry)>,
 }
 
+/// O ROADMAP VIRA LEI (rm no snapshot "lei"): itens na ordem do servidor (o número do /proposta).
+#[derive(Default)]
+struct Roadmap {
+    items: Vec<(String, u32)>,
+    month: String,
+    /// Segundos até a virada do mês, na hora do snapshot.
+    left: f32,
+    /// (mês, item, votos), mais recente primeiro.
+    winners: Vec<(String, String, u32)>,
+}
+
+impl Roadmap {
+    /// (posição 1-based, título, votos) do mais votado pro menos (empate: ordem da lista).
+    fn rank(&self) -> Vec<(usize, &str, u32)> {
+        let mut r: Vec<_> = self.items.iter().enumerate().map(|(i, (t, v))| (i + 1, t.as_str(), *v)).collect();
+        r.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        r
+    }
+}
+
 #[derive(Default, Clone, Copy)]
 struct Vote {
     v: u32,
@@ -119,11 +139,12 @@ pub struct Congresso {
     mds: Contest,
     /// Confete sobre o troféu quando o líder da semana muda.
     trophy_burst: f64,
+    rm: Roadmap,
 }
 
 impl Congresso {
     pub fn new() -> Self {
-        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE, mds: Contest::default(), trophy_burst: -100.0 }
+        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE, mds: Contest::default(), trophy_burst: -100.0, rm: Roadmap::default() }
     }
 
     /// Troféu holográfico dourado girando num pedestal na entrada (MOD DA SEMANA).
@@ -183,9 +204,50 @@ impl Congresso {
         }
     }
 
-    /// Página do painel: 0 = leis, 1 = concurso de mods (alterna a cada 12 s).
+    /// Página do painel: 0 = leis, 1 = concurso de mods, 2 = roadmap (alterna a cada 12 s).
     fn page(&self, time: f32) -> u32 {
-        if self.got && self.live { (time / 12.0) as u32 % 2 } else { 0 }
+        if self.got && self.live { (time / 12.0) as u32 % 3 } else { 0 }
+    }
+
+    fn paint_roadmap(&self, time: f32) {
+        let r = &self.rm;
+        draw_text("O ROADMAP VIRA LEI", 40.0, 92.0, 84.0, PINK);
+        let s = (r.left - (get_time() - self.recv) as f32).max(0.0) as i32;
+        let tot: u32 = r.items.iter().map(|x| x.1).sum();
+        text_right(&format!("MES {}  -  FALTAM {} DIA(S) {}H", r.month, s / 86400, s % 86400 / 3600), TW - 40.0, 70.0, 44.0, CYAN);
+        text_right(&format!("{tot} voto(s)  -  criador de mod ativo vale 2x"), TW - 40.0, 108.0, 30.0, SOFT);
+        draw_rectangle(40.0, 126.0, TW - 80.0, 4.0, Color::new(1.0, 0.4, 0.8, 0.7));
+
+        frame(40.0, 146.0, TW - 80.0, 610.0, "");
+        let (xb, bw) = (1060.0, 640.0);
+        let rank = r.rank();
+        let max = rank.first().map_or(0, |x| x.2).max(1);
+        for (j, &(i, t, v)) in rank.iter().take(5).enumerate() {
+            let y = 158.0 + j as f32 * 118.0;
+            let lead = j == 0 && v > 0;
+            let col = if lead { GOLD } else { CYAN };
+            draw_rectangle(56.0, y + 4.0, TW - 112.0, 108.0, Color::new(0.35, 0.08, 0.3, if lead { 0.5 } else { 0.22 }));
+            draw_rectangle(56.0, y + 4.0, 12.0, 108.0, col);
+            draw_text(&format!("{}.", j + 1), 90.0, y + 76.0, 72.0, col);
+            draw_text(&fit(t, xb - 230.0, 58.0), 180.0, y + 62.0, 58.0, if lead { GOLD } else { WHITE });
+            draw_text(&format!("/proposta {i}"), 180.0, y + 100.0, 30.0, SOFT);
+            let k = v as f32 / max as f32;
+            draw_rectangle(xb, y + 34.0, bw, 48.0, Color::new(1.0, 0.4, 0.8, 0.1));
+            draw_rectangle(xb, y + 34.0, bw * k, 48.0, Color::new(col.r, col.g, col.b, 0.85));
+            draw_rectangle_lines(xb, y + 34.0, bw, 48.0, 2.0, DIM);
+            text_right(&format!("{v} voto(s)"), TW - 70.0, y + 76.0, 46.0, WHITE);
+        }
+
+        frame(40.0, 772.0, TW - 80.0, 170.0, "");
+        text_mid("MAIS VOTADO VIRA PRIORIDADE DOS DEVS", TW * 0.5, 846.0, 72.0, GOLD);
+        let sub = match r.winners.first() {
+            Some((m, t, v)) => format!("prioridade de {m}: {t} ({v} voto(s))"),
+            None => "primeiro vencedor sai na virada do mes (UTC). zera todo mes".into(),
+        };
+        text_mid(&fit(&sub, TW - 160.0, 40.0), TW * 0.5, 912.0, 40.0, SOFT);
+        draw_text("/roadmap   /proposta numero ou id", 40.0, 1000.0, 40.0, PINK);
+        text_right("1 voto por pessoa, pode trocar", TW - 40.0, 1000.0, 30.0, SOFT);
+        holo_fx(time, self.flash());
     }
 
     fn paint_mods(&self, time: f32) {
@@ -418,6 +480,15 @@ impl Place for Congresso {
             winner: d["winner"].is_object().then(|| (super::s(&d["winner"]["week"]), Entry::from(&d["winner"]))),
             hist: arr("hist").iter().map(|h| (super::s(&h["week"]), Entry::from(h))).collect(),
         };
+        let r = &m["rm"];
+        let ra = |k: &str| r[k].as_array().cloned().unwrap_or_default();
+        let n = |v: &Value| v.as_u64().unwrap_or(0) as u32;
+        self.rm = Roadmap {
+            items: ra("items").iter().map(|x| (super::s(&x["t"]), n(&x["v"]))).collect(),
+            month: super::s(&r["month"]),
+            left: r["left"].as_f64().unwrap_or(0.0) as f32,
+            winners: ra("winners").iter().map(|w| (super::s(&w["month"]), super::s(&w["t"]), n(&w["v"]))).collect(),
+        };
     }
 
     fn update(&mut self, p: &mut Player, dt: f32, _time: f32, online: bool, out: &mut Vec<Value>) {
@@ -442,10 +513,19 @@ impl Place for Congresso {
         let live = self.got && self.live;
         let page = self.page(time);
         let m = &self.mds;
-        let mins = if page == 1 { ((m.left - (get_time() - self.recv) as f32) / 60.0) as i32 } else { 0 };
+        let el = (get_time() - self.recv) as f32;
+        let mins = match page {
+            1 => ((m.left - el) / 60.0) as i32,
+            2 => ((self.rm.left - el) / 3600.0) as i32,
+            _ => 0,
+        };
         let mut key = format!("{live}|{}|{}|{}|{page}|{}|{}|{}|{mins}", self.q, self.passed, self.last, m.week, m.tot, m.n);
         for e in m.top.iter().chain(m.winner.iter().map(|w| &w.1)) {
             key += &format!("|{}:{}:{}", e.n, e.c, e.vo);
+        }
+        key += &format!("|{}", self.rm.month);
+        for (t, v) in self.rm.items.iter().map(|x| (&x.0, x.1)).chain(self.rm.winners.iter().take(1).map(|w| (&w.1, w.2))) {
+            key += &format!("|{t}:{v}");
         }
         let mut animated = self.flash() > 0.0;
         for i in 0..5 {
@@ -454,10 +534,10 @@ impl Place for Congresso {
             key += &format!("|{}:{}:{}", self.st[i].v, on > 0.0, cd > 0.0);
         }
         if self.screen.begin(time, eye, &geo(), hash_str(&key), animated || !live || (page == 1 && m.top.is_empty())) {
-            if page == 1 {
-                self.paint_mods(time);
-            } else {
-                self.paint(time);
+            match page {
+                1 => self.paint_mods(time),
+                2 => self.paint_roadmap(time),
+                _ => self.paint(time),
             }
             self.screen.end();
         }

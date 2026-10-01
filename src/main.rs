@@ -24,6 +24,7 @@ mod net;
 mod player;
 mod portal;
 mod ragdoll;
+mod shield;
 mod skate;
 mod steve;
 mod synth;
@@ -590,7 +591,8 @@ async fn main() {
                         match shot {
                             Shot::Deflected(p) => {
                                 play_at(&audio, &sfx.deflect, p, eye, 1.2, muted, in_club);
-                                texts.push(FloatText { pos: p, text: "ESCUDO DO HOUSE!".into(), color: SKYBLUE, t: 0.0, big: false });
+                                let club = p.distance(shield_center()) < SHIELD_R + 1.0;
+                                texts.push(FloatText { pos: p, text: if club { "ESCUDO DO HOUSE!" } else { "CUPULA DE ENERGIA!" }.into(), color: SKYBLUE, t: 0.0, big: false });
                             }
                             Shot::Exploded(p, r) => {
                                 play_at(&audio, &sfx.boom, p, eye, 1.5, muted, in_club);
@@ -734,8 +736,8 @@ async fn main() {
                     time_offset = if (target - time_offset).abs() > 1.0 { target } else { time_offset + (target - time_offset) * 0.1 };
                     mp::apply_snapshot(&m, &mut urna, &mut fighters, &mut villagers, &mut fpos, &mut vpos, &mut events);
                     npcs.apply(&m["n"]);
-                    kaiju.apply(&m["kj"]);
                     mods.apply(&m["md"]);
+                    kaiju.apply(&m["kj"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
@@ -779,12 +781,15 @@ async fn main() {
                 TouchPhase::Started if steve.inv_open => steve.inv_click(&mut player.sel, p, sw, sh),
                 TouchPhase::Started => {
                     let hot = if ch == 0 { inventory::hotbar_hit(p, sw, sh, slot, mobile) } else { None };
+                    let (lc, lr) = hub::link_button(sw, sh);
                     if let Some(k) = hot {
                         if k < 9 {
                             player.sel = k;
                         } else {
                             steve.inv_open = true;
                         }
+                    } else if let Some(u) = hub.aim_url().filter(|_| p.distance(lc) < lr) {
+                        chat.push((hub::open_url(&u), get_time()));
                     } else if let Some(b) = buttons.iter().position(|(c, r, _)| p.distance(*c) < *r) {
                         held.insert(t.id, b);
                         match (b, ch) {
@@ -803,7 +808,10 @@ async fn main() {
                             (1, 4) => niko_dive = true,
                             (4, _) => {
                                 if let Some(m) = ask_text("Mensagem pro chat:") {
-                                    send(json!({"t": "chat", "m": m}), &mut loopback);
+                                    match hub.link(&m) {
+                                        Some(u) => chat.push((hub::open_url(&u), get_time())),
+                                        None => send(json!({"t": "chat", "m": m}), &mut loopback),
+                                    }
                                 }
                             }
                             (5, _) => {
@@ -876,7 +884,12 @@ async fn main() {
         if let Some(msg) = typing.as_mut() {
             if type_into(msg, 120) {
                 let m = msg.trim().to_string();
-                if !m.is_empty() {
+                if let Some(u) = hub.link(&m) {
+                    chat.push((hub::open_url(&u), get_time()));
+                    grabbed = false;
+                    set_cursor_grab(false);
+                    show_mouse(true);
+                } else if !m.is_empty() {
                     send(json!({"t": "chat", "m": m}), &mut loopback);
                 }
                 typing = None;
@@ -918,7 +931,14 @@ async fn main() {
                     show_mouse(true);
                 }
             }
-            let inv_key = is_key_pressed(KeyCode::E) || is_key_pressed(KeyCode::I) || (steve.inv_open && is_key_pressed(KeyCode::Escape));
+            let sign = hub.aim_url().filter(|_| grabbed && !chars_open && !steve.inv_open && (is_key_pressed(KeyCode::E) || (is_mouse_button_pressed(MouseButton::Left) && !just_grabbed)));
+            if let Some(u) = &sign {
+                chat.push((hub::open_url(u), get_time()));
+                grabbed = false;
+                set_cursor_grab(false);
+                show_mouse(true);
+            }
+            let inv_key = sign.is_none() && (is_key_pressed(KeyCode::E) || is_key_pressed(KeyCode::I) || (steve.inv_open && is_key_pressed(KeyCode::Escape)));
             if ch == 0 && !chars_open && inv_key {
                 steve.inv_open = !steve.inv_open;
                 grabbed = !steve.inv_open && !mobile;
@@ -1168,6 +1188,7 @@ async fn main() {
             (player.eye(), player.forward())
         };
         let pick = if ch == 0 { world.raycast(eye, fw, 6.0) } else { None };
+        hub.look(eye, fw);
 
         let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
         if let Some(b) = bandido.as_mut() {
@@ -1483,8 +1504,8 @@ async fn main() {
             if is_host {
                 let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
                 s["n"] = npcs.snapshot();
-                s["kj"] = kaiju.snapshot();
                 s["md"] = mods.snapshot();
+                s["kj"] = kaiju.snapshot();
                 net.send(s.to_string());
                 ev_out.clear();
             }
@@ -1689,7 +1710,8 @@ async fn main() {
         let shimmer = 0.03 * (time * 2.0).sin();
         draw_sphere(sc, SHIELD_R, None, Color::new(0.45, 0.75 + 0.2 * sf, 1.0, 0.09 + shimmer + 0.25 * sf));
         draw_sphere_wires(sc, SHIELD_R + 0.05, None, Color::new(0.6, 0.9, 1.0, 0.12 + 0.4 * sf));
-        lab_info.draw_dome(time, npcs.guard().flash, eye);
+        lab_info.draw_dome(time, npcs.guard().flash.max(fx.dome_flash[0]), eye);
+        shield::draw_hub(time, fx.dome_flash[1]);
 
         // ------------------------------------------------ Render 2D
         set_default_camera();
@@ -1967,6 +1989,9 @@ async fn main() {
         if ch == 0 {
             steve.draw_overlay(&atlas, player.sel, sw, sh, mobile);
         }
+        if typing.is_none() && !chars_open && !steve.inv_open {
+            hub.draw_prompt(sw, sh, mobile);
+        }
         if chars_open {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
             text_centered("ESCOLHE O PERSONAGEM", sw * 0.5, sh * 0.5 - (sh * 0.36).min(200.0) * 0.5 - 24.0, 34.0, WHITE, true);
@@ -2022,8 +2047,8 @@ fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::G
         let (c, r) = lab::guard_target(time);
         t.push((c, r, 0, npc::GUARD));
     }
-    t.extend(kaiju.targets(npcs));
     t.extend(mods.targets(npcs));
+    t.extend(kaiju.targets(npcs));
     t
 }
 
@@ -2049,8 +2074,8 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::URNA => ("URNA DESTRUIDA!!!", ORANGE),
         npc::VOADOR => ("MITO ABATIDO!!!", ORANGE),
         npc::GUARD => ("SINAPSE-9 DESLIGOU!", ORANGE),
-        npc::KAIJU => ("GODZILHA ABATIDO!!!", ORANGE),
         npc::MODS => ("MOD ABATIDO!", ORANGE),
+        npc::KAIJU => ("GODZILHA ABATIDO!!!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
     events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });

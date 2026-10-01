@@ -36,6 +36,8 @@ pub struct Fx {
     pub flashes: Vec<Flash>,
     pub beams: Vec<Beam>,
     pub shield_flash: f32,
+    /// Impacto nos domos de energia: [lab, hub].
+    pub dome_flash: [f32; 2],
     pub shake: f32,
 }
 
@@ -540,13 +542,21 @@ pub fn plan(world: &World, o: Vec3, target: Vec3, big_chance: f32) -> Plan {
 pub fn apply(world: &mut World, plan: &Plan, fx: &mut Fx, avg: &[Color]) -> Shot {
     let (o, sc) = (plan.o, shield_center());
     let d = (plan.hit - o).normalize_or_zero();
+    let dome = if plan.deflect { None } else { crate::shield::ray(o, d).filter(|h| h.0 < o.distance(plan.hit)) };
     {
-        if plan.deflect {
-            let p = plan.hit;
-            let n = (p - sc).normalize();
+        if plan.deflect || dome.is_some() {
+            let (p, n) = match dome {
+                Some((t, n, i)) => {
+                    fx.dome_flash[i] = 1.0;
+                    (o + d * t, n)
+                }
+                None => {
+                    fx.shield_flash = 1.0;
+                    (plan.hit, (plan.hit - sc).normalize())
+                }
+            };
             let refl = d - 2.0 * d.dot(n) * n;
             fx.beams.push(Beam { from: o, to: p, t: 0.35, reflect: Some((p, p + refl * 70.0)) });
-            fx.shield_flash = 1.0;
             for _ in 0..30 {
                 fx.particles.push(Particle {
                     pos: p,
@@ -576,7 +586,7 @@ pub fn explode(world: &mut World, c: Vec3, r: f32, fx: &mut Fx, avg: &[Color]) {
                 let p = ci + ivec3(dx, dy, dz);
                 let bc = p.as_vec3() + Vec3::splat(0.5);
                 let jitter = crate::atlas::hash2(p.x * 7 + p.y, p.z, 4242) * 0.8;
-                if bc.distance(c) > r + jitter - 0.4 || p.y <= 0 || bc.distance(sc) < SHIELD_R + 0.5 {
+                if bc.distance(c) > r + jitter - 0.4 || p.y <= 0 || bc.distance(sc) < SHIELD_R + 0.5 || crate::shield::protected(p) {
                     continue;
                 }
                 let b = world.get(p.x, p.y, p.z);
@@ -637,6 +647,9 @@ impl Fx {
         }
         self.beams.retain(|b| b.t > 0.0);
         self.shield_flash = (self.shield_flash - dt * 2.0).max(0.0);
+        for f in &mut self.dome_flash {
+            *f = (*f - dt * 2.0).max(0.0);
+        }
         self.shake = (self.shake - dt * 1.5).max(0.0);
     }
 

@@ -4,7 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 import { Economy } from "./economy.js";
 import { Brain } from "./brain.js";
 import { Lab } from "./lab.js";
-import { Mods, docs } from "./mods.js";
+import { Mods, docs, SITE } from "./mods.js";
 import { Hub } from "./hub.js";
 
 export default {
@@ -55,10 +55,21 @@ RESPONDA SO JSON: {"say":"frase curta (ate 140 letras) que a IA fala no jogo","o
 // Nenhuma obra da IA (pedido de jogador ou autonoma) cobre clube, lab+domo, zona de mods ou hub.
 const LANDMARKS = [[6, 38, 46, 82], [87, 120, 48, 81], [93, 113, 29, 49], [90, 122, 80, 96]];
 function onLandmark(o) {
-    const [lo, hi] = o.op === "box" ? [o.a.map((v, i) => Math.min(v, o.b[i])), o.a.map((v, i) => Math.max(v, o.b[i]))] : o.op === "ball" ? [o.c.map((v) => v - o.r), o.c.map((v) => v + o.r)] : [];
+    const [lo, hi] = o.op === "box" ? [o.a.map((v, i) => Math.min(v, o.b[i])), o.a.map((v, i) => Math.max(v, o.b[i]))] : o.op === "ball" || o.op === "boom" ? [o.c.map((v) => v - o.r), o.c.map((v) => v + o.r)] : [];
     return !!lo && LANDMARKS.some(([x0, x1, z0, z1]) => lo[0] <= x1 && hi[0] >= x0 && lo[2] <= z1 && hi[2] >= z0);
 }
 const unguarded = (w) => ({ ...w, ops: (w.ops || []).filter((o) => !onLandmark(o)) });
+
+// Escudos de energia (igual src/shield.rs): domo do lab, domo do hub + piso do corredor. "set" dentro nunca entra no log.
+const G = 20;
+const DOMES = [[[103.5, G, 64.5], [16, 16, 16]], [[106.5, G, 88.5], [17, 11, 10]]];
+function shielded(p) {
+    if (!Array.isArray(p) || p.length < 3) return false;
+    const [x, y, z] = p.map(Number);
+    if (x >= 91 && x <= 121 && z >= 81 && z <= 95) return true;
+    return DOMES.some(([c, r]) => ((x + 0.5 - c[0]) / r[0]) ** 2 + (Math.max(0, y + 0.5 - c[1]) / r[1]) ** 2 + ((z + 0.5 - c[2]) / r[2]) ** 2 < 1);
+}
+const DOC_LINK = /^\/(hub|modding)(\.txt)?\s*$/i;
 
 const ci = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
 const pos3 = (a) => (Array.isArray(a) && a.length >= 3 ? [ci(a[0], 0, 127), ci(a[1], 1, 47), ci(a[2], 0, 127)] : null);
@@ -255,6 +266,10 @@ export class Room extends DurableObject {
                 break;
             case "chat":
                 m.m = String(m.m || "").slice(0, 200);
+                if (DOC_LINK.test(m.m.trim())) {
+                    this.send(c, { t: "chat", id: 0, n: "LINK", m: `${SITE}/${m.m.trim().slice(1).toLowerCase()}` });
+                    break;
+                }
                 this.broadcast(m);
                 if (m.m.startsWith("/") && !this.lab.command(id, c, m.m.slice(1).trim()) && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
                 break;
@@ -275,6 +290,7 @@ export class Room extends DurableObject {
                 break;
             }
             case "w":
+                if (m.k === "set" && shielded(m.p)) break;
                 this.eco.onWorld(c, m);
                 if (m.k === "reset") {
                     this.log = [];

@@ -367,6 +367,12 @@ impl Steve {
 
         // Quebrar: segura pra minerar (rachadura), criativo é instantâneo
         match pick {
+            Some((p, _, _)) if inp.mine && !hit_something && crate::shield::protected(p) => {
+                self.mine = None;
+                if inp.attack {
+                    self.say("ESCUDO DE ENERGIA: AQUI NADA QUEBRA");
+                }
+            }
             Some((p, _, _)) if inp.mine && !hit_something && p.y > 0 => {
                 let blk = world.get(p.x, p.y, p.z);
                 if self.creative {
@@ -399,7 +405,9 @@ impl Steve {
         if inp.use_press {
             if let Some((p, prev, _)) = pick {
                 let at = world.get(prev.x, prev.y, prev.z);
-                if is_block(it) && matches!(at, AIR | FIRE) {
+                if (is_block(it) || it == FLINT) && (crate::shield::protected(prev) || (it == FLINT && crate::shield::protected(p))) {
+                    self.say("ESCUDO DE ENERGIA: AQUI NADA MUDA");
+                } else if is_block(it) && matches!(at, AIR | FIRE) {
                     let (lo, hi) = (prev.as_vec3(), prev.as_vec3() + Vec3::ONE);
                     let pp = player.pos;
                     let inside = pp.x + 0.3 > lo.x && pp.x - 0.3 < hi.x && pp.y + 1.79 > lo.y && pp.y < hi.y && pp.z + 0.3 > lo.z && pp.z - 0.3 < hi.z;

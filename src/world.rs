@@ -93,6 +93,8 @@ const AO_CURVE: [f32; 4] = [0.45, 0.65, 0.82, 1.0];
 pub struct World {
     pub blocks: Vec<u8>,
     pub dirty: Vec<bool>,
+    /// Liga depois da geração: `set` ignora blocos dentro dos escudos (crate::shield).
+    pub guard: bool,
 }
 
 fn vnoise(x: f32, z: f32, seed: u32) -> f32 {
@@ -161,7 +163,7 @@ impl World {
 
     /// Altera bloco e marca chunks afetados para remesh.
     pub fn set(&mut self, x: i32, y: i32, z: i32, b: u8) {
-        if x < 0 || z < 0 || y < 0 || x >= WX || z >= WZ || y >= WY {
+        if x < 0 || z < 0 || y < 0 || x >= WX || z >= WZ || y >= WY || (self.guard && crate::shield::protected(ivec3(x, y, z))) {
             return;
         }
         self.blocks[Self::idx(x, y, z)] = b;
@@ -245,6 +247,7 @@ impl World {
         let mut w = World {
             blocks: vec![AIR; (WX * WY * WZ) as usize],
             dirty: vec![true; (CX * CZ) as usize],
+            guard: false,
         };
 
         // Terreno: vila plana no centro e no clube, colinas em volta

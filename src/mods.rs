@@ -63,6 +63,7 @@ pub fn generate() -> World {
             }
         }
     }
+    w.guard = true;
     w
 }
 

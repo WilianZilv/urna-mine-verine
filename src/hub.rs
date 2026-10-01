@@ -18,6 +18,24 @@ pub const HZ1: i32 = 95;
 const SLOTS: usize = 8;
 const SIGN: Vec3 = vec3(120.6, G as f32 + 6.5, 88.0);
 const SITE: &str = "urna-mine-verine.wilianzilv.workers.dev";
+/// Placas que abrem as instruções: (centro, normal da frente, meia largura, meia altura, caminho).
+const SIGNS: [(Vec3, Vec3, f32, f32, &str); 2] = [(SIGN, vec3(-1.0, 0.0, 0.0), 6.0, 2.5, "hub.txt"), (vec3(103.5, G as f32 + 7.5, 31.8), vec3(0.0, 0.0, 1.0), 7.5, 4.0, "modding.txt")];
+
+/// Abre o link numa aba nova (precisa vir logo depois de clique/tecla); bloqueado = copia. Retorna a linha do chat.
+pub fn open_url(url: &str) -> String {
+    #[cfg(target_arch = "wasm32")]
+    if !crate::web::open_url(url) {
+        return format!("POPUP BLOQUEADO - LINK COPIADO: {url}");
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    println!("abrir: {url}");
+    format!("ABRINDO EM NOVA ABA: {url}")
+}
+
+/// Botão de abrir do celular (centro, raio).
+pub fn link_button(sw: f32, sh: f32) -> (Vec2, f32) {
+    (vec2(sw * 0.5, sh * 0.66), (sw.min(sh) * 0.07).max(28.0))
+}
 
 #[cfg(target_arch = "wasm32")]
 mod js {
@@ -106,6 +124,8 @@ pub struct Hub {
     release: bool,
     cool: f32,
     pub msg: Option<(String, f32)>,
+    /// Caminho da placa na mira (perto e olhando).
+    pub aim: Option<&'static str>,
 }
 
 fn s(v: &Value) -> String {
@@ -114,7 +134,48 @@ fn s(v: &Value) -> String {
 
 impl Hub {
     pub fn new() -> Self {
-        Hub { portals: Vec::new(), site: SITE.into(), got: false, query: js_query().filter(|q| !q.is_empty()), pending: 0.0, inside: None, open_t: 0.0, seen_open: false, release: false, cool: 0.0, msg: None }
+        Hub { portals: Vec::new(), site: SITE.into(), got: false, query: js_query().filter(|q| !q.is_empty()), pending: 0.0, inside: None, open_t: 0.0, seen_open: false, release: false, cool: 0.0, msg: None, aim: None }
+    }
+
+    /// "/hub", "/hub.txt", "/modding", "/modding.txt" no chat viram link em vez de pedido pra IA.
+    pub fn link(&self, msg: &str) -> Option<String> {
+        let p = msg.trim().to_lowercase();
+        matches!(p.as_str(), "/hub" | "/hub.txt" | "/modding" | "/modding.txt").then(|| format!("https://{}{p}", self.site))
+    }
+
+    pub fn aim_url(&self) -> Option<String> {
+        self.aim.map(|p| format!("https://{}/{p}", self.site))
+    }
+
+    pub fn look(&mut self, eye: Vec3, fw: Vec3) {
+        self.aim = SIGNS.iter().find_map(|&(c, n, hw, hh, path)| {
+            let den = fw.dot(n);
+            let t = (c - eye).dot(n) / den;
+            if den >= -0.05 || !(0.0..22.0).contains(&t) {
+                return None;
+            }
+            let q = eye + fw * t - c;
+            (vec2(q.x * n.z - q.z * n.x, q.y).abs().cmplt(vec2(hw, hh)).all()).then_some(path)
+        });
+    }
+
+    /// Dica na tela quando a placa tá na mira (celular: botão).
+    pub fn draw_prompt(&self, sw: f32, sh: f32, mobile: bool) {
+        if self.aim.is_none() {
+            return;
+        }
+        let txt = if mobile { "TOCA PRA ABRIR INSTRUCOES" } else { "CLIQUE/E PRA ABRIR INSTRUCOES" };
+        let d = measure_text(txt, None, 26, 1.0);
+        let (x, y) = (sw * 0.5 - d.width * 0.5, sh * 0.58);
+        draw_rectangle(x - 10.0, y - 24.0, d.width + 20.0, 34.0, Color::new(0.0, 0.0, 0.0, 0.55));
+        draw_text(txt, x, y, 26.0, Color::new(0.5, 1.0, 1.0, 1.0));
+        if mobile {
+            let (c, r) = link_button(sw, sh);
+            draw_circle(c.x, c.y, r, Color::new(0.5, 0.1, 0.6, 0.6));
+            draw_circle_lines(c.x, c.y, r, 2.0, WHITE);
+            let d = measure_text("ABRIR", None, 20, 1.0);
+            draw_text("ABRIR", c.x - d.width * 0.5, c.y + 7.0, 20.0, WHITE);
+        }
     }
 
     /// {t:"hub"} = lista de arcos; {t:"hub_s"} = token de sessão pra abrir o jogo.
@@ -263,6 +324,27 @@ impl Hub {
             labels.push(Label { pos: at(0.2), text: format!("HUB: manda teu agent ler {}/hub.txt", self.site), size: 22.0, color: WHITE });
             let status = if !self.got { "conectando...".to_string() } else { format!("{} portais no ar  |  anda pra dentro do arco pra jogar  |  Esc volta", self.portals.len()) };
             labels.push(Label { pos: at(-1.1), text: status, size: 17.0, color: rgb(0.6, 1.0, 0.9) });
+        }
+        // Projetores do domo: dois pilares na entrada oeste mandando feixe pro topo (ciano/magenta)
+        let top = crate::shield::hub_center() + vec3(0.0, crate::shield::HUB_R.y, 0.0);
+        let k = 0.6 + 0.4 * (time * 6.0).sin();
+        for (j, z) in [84.0f32, 93.0].into_iter().enumerate() {
+            let base = vec3(92.6, G as f32, z);
+            let col = if j == 0 { Color::new(0.3, 1.0, 1.0, 1.0) } else { Color::new(1.0, 0.35, 0.95, 1.0) };
+            b.cube(&Mat4::IDENTITY, base + vec3(0.0, 0.3, 0.0), vec3(1.4, 0.6, 1.4), stone);
+            b.cube(&Mat4::IDENTITY, base + vec3(0.0, 2.0, 0.0), vec3(0.6, 3.0, 0.6), rgb(0.12, 0.12, 0.16));
+            for r in 0..3 {
+                let y = 1.0 + r as f32 + (time * 2.0 + r as f32).sin() * 0.15;
+                b.glow(&Mat4::IDENTITY, base + vec3(0.0, y, 0.0), vec3(0.85, 0.08, 0.85), col);
+            }
+            let em = base + vec3(0.0, 3.8, 0.0);
+            b.glow(&(Mat4::from_translation(em) * Mat4::from_rotation_y(time * 2.0)), Vec3::ZERO, Vec3::splat(0.5), col);
+            crate::urna::beam(trans, em, top, 0.3 + 0.2 * k, Color::new(col.r, col.g, col.b, 0.3));
+            crate::urna::beam(trans, em, top, 0.08, Color::new(1.0, 1.0, 1.0, 0.8));
+        }
+        trans.glow(&Mat4::from_translation(top), Vec3::ZERO, Vec3::splat(1.0 + k), Color::new(0.8, 0.5, 1.0, 0.5));
+        if eye.distance(vec3(92.6, G as f32, 88.5)) < 20.0 {
+            labels.push(Label { pos: vec3(92.6, G as f32 + 4.8, 88.5), text: "CUPULA DO HUB - NADA QUEBRA AQUI DENTRO".into(), size: 16.0, color: rgb(0.6, 1.0, 1.0) });
         }
         // Totem na entrada do caminho (estrada leste)
         let post = vec3(HX0 as f32 + 3.2, G as f32, 66.5);

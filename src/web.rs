@@ -17,6 +17,12 @@ unsafe extern "C" {
     pub fn urna_prompt(msg: *const u8, msg_len: usize, ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_query_name(ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_is_touch() -> i32;
+    pub fn urna_open_url(ptr: *const u8, len: usize) -> i32;
+}
+
+/// Abre o link numa aba nova. false = popup bloqueado (o JS copia o link pro clipboard).
+pub fn open_url(url: &str) -> bool {
+    unsafe { urna_open_url(url.as_ptr(), url.len()) != 0 }
 }
 
 /// Lê uma string do JS: f escreve em (ptr, cap) e retorna o tamanho, -tamanho se não coube, 0 se vazio.

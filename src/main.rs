@@ -815,7 +815,7 @@ async fn main() {
         };
         let mut buttons = touch_buttons(sw, sh, ch);
         if ch == 0 && !steve.creative {
-            buttons[3].2 = "-";
+            buttons[3].2 = "AGACHA";
         }
         let (mut tap_hit, mut tap_place) = (false, false);
         let (mut pick_char, mut car_toggle, mut sk_ollie, mut cycle_weapon): (Option<usize>, bool, bool, i32) = (None, false, false, 0);
@@ -927,6 +927,7 @@ async fn main() {
             None => Vec2::ZERO,
         };
         player.jump_held = held.values().any(|b| *b == 0);
+        player.sneak_held = ch == 0 && !steve.creative && held.values().any(|b| *b == 3);
 
         // ------------------------------------------------ Input
         let mut just_grabbed = false;
@@ -1186,6 +1187,7 @@ async fn main() {
             gta_walk += d * 3.0;
         } else if niko.as_ref().is_none_or(|n| n.controlled()) {
             player.can_fly = bandido.is_none() && niko.is_none() && steve.creative && !portals.active;
+            player.mc = ch == 0;
             let (before, vy) = (player.pos, player.vel.y);
             if let Some(n) = niko.as_mut() {
                 let imp = std::mem::take(&mut player.knock);
@@ -1695,15 +1697,16 @@ async fn main() {
         prof.mark(prof::LAB_RT);
         clear_background(sky);
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
+        let (cam_eye, cam_fw, cam_up) = player.bob_view(eye + shake, fw);
         let cam = Camera3D {
-            position: eye + shake,
-            target: eye + shake + fw,
-            up,
+            position: cam_eye,
+            target: cam_eye + cam_fw,
+            up: cam_up,
             fovy: match bandido.as_ref().filter(|b| b.aiming) {
                 Some(b) if b.weapon == 7 => 18f32,
                 Some(b) if b.weapon == 8 => 45f32,
                 Some(_) => 58f32,
-                None => skater.as_ref().map_or(70f32, |s| s.fov()),
+                None => skater.as_ref().map_or(70f32 * player.fov_mul(), |s| s.fov()),
             }
             .to_radians(),
             ..Default::default()
@@ -1803,7 +1806,7 @@ async fn main() {
                 }
             }
         }
-        for r in remotes.values() {
+        for (rid, r) in remotes.iter() {
             let moving = (r.pos - r.target).length() > 0.05;
             match r.ch {
                 1 => skate::Skater::new(r.pos, r.yaw).draw(&mut opaque, r.look.shirt, time),
@@ -1814,7 +1817,7 @@ async fn main() {
                 _ => {
                     let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
                     let look = if r.ch == 4 { &niko_look } else { &r.look };
-                    draw_humanoid(&mut opaque, look, &pose, &root(r.pos, r.yaw, 0.0, 0.0));
+                    draw_humanoid(&mut opaque, look, &pose, &steve.remote_root(*rid, r.pos, r.yaw));
                 }
             }
             labels.push(Label { pos: r.pos + up * 2.2, text: r.name.clone(), size: 22.0, color: Color::new(0.5, 1.0, 0.6, 1.0) });
@@ -2071,7 +2074,7 @@ async fn main() {
 
         // Hotbar, vida e carga do arco do Steve
         if ch == 0 {
-            steve.draw_hud(&atlas, player.sel, sw, sh, slot, mobile);
+            steve.draw_hud(&atlas, player.sel, sw, sh, slot, mobile, &player.bob_matrix());
         }
         portals.hud(sw, sh);
 
@@ -2105,13 +2108,13 @@ async fn main() {
                     "C troca personagem | T chat | H ajuda",
                 ],
                 _ if steve.creative => [
-                    "CRIATIVO: WASD andar | ESPACO pular | SHIFT correr | F voar (CTRL desce)",
+                    "CRIATIVO: WASD andar | ESPACO pular | 2x W ou CTRL corre | SHIFT agacha | 2x ESPACO voa (SHIFT desce)",
                     "ESQ quebra na hora/soca | DIR poe | 1-9/RODA hotbar | E ou I inventario (todos os blocos)",
                     "K chama Wolverine | R reseta mundo | M muta | TAB solta mouse | H ajuda",
                     "Y troca o video do telao | T ou ENTER chat | C PERSONAGENS",
                 ],
                 _ => [
-                    "SURVIVAL: WASD andar | ESPACO pular | SHIFT correr | sem voo, queda machuca",
+                    "SURVIVAL: WASD andar | ESPACO pular | 2x W ou CTRL corre | SHIFT agacha | queda machuca",
                     "ESQ segura = minera (ferramenta certa e mais rapida) / bate | DIR poe bloco",
                     "ARCO: segura DIR e solta | ISQUEIRO: DIR na TNT (4s) ou poe fogo | 1-9/RODA | E/I inventario",
                     "Y telao | T chat | C PERSONAGENS | K Wolverine | R reseta | H ajuda",

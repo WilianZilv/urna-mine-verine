@@ -80,6 +80,9 @@ pub struct Steve {
     shots_out: Vec<Value>,
     pvp_out: Vec<Value>,
     held: HashMap<u64, Item>,
+    /// Steves remotos agachados (campo "sn" da mensagem "p") e se eu estou agachado.
+    crouched: HashSet<u64>,
+    sneak: bool,
     cracks: Vec<Texture2D>,
     toast: Option<(String, f32)>,
     last_sel: usize,
@@ -165,6 +168,8 @@ impl Steve {
             shots_out: Vec::new(),
             pvp_out: Vec::new(),
             held: HashMap::new(),
+            crouched: HashSet::new(),
+            sneak: false,
             cracks: crack_textures(),
             toast: None,
             last_sel: 0,
@@ -272,6 +277,11 @@ impl Steve {
             Some(h) => self.held.insert(id, h as Item),
             None => self.held.remove(&id),
         };
+        if m["sn"].as_u64() == Some(1) {
+            self.crouched.insert(id);
+        } else {
+            self.crouched.remove(&id);
+        }
         for a in m["ar"].as_array().into_iter().flatten() {
             self.arrows.push(Arrow { pos: mp::get_v3(&a[0]), vel: mp::get_v3(&a[1]), stuck: 0.0, dmg: 0.0, mine: false });
         }
@@ -289,10 +299,18 @@ impl Steve {
         Some((dmg, dir))
     }
 
+    /// Raiz do modelo de um Steve remoto: agachado desce e inclina pra frente.
+    pub fn remote_root(&self, id: u64, pos: Vec3, yaw: f32) -> Mat4 {
+        if self.crouched.contains(&id) { root(pos, yaw, -0.15, -0.15) } else { root(pos, yaw, 0.0, 0.0) }
+    }
+
     /// Completa a mensagem "p" que vai sair.
     pub fn fill_p(&mut self, v: &mut Value, ch: u8, sel: usize) {
         if ch == 0 {
             v["h"] = json!(self.inv.slots[sel].0);
+            if self.sneak {
+                v["sn"] = json!(1);
+            }
         }
         if !self.shots_out.is_empty() {
             v["ar"] = Value::Array(std::mem::take(&mut self.shots_out));
@@ -463,6 +481,7 @@ impl Steve {
     #[allow(clippy::too_many_arguments)]
     pub fn tick(&mut self, world: &World, player: &mut Player, active: bool, is_host: bool, my_id: u64, targets: &[Target], others: &[(u64, Vec3)], dt: f32, fx: &mut Fx) {
         self.active = active;
+        self.sneak = active && player.sneaking && !player.fly;
         self.swing = (self.swing - dt * 4.0).max(0.0);
         self.equip = (self.equip - dt * 6.0).max(0.0);
         self.hurt_flash = (self.hurt_flash - dt * 2.0).max(0.0);
@@ -497,9 +516,9 @@ impl Steve {
                 }
             } else {
                 if player.on_ground && !self.was_ground {
-                    let h = self.last_vy * self.last_vy / 56.0;
-                    if self.last_vy < 0.0 && h > 3.5 {
-                        self.hurt(h - 3.5);
+                    let h = Player::fall_height(self.last_vy);
+                    if h > 3.0 {
+                        self.hurt((h - 3.0).ceil());
                     }
                 }
                 self.fire_cd -= dt;
@@ -649,7 +668,7 @@ impl Steve {
             let Some(&it) = self.held.get(&id).filter(|_| ch == 0) else { continue };
             // Igual ao ItemInHandLayer do Minecraft: eixos do item (x = direita, y = frente, z = cima) no ombro
             // girado do braço, 1 unidade = 16 px do Steve, depois o display "thirdperson_righthand" do item.
-            let shoulder = root(pos, yaw, 0.0, 0.0) * Mat4::from_translation(vec3(-6.0 * U, 22.0 * U, 0.0)) * Mat4::from_rotation_x(REMOTE_ARM);
+            let shoulder = self.remote_root(id, pos, yaw) * Mat4::from_translation(vec3(-6.0 * U, 22.0 * U, 0.0)) * Mat4::from_rotation_x(REMOTE_ARM);
             let axes = Mat4::from_cols(Vec4::NEG_X, Vec4::Z, Vec4::Y, Vec4::W);
             let base = shoulder * Mat4::from_scale(Vec3::splat(16.0 * U)) * axes * Mat4::from_translation(vec3(1.0, 2.0, -10.0) / 16.0);
             let deg = f32::to_radians;
@@ -675,13 +694,16 @@ impl Steve {
 
     /// Item na mão em primeira pessoa: câmera própria na origem, depth limpo (não entra na parede nem
     /// pega neblina/portal). Transformações do Minecraft (braço, golpe, arco puxado, display do item).
-    fn draw_viewmodel(&self, atlas: &Atlas, it: Item) {
+    /// `bob`: view bobbing da câmera (a mão balança junto, como no Minecraft).
+    fn draw_viewmodel(&self, atlas: &Atlas, it: Item, bob: &Mat4) {
         if self.dead > 0.0 || self.inv_open {
             return;
         }
         // Cena girada pra luz fixa do Batch vir de trás/esquerda da câmera (face do item iluminada)
         let w = Mat4::from_quat(Quat::from_rotation_arc(vec3(-0.7, 0.3, 0.65).normalize(), vec3(0.4, 1.0, 0.3).normalize()));
-        set_camera(&Camera3D { position: Vec3::ZERO, target: w.transform_vector3(Vec3::NEG_Z), up: w.transform_vector3(Vec3::Y), fovy: 70f32.to_radians(), ..Default::default() });
+        let cam = w * bob.inverse();
+        let eye = cam.transform_point3(Vec3::ZERO);
+        set_camera(&Camera3D { position: eye, target: eye + cam.transform_vector3(Vec3::NEG_Z), up: cam.transform_vector3(Vec3::Y), fovy: 70f32.to_radians(), ..Default::default() });
         let gl = unsafe { get_internal_gl() };
         gl.quad_context.begin_default_pass(PassAction::Clear { color: None, depth: Some(1.0), stencil: None });
         gl.quad_context.end_render_pass();
@@ -720,8 +742,9 @@ impl Steve {
     }
 
     /// HUD: hotbar, corações, carga do arco, nome do item.
-    pub fn draw_hud(&self, atlas: &Atlas, sel: usize, sw: f32, sh: f32, slot: f32, mobile: bool) {
-        self.draw_viewmodel(atlas, self.inv.slots[sel].0);
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_hud(&self, atlas: &Atlas, sel: usize, sw: f32, sh: f32, slot: f32, mobile: bool, bob: &Mat4) {
+        self.draw_viewmodel(atlas, self.inv.slots[sel].0, bob);
         if self.hurt_flash > 0.0 {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.8, 0.0, 0.0, 0.25 * self.hurt_flash));
         }

@@ -7,6 +7,7 @@ import { safe } from "./economy.js";
 import KONG from "../examples/mods/king-kong.json" with { type: "json" };
 import ASTRO from "../examples/mods/astronauta.json" with { type: "json" };
 import VOTO from "../examples/mods/voto-dourado.json" with { type: "json" };
+import { BUILTIN_AVATARS } from "./avatars.js";
 
 export const SITE = "https://urna-mine-verine.wilianzilv.workers.dev";
 
@@ -351,6 +352,19 @@ export function validate(raw) {
     const bytes = JSON.stringify(pkg).length;
     if (bytes > LIMITS.bytes) return { pkg: null, errors: [{ path: "$", msg: `normalized package too big (${bytes} > ${LIMITS.bytes} bytes)` }], warnings };
     return { pkg, errors, warnings };
+}
+
+/// Avatar embutido "urna:<nome>" validado como qualquer mod (cache por isolate); versao errada -> null.
+const BUILT = new Map();
+function builtin(id, v) {
+    if (!BUILT.has(id)) {
+        const { pkg, errors } = validate(BUILTIN_AVATARS[id]);
+        if (errors.length) throw new Error(`builtin ${id}: ${errors[0].path} ${errors[0].msg}`);
+        pkg.manifest.id = id;
+        BUILT.set(id, pkg);
+    }
+    const pkg = BUILT.get(id);
+    return pkg.manifest.version === v ? pkg : null;
 }
 
 // ---------------------------------------------------------------- JSON Schema (gerado das mesmas tabelas)
@@ -729,6 +743,7 @@ export class Mods {
 
     // ------------------------------------------------ storage
     async loadPkg(id, v) {
+        if (BUILTIN_AVATARS[id]) return builtin(id, v);
         const meta = await this.st.get(`mod:${id}`);
         const ver = meta?.versions.find((x) => x.v === v);
         if (!ver) return null;
@@ -878,6 +893,10 @@ export class Mods {
                     if (x) mods.push(this.meta(x));
                 }
                 return J(200, { ok: true, creator: { id: c.id, name: c.name, created: c.created }, mods });
+            }
+            if (seg[1] === "versions" && seg.length === 3 && BUILTIN_AVATARS[seg[0]]) {
+                const pkg = builtin(seg[0], seg[2]);
+                return pkg ? J(200, pkg) : fail(404, "not_found", `version ${seg[2]} not found`);
             }
             const x = await this.st.get(`mod:${seg[0]}`);
             if (!x) return fail(404, "not_found", `mod ${seg[0]} not found`);

@@ -6,6 +6,7 @@
 //   o token de confirmacao que vai pra NOSSA pagina, nunca pro iframe).
 import { kindOf, creatorFromRequest } from "./mods.js";
 import { safe } from "./economy.js";
+import { builtinRef } from "./avatars.js";
 
 const PRESENCE_MAX = 32;
 const STATE_BYTES = 512;
@@ -254,7 +255,7 @@ export class Universe {
         const [client, ws] = Object.values(new WebSocketPair());
         ws.accept();
         if (!me) {
-            me = { socks: new Map(), sid: t.sid, name: t.sub, color: t.player?.color || "#ffffff", character: t.player?.character || "steve", avatar: t.player?.avatar || null, s: {}, tokens: RATE, at: Date.now(), dropped: 0, fx: 0, say: 0 };
+            me = { socks: new Map(), sid: t.sid, name: t.sub, color: t.player?.color || "#ffffff", character: t.player?.character || "steve", avatar: t.player?.avatar || builtinRef(t.player?.character), s: {}, tokens: RATE, at: Date.now(), dropped: 0, fx: 0, say: 0 };
             room.set(t.sid, me);
         }
         const sdk0 = this.pub(me).sdk;
@@ -338,12 +339,9 @@ export class Universe {
     async passport(tok) {
         const t = await this.hub.check(tok);
         if (!t) return fail(401, "unauthorized", "token de sessao invalido ou expirado");
-        const ref = t.player?.avatar || null;
-        let avatar = null;
-        if (ref) {
-            const [id, v] = ref.split("@");
-            avatar = await this.mods.loadPkg(id, v);
-        }
+        const ref = t.player?.avatar || builtinRef(t.player?.character);
+        const [id, v] = ref.split("@");
+        const avatar = await this.mods.loadPkg(id, v);
         const w = this.room.eco.me(t.sub);
         return json({
             ok: true,

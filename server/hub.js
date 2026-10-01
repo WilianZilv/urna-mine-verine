@@ -4,6 +4,7 @@
 // entrar, o DO assina um token de sessao HMAC (JWT HS256, ~10 min) com nome/cor/personagem do jogador;
 // o cliente abre o jogo num iframe sandbox e repassa o token por postMessage (origem conferida).
 import { creatorFromRequest } from "./mods.js";
+import { builtinRef } from "./avatars.js";
 
 const SESSION_S = 600;
 const MAX_PORTALS = 60;
@@ -236,7 +237,8 @@ export class Hub {
         const a = cur(p);
         const iat = Math.floor(now / 1000);
         const sid = hex(9);
-        const player = { name: c.name, color: /^#[0-9a-f]{6}$/i.test(m.col) ? m.col : "#ffffff", character: clean(m.ch, 16) || "steve", avatar: this.room.uni?.ref(c.name) || null };
+        const character = clean(m.ch, 16) || "steve";
+        const player = { name: c.name, color: /^#[0-9a-f]{6}$/i.test(m.col) ? m.col : "#ffffff", character, avatar: this.room.uni?.ref(c.name) || builtinRef(character) };
         const tok = await this.sign({ upp: 1, iss: this.site, aud: a.origin, sub: c.name, pid: p.id, sid, player, ret: `${this.site}/?hub=${encodeURIComponent(p.id)}`, iat, exp: iat + SESSION_S });
         this.ses.set(sid, { pid: p.id, cid: id, name: c.name, ready: false, exp: (iat + SESSION_S) * 1000, coins: 0, n: 0, t: {} });
         this.room.send(c, { t: "hub_s", p: p.id, tok, url: a.url, origin: a.origin, name: a.name, ret: `${this.site}/?hub=${encodeURIComponent(p.id)}` });

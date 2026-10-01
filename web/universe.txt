@@ -24,7 +24,9 @@ Everything is optional: a game that ignores this file still works. Coins are FIC
 Live demo using all of it: https://urna-hub-demo.wilianzilv.workers.dev/ (source: $SITE/hub/demo.html).
 
 ## Session token & passport
-The session token (JWT HS256, ~10 min, from upp:session) now carries player.avatar = "modId@version" or null.
+The session token (JWT HS256, ~10 min, from upp:session) always carries player.avatar = "modId@version":
+the player's skin, or (no skin chosen) a built-in look of the character they use in the Urna ("urna:steve@1.0.0",
+"urna:skatista@...", "urna:bandido@...", "urna:portal@..."; same package format, same GET route below).
 GET $SITE/api/passport?token=<session token>      (CORS open, no auth besides the token)
  -> { ok, protocol:"UPP/1", portal, player:{name,color,character,avatar}, avatar_ref, avatar:<full validated avatar
       package JSON or null>, wallet:{coins}, inventory:[{id,name,n,color,color2,pattern}],
@@ -102,7 +104,7 @@ Origins are checked on both sides (same as upp:session).
 
 ## Troubleshooting
 | symptom | fix |
-| s.avatar is null | the player has no skin (village: C -> SKIN) or you called connect({passport:false}). Render your default. |
+| s.avatar is null | you called connect({passport:false}) or the passport fetch failed (no skin = built-in "urna:<character>" look, never null). Render your default. |
 | presence join resolves null | token expired (>10 min: re-enter the portal) or portal not live. |
 | grant 403 not_allowed | PUT /api/portals/<id>/items with an active kind "item" mod you own. |
 | grant 409 duplicate | that key was already paid: it is working as intended. Use a new key for a NEW reward. |

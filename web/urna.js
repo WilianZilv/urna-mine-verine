@@ -26,6 +26,79 @@
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const clips = [], voices = new Map();
     let nextVoice = 1;
+    const master = ctx.createGain();
+    master.connect(ctx.destination);
+
+    // ---------------------------------------------------------------- Clipe (tecla B / botão CLIPE)
+    // Pedaços de webm/mp4 depois do primeiro não tocam sozinhos, então "últimos 10s" = dois gravadores
+    // revezando: o novo nasce a cada 10s e o mais velho (10-20s de vídeo) é o que vira arquivo.
+    const CLIP_MS = 10000;
+    const clipMsgs = [];
+    const clipMime = typeof MediaRecorder !== "undefined" && HTMLCanvasElement.prototype.captureStream
+        ? ["video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp8,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) : null;
+    const weakDevice = navigator.maxTouchPoints > 0 && ((navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4);
+    let clipTier = -1, older = null, newer = null, clipBusy = false, videoTrack = null, audioTap = null;
+    const rolling = () => !!clipMime && clipTier > 0 && !weakDevice && !clipBusy && document.visibilityState === "visible";
+    function clipTracks() {
+        if (!videoTrack || videoTrack.readyState === "ended") videoTrack = document.getElementById("glcanvas").captureStream(30).getVideoTracks()[0];
+        const t = [videoTrack];
+        if (ctx.state === "running" && ctx.createMediaStreamDestination) {
+            if (!audioTap) { audioTap = ctx.createMediaStreamDestination(); master.connect(audioTap); }
+            t.push(audioTap.stream.getAudioTracks()[0]);
+        }
+        return t;
+    }
+    function startSeg() {
+        const seg = { chunks: [], t0: performance.now() };
+        seg.rec = new MediaRecorder(new MediaStream(clipTracks()), { mimeType: clipMime, videoBitsPerSecond: weakDevice ? 1500000 : 2500000 });
+        seg.rec.ondataavailable = (e) => { if (e.data.size) seg.chunks.push(e.data); };
+        seg.rec.start(1000);
+        return seg;
+    }
+    function dropSeg(seg) { if (seg && seg.rec.state !== "inactive") { seg.rec.ondataavailable = null; seg.rec.stop(); } }
+    const stopSeg = (seg) => new Promise((r) => { seg.rec.onstop = () => r(seg); seg.rec.stop(); });
+    function roll() {
+        if (!rolling()) {
+            if (clipBusy) return;
+            dropSeg(older); dropSeg(newer);
+            older = newer = null;
+            if (videoTrack) { videoTrack.stop(); videoTrack = null; }
+            return;
+        }
+        if (!newer) newer = startSeg();
+        else if (performance.now() - newer.t0 >= CLIP_MS) { dropSeg(older); older = newer; newer = startSeg(); }
+    }
+    setInterval(roll, 500);
+    document.addEventListener("visibilitychange", roll);
+    function recDot(on) { const d = document.getElementById("rec"); if (d) d.style.display = on ? "block" : "none"; }
+    function saveSeg(seg) {
+        const blob = new Blob(seg.chunks, { type: clipMime.split(";")[0] });
+        if (blob.size < 1000) { clipMsgs.push("CLIPE: deu ruim, video saiu vazio"); return; }
+        const d = new Date(), p = (n) => String(n).padStart(2, "0");
+        const name = `urna-clip-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${clipMime.startsWith("video/mp4") ? "mp4" : "webm"}`;
+        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        clipMsgs.push(`CLIPE SALVO: ${name} - posta onde quiser`);
+    }
+    function clipSave() {
+        if (!clipMime) return clipMsgs.push("CLIPE: esse navegador nao grava video");
+        if (clipBusy) return clipMsgs.push("CLIPE: calma, ainda gravando o anterior");
+        const seg = older || newer;
+        if (seg) {
+            older = seg === older ? newer : null;
+            newer = startSeg();
+            stopSeg(seg).then(saveSeg);
+            return;
+        }
+        clipBusy = true;
+        recDot(true);
+        clipMsgs.push("REC: gravando os proximos 10s...");
+        const now = startSeg();
+        setTimeout(() => stopSeg(now).then((s) => { clipBusy = false; recDot(false); saveSeg(s); }), CLIP_MS);
+    }
 
     // ---------------------------------------------------------------- YouTube
     let player = null, ytReady = false, pendingId = null, ytState = -1, ytTitle = "", titleSent = "", lastVol = -1;
@@ -180,7 +253,7 @@
                     src.loop = !!loop;
                     const g = ctx.createGain();
                     g.gain.value = vol;
-                    src.connect(g).connect(ctx.destination);
+                    src.connect(g).connect(master);
                     src.start();
                     const id = nextVoice++;
                     voices.set(id, g);
@@ -216,6 +289,14 @@
                     if (w) { w.opener = null; return 1; }
                     if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => { });
                     return 0;
+                },
+                urna_clip_save: () => { clipSave(); },
+                urna_clip_poll: (tier, p, cap) => {
+                    clipTier = tier;
+                    if (!clipMsgs.length) return 0;
+                    const r = put(enc.encode(clipMsgs[0]), p, cap);
+                    if (r > 0) clipMsgs.shift();
+                    return r;
                 },
                 urna_is_touch: () => (navigator.maxTouchPoints > 0 && matchMedia("(pointer: coarse)").matches) ? 1 : 0,
                 urna_now: () => performance.now(),

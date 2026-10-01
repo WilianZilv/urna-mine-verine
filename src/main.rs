@@ -231,7 +231,7 @@ fn tapped() -> bool {
 
 /// Botões do celular: (centro, raio, rótulo).
 /// Botões do celular; rótulos mudam com o personagem (0 Steve, 1 skatista, 2 bandido, 3 dirigindo).
-fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
+fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 9] {
     let r = (sw.min(sh) * 0.085).max(26.0);
     let (x, y) = (sw - r * 1.4, sh - r * 1.4);
     let l = match ch {
@@ -253,6 +253,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
         (vec2(r * 2.6 + 8.0, sh * 0.3), r * 0.7, "TELAO"),
         (vec2(r * 4.3 + 8.0, sh * 0.3), r * 0.7, "PERS"),
         (vec2(r * 6.0 + 8.0, sh * 0.3), r * 0.7, "BANCO"),
+        (vec2(r * 7.7 + 8.0, sh * 0.3), r * 0.7, "CLIPE"),
     ]
 }
 
@@ -839,6 +840,7 @@ async fn main() {
         let (mut tap_hit, mut tap_place) = (false, false);
         let (mut pick_char, mut car_toggle, mut sk_ollie, mut cycle_weapon): (Option<usize>, bool, bool, i32) = (None, false, false, 0);
         let mut niko_dive = false;
+        let mut clip_tap = false;
         let mut m_tap = [false; 3];
         let mut w_tap = [false; 4];
         let ts = touches();
@@ -897,6 +899,7 @@ async fn main() {
                             }
                             (6, _) => chars_open = true,
                             (7, _) => eco.show = !eco.show,
+                            (8, _) => clip_tap = true,
                             (1, 4) => niko_dive = true,
                             (4, _) => {
                                 if let Some(m) = ask_text("Mensagem pro chat:") {
@@ -1013,6 +1016,7 @@ async fn main() {
             if is_key_pressed(KeyCode::M) {
                 muted = !muted;
             }
+            clip_tap |= is_key_pressed(KeyCode::B);
             if is_key_pressed(KeyCode::Y) {
                 #[cfg(target_arch = "wasm32")]
                 let src = web::prompt("Cola o link do YouTube pro telao:");
@@ -1071,6 +1075,19 @@ async fn main() {
                     }
                 }
             }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if clip_tap {
+                web::clip_save();
+            }
+            if let Some(m) = web::clip_poll(quality::tier()) {
+                chat.push((m, get_time()));
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if clip_tap {
+            banner = Some(("CLIPE SO NO NAVEGADOR".into(), 2.0));
         }
         if wolvie.demo_pick() {
             pick_char = CHARS.iter().position(|c| c.2 == 7);
@@ -2192,7 +2209,7 @@ async fn main() {
                     "Y telao | T chat | C PERSONAGENS | K Wolverine | R reseta | H ajuda",
                 ],
             };
-            for (i, l) in lines.iter().enumerate() {
+            for (i, l) in lines.iter().chain(["B = CLIPE: salva os ultimos 10s em video (download local)"].iter()).enumerate() {
                 draw_text(l, 12.0, 90.0 + i as f32 * 22.0, 20.0, Color::new(1.0, 1.0, 1.0, 0.85));
             }
         }

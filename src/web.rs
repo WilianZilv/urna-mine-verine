@@ -24,6 +24,18 @@ unsafe extern "C" {
     pub fn urna_query(key: *const u8, key_len: usize, ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_store_get(key: *const u8, key_len: usize, ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_store_set(key: *const u8, key_len: usize, val: *const u8, val_len: usize);
+    pub fn urna_clip_save();
+    pub fn urna_clip_poll(tier: i32, ptr: *mut u8, cap: usize) -> i32;
+}
+
+/// Salva os últimos ~10s de jogo como vídeo (download local; ver web/urna.js).
+pub fn clip_save() {
+    unsafe { urna_clip_save() }
+}
+
+/// Informa a qualidade atual (BAIXA = grava só sob demanda) e devolve aviso do clipe pro chat.
+pub fn clip_poll(tier: u8) -> Option<String> {
+    read_string(|p, c| unsafe { urna_clip_poll(tier as i32, p, c) })
 }
 
 /// Parâmetro da URL (?chave=valor).

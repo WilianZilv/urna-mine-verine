@@ -1950,28 +1950,8 @@ async fn main() {
         }
 
         prof.mark(prof::LABELS);
-        // HUD: placar
         let sw = screen_width();
         let sh = screen_height();
-        let panel_w = ((sw - 50.0) / 4.0).min(230.0);
-        let name_size = if panel_w < 200.0 { 13.0 } else { 20.0 };
-        let n = fighters.len() as f32;
-        let x0 = sw * 0.5 - (panel_w * n + 10.0 * (n - 1.0)) * 0.5;
-        for (i, f) in fighters.iter().enumerate() {
-            let x = x0 + i as f32 * (panel_w + 10.0);
-            draw_rectangle(x, 10.0, panel_w, 52.0, Color::new(0.0, 0.0, 0.0, 0.55));
-            draw_rectangle(x, 10.0, 6.0, 52.0, f.flag.0);
-            draw_text(f.name, x + 12.0, 30.0, name_size, WHITE);
-            if f.spawned {
-                draw_text(&format!("KO {}", f.kos), x + panel_w - 52.0, 50.0, 20.0, YELLOW);
-                if matches!(f.state, FState::Ko(_)) {
-                    draw_text("NOCAUTE", x + 14.0, 49.0, 16.0, WHITE);
-                }
-            } else {
-                let left = (20.0 - time).max(0.0);
-                draw_text(&format!("chegando em {:.0}s (K)", left), x + 12.0, 50.0, 18.0, GRAY);
-            }
-        }
 
         // Status da rede + jogadores online
         let status = match (url.is_some(), online, net.state()) {

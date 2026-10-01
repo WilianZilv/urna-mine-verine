@@ -6,6 +6,7 @@ import { Brain } from "./brain.js";
 import { Lab } from "./lab.js";
 import { Mods, docs, SITE } from "./mods.js";
 import { Hub } from "./hub.js";
+import { Universe } from "./universe.js";
 import { skill } from "./skill.js";
 
 export default {
@@ -14,7 +15,7 @@ export default {
         const doc = skill(url) || docs(url);
         if (doc) return doc;
         if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
-        if (url.pathname.startsWith("/api/portals")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
+        if (url.pathname.startsWith("/api/portals") || url.pathname === "/api/passport" || url.pathname.startsWith("/api/universe")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname === "/ws") {
             if (req.headers.get("Upgrade") !== "websocket") return new Response("use websocket", { status: 426 });
             return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
@@ -141,6 +142,7 @@ export class Room extends DurableObject {
         this.lab = new Lab(this);
         this.mods = new Mods(this);
         this.hub = new Hub(this);
+        this.uni = new Universe(this);
         // Obras da IA ("w" k:"ai") sobrevivem ao DO dormir: viram o comeco do log quando ele acorda.
         this.aiLog = [];
         this.aiSave = null;
@@ -216,6 +218,8 @@ export class Room extends DurableObject {
 
     async fetch(req) {
         if (new URL(req.url).pathname.startsWith("/api/mods")) return this.mods.http(req);
+        const uni = await this.uni.route(req);
+        if (uni) return uni;
         const hub = await this.hub.route(req);
         if (hub) return hub;
         const [client, server] = Object.values(new WebSocketPair());
@@ -253,12 +257,18 @@ export class Room extends DurableObject {
             this.lab.join(c);
             this.mods.join(c);
             this.hub.join(c);
+            this.uni.join(c);
             return;
         }
         m.id = id;
         switch (m.t) {
+            case "uv_set":
+            case "uv_get":
+                this.uni.onMsg(id, c, m);
+                break;
             case "p":
                 c.pos = m.p;
+                this.uni.stamp(c, m);
                 this.broadcast(m, id);
                 this.eco.onPos(c);
                 break;

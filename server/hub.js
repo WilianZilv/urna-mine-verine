@@ -184,7 +184,7 @@ export class Hub {
             if (s.exp < now) this.ses.delete(sid);
             else if (s.pid === pid && s.ready) n++;
         }
-        return n;
+        return n + (this.room.uni?.presenceOnly(pid, this.ses) || 0);
     }
 
     snapshot() {
@@ -236,10 +236,11 @@ export class Hub {
         const a = cur(p);
         const iat = Math.floor(now / 1000);
         const sid = hex(9);
-        const player = { name: c.name, color: /^#[0-9a-f]{6}$/i.test(m.col) ? m.col : "#ffffff", character: clean(m.ch, 16) || "steve" };
+        const player = { name: c.name, color: /^#[0-9a-f]{6}$/i.test(m.col) ? m.col : "#ffffff", character: clean(m.ch, 16) || "steve", avatar: this.room.uni?.ref(c.name) || null };
         const tok = await this.sign({ upp: 1, iss: this.site, aud: a.origin, sub: c.name, pid: p.id, sid, player, ret: `${this.site}/?hub=${encodeURIComponent(p.id)}`, iat, exp: iat + SESSION_S });
         this.ses.set(sid, { pid: p.id, cid: id, name: c.name, ready: false, exp: (iat + SESSION_S) * 1000, coins: 0, n: 0, t: {} });
         this.room.send(c, { t: "hub_s", p: p.id, tok, url: a.url, origin: a.origin, name: a.name, ret: `${this.site}/?hub=${encodeURIComponent(p.id)}` });
+        await this.room.uni?.onSession(c, { sub: c.name, pid: p.id, sid });
     }
 
     // ------------------------------------------------ eventos do jogo (upp:event repassado pelo overlay)

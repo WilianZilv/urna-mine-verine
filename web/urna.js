@@ -170,6 +170,11 @@
                     return 0;
                 },
                 urna_is_touch: () => (navigator.maxTouchPoints > 0 && matchMedia("(pointer: coarse)").matches) ? 1 : 0,
+                urna_now: () => performance.now(),
+                urna_prof: (p, n) => { window.urnaProf = JSON.parse(str(p, n)); },
+                urna_query: (kp, kn, p, cap) => put(enc.encode(new URLSearchParams(location.search).get(str(kp, kn)) || ""), p, cap),
+                urna_store_get: (kp, kn, p, cap) => { try { return put(enc.encode(localStorage.getItem(str(kp, kn)) || ""), p, cap); } catch (e) { return 0; } },
+                urna_store_set: (kp, kn, vp, vn) => { try { localStorage.setItem(str(kp, kn), str(vp, vn)); } catch (e) { } },
                 urna_query_name: (p, cap) => put(enc.encode((new URLSearchParams(location.search).get("nome") || "").trim()), p, cap),
                 urna_prompt: (mp, mn, p, cap) => {
                     if (pendingPrompt === null) {

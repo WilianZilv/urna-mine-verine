@@ -43,6 +43,7 @@ impl Batch {
     }
 
     pub fn cube_ex(&mut self, m: &Mat4, c: Vec3, s: Vec3, col: Color, lit: bool) {
+        crate::prof::add(&crate::prof::CUBES, 1);
         if self.v.len() > 15000 {
             self.done.push((std::mem::take(&mut self.v), std::mem::take(&mut self.i)));
         }
@@ -79,6 +80,8 @@ impl Batch {
         gl.draw_mode(DrawMode::Triangles);
         for (v, i) in self.done.iter().map(|(v, i)| (v.as_slice(), i.as_slice())).chain(std::iter::once((self.v.as_slice(), self.i.as_slice()))) {
             if !i.is_empty() {
+                crate::prof::add(&crate::prof::CALLS, 1);
+                crate::prof::add(&crate::prof::VERTS, v.len());
                 gl.geometry(v, i);
             }
         }
@@ -89,6 +92,8 @@ impl Batch {
             self.done.push((std::mem::take(&mut self.v), std::mem::take(&mut self.i)));
         }
         for (v, i) in self.done.drain(..) {
+            crate::prof::add(&crate::prof::CALLS, 1);
+            crate::prof::add(&crate::prof::VERTS, v.len());
             draw_mesh(&Mesh { vertices: v, indices: i, texture: Some(tex.clone()) });
         }
     }

@@ -23,6 +23,7 @@ mod npc;
 mod net;
 mod player;
 mod portal;
+mod prof;
 mod ragdoll;
 mod shield;
 mod skate;
@@ -455,8 +456,15 @@ async fn main() {
     let start = get_time();
     let mut time_offset = 0.0f64;
     let up = vec3(0.0, 1.0, 0.0);
+    #[cfg(target_arch = "wasm32")]
+    let debug = web::query("debug").is_some_and(|v| v == "1");
+    #[cfg(not(target_arch = "wasm32"))]
+    let debug = std::env::var("URNA_DEBUG").is_ok_and(|v| v == "1");
+    let mut prof = prof::Prof::default();
+    prof.on = debug;
 
     loop {
+        prof.frame("");
         let dt = get_frame_time().min(0.05);
         let online = welcomed && net.state() == net::OPEN;
         if was_online && !online {
@@ -483,6 +491,7 @@ async fn main() {
             net.send(json!({"t": "hello", "n": my_name}).to_string());
             hello_sent = true;
         }
+        prof.mark(prof::MISC);
         let mut inbox: Vec<Value> = net.poll().iter().filter_map(|s| serde_json::from_str(s).ok()).collect();
         inbox.append(&mut loopback);
 
@@ -747,6 +756,7 @@ async fn main() {
             }
         }
 
+        prof.mark(prof::NET);
         // ------------------------------------------------ Toque (celular)
         let (sw, sh) = (screen_width(), screen_height());
         let ch: u8 = match (&skater, &bandido) {
@@ -904,6 +914,9 @@ async fn main() {
             if is_key_pressed(KeyCode::H) {
                 show_help = !show_help;
             }
+            if is_key_pressed(KeyCode::F3) {
+                prof.toggle();
+            }
             if is_key_pressed(KeyCode::M) {
                 muted = !muted;
             }
@@ -1026,6 +1039,7 @@ async fn main() {
             player.sel = (player.sel + 1) % 9;
         }
 
+        prof.mark(prof::INPUT);
         let active = (grabbed || mobile) && typing.is_none() && !chars_open && !steve.inv_open;
         let key = |k: KeyCode| active && is_key_down(k);
         let btn = |i: usize| held.values().any(|b| *b == i);
@@ -1314,6 +1328,7 @@ async fn main() {
         }
         portals.sounds(&audio, eye, muted);
 
+        prof.mark(prof::PLAYER);
         // ------------------------------------------------ Simulação (host) / interpolação (demais)
         let evento = relogio.evento();
         if evento && !was_event {
@@ -1433,6 +1448,7 @@ async fn main() {
             r.pos = if moved > 8.0 || portals.jumped(r.pos, r.target) { r.target } else { r.pos.lerp(r.target, (dt * 12.0).min(1.0)) };
         }
 
+        prof.mark(prof::NPC);
         // Fogos na abertura das urnas (ou quando pedem pra IA)
         ai_fireworks -= dt;
         ai_rage -= dt;
@@ -1543,7 +1559,9 @@ async fn main() {
             }
             None => sky,
         };
+        prof.mark(prof::MISC);
         lab_info.render(time, eye, npcs.guard());
+        prof.mark(prof::LAB_RT);
         clear_background(sky);
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
         let cam = Camera3D {
@@ -1674,7 +1692,9 @@ async fn main() {
         steve.draw_world(&mut opaque, time, eye, fw, ch == 0, player.sel, remotes.iter().map(|(id, r)| (*id, r.pos, r.yaw, r.ch)), &atlas.avg);
         fx.draw_opaque(&mut opaque);
         let body = matches!(ch, 0 | 5).then(|| (player.pos, fw.x.atan2(fw.z), remote_look(my_id), gta_walk, moving));
+        prof.mark(prof::ACTORS);
         portals.render(&mut opaque, &chunks, &atlas.tex, &cam, sky, body, mobile);
+        prof.mark(prof::PORTALS);
         opaque.flush(&atlas.tex);
         draw_mesh(&Mesh {
             vertices: vec![
@@ -1713,6 +1733,7 @@ async fn main() {
         lab_info.draw_dome(time, npcs.guard().flash.max(fx.dome_flash[0]), eye);
         shield::draw_hub(time, fx.dome_flash[1]);
 
+        prof.mark(prof::FLUSH);
         // ------------------------------------------------ Render 2D
         set_default_camera();
         if club_k > 0.01 {
@@ -1775,6 +1796,7 @@ async fn main() {
             }
         }
 
+        prof.mark(prof::LABELS);
         // HUD: placar
         let sw = screen_width();
         let sh = screen_height();
@@ -2010,6 +2032,8 @@ async fn main() {
             }
             text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-6 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
         }
+        prof.draw("");
+        prof.mark(prof::UI);
 
         next_frame().await;
     }

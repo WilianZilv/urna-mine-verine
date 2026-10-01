@@ -18,6 +18,25 @@ unsafe extern "C" {
     pub fn urna_query_name(ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_is_touch() -> i32;
     pub fn urna_open_url(ptr: *const u8, len: usize) -> i32;
+    pub fn urna_now() -> f64;
+    pub fn urna_prof(ptr: *const u8, len: usize);
+    pub fn urna_query(key: *const u8, key_len: usize, ptr: *mut u8, cap: usize) -> i32;
+    pub fn urna_store_get(key: *const u8, key_len: usize, ptr: *mut u8, cap: usize) -> i32;
+    pub fn urna_store_set(key: *const u8, key_len: usize, val: *const u8, val_len: usize);
+}
+
+/// Parâmetro da URL (?chave=valor).
+pub fn query(key: &str) -> Option<String> {
+    read_string(|p, c| unsafe { urna_query(key.as_ptr(), key.len(), p, c) })
+}
+
+/// localStorage do navegador.
+pub fn store_get(key: &str) -> Option<String> {
+    read_string(|p, c| unsafe { urna_store_get(key.as_ptr(), key.len(), p, c) })
+}
+
+pub fn store_set(key: &str, val: &str) {
+    unsafe { urna_store_set(key.as_ptr(), key.len(), val.as_ptr(), val.len()) }
 }
 
 /// Abre o link numa aba nova. false = popup bloqueado (o JS copia o link pro clipboard).

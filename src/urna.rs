@@ -144,7 +144,7 @@ const STAND: f32 = 8.4 + 3.3;
 fn wander_point() -> Vec3 {
     loop {
         let p = vec3(gen_range(40.0, 118.0), G as f32, gen_range(12.0, 116.0));
-        if p.distance(shield_center()) > SHIELD_R + 10.0 && !in_box(vec2(p.x, p.z), panel_box()) {
+        if p.distance(shield_center()) > SHIELD_R + 10.0 && p.distance(crate::lab::dome_center()) > crate::lab::DOME_R + 8.0 && !in_box(vec2(p.x, p.z), panel_box()) {
             return p;
         }
     }

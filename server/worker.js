@@ -3,6 +3,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { Economy } from "./economy.js";
 import { Brain } from "./brain.js";
+import { Lab } from "./lab.js";
 
 export default {
     async fetch(req, env) {
@@ -111,6 +112,7 @@ export class Room extends DurableObject {
         this.busy = false;
         this.brain = new Brain(env, ctx.storage);
         this.eco = new Economy(this, sanitize, SYSTEM);
+        this.lab = new Lab(this);
         // Obras da IA ("w" k:"ai") sobrevivem ao DO dormir: viram o comeco do log quando ele acorda.
         this.aiLog = [];
         this.aiSave = null;
@@ -120,7 +122,8 @@ export class Room extends DurableObject {
         });
     }
 
-    alarm() {
+    async alarm() {
+        await this.lab.alarm().catch(() => { });
         return this.eco.alarm();
     }
 
@@ -215,6 +218,7 @@ export class Room extends DurableObject {
             this.send(c, { t: "welcome", id, host: this.host, log: this.log, tv: this.tv, players });
             this.broadcast({ t: "join", id, n: c.name }, id);
             this.eco.join(c);
+            this.lab.join(c);
             return;
         }
         m.id = id;
@@ -230,7 +234,7 @@ export class Room extends DurableObject {
             case "chat":
                 m.m = String(m.m || "").slice(0, 200);
                 this.broadcast(m);
-                if (m.m.startsWith("/") && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
+                if (m.m.startsWith("/") && !this.lab.command(id, c, m.m.slice(1).trim()) && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
                 break;
             case "tv":
                 this.tv = String(m.u || "").slice(0, 500);

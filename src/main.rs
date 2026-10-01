@@ -11,6 +11,7 @@ mod economy;
 mod eleicao;
 mod extras;
 mod gta;
+mod lab;
 mod models;
 mod mp;
 mod npc;
@@ -367,6 +368,7 @@ async fn main() {
     let guests = actors::spawn_guests();
     let relogio = eleicao::Relogio::new();
     let lab = extras::Lab::new();
+    let mut lab_info = lab::LabInfo::new();
     let mut club_k = 0.0f32;
     // Celular
     #[cfg(target_arch = "wasm32")]
@@ -694,6 +696,7 @@ async fn main() {
                     npcs.apply(&m["n"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
+                "lab" => lab_info.on_msg(&m),
                 _ => {}
             }
         }
@@ -1146,7 +1149,7 @@ async fn main() {
                         if !recent_hits.iter().any(|h| (h.0, h.1) == (g, i)) {
                             recent_hits.push((g, i, time));
                         }
-                        let metal = matches!(g, npc::ROBOT | npc::URNA | npc::EU);
+                        let metal = matches!(g, npc::ROBOT | npc::URNA | npc::EU | npc::GUARD);
                         for _ in 0..if metal { 5 } else { 8 } {
                             let col = if metal { Color::new(1.0, 0.85, 0.4, 1.0) } else { Color::new(gen_range(0.5, 0.75), 0.02, 0.02, 1.0) };
                             fx.particles.push(urna::Particle { pos: at, vel: dir * gen_range(1.0, 4.0) + vec3(gen_range(-1.5, 1.5), gen_range(0.5, 3.0), gen_range(-1.5, 1.5)), col, life: gen_range(0.3, 0.7), size: gen_range(0.05, 0.12), gravity: !metal });
@@ -1177,6 +1180,7 @@ async fn main() {
                     let reward = match g {
                         npc::URNA => 5000,
                         npc::EU => 2000,
+                        npc::GUARD => 1000,
                         npc::FIGHTER => 500,
                         _ => 100,
                     };
@@ -1257,6 +1261,7 @@ async fn main() {
                     events.push(Ev::Banner("A URNA VOLTOU. 2o TURNO!".into()));
                 }
                 npc::EU => events.push(Ev::Banner("RECOMPILEI. VOLTEI.".into())),
+                npc::GUARD => events.push(Ev::Banner("SINAPSE-9 REINICIOU. O LAB SEGUE LENDO.".into())),
                 _ => {}
             }
         }
@@ -1546,6 +1551,7 @@ async fn main() {
         extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()), eu_dead);
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
+        lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
         eco.draw_world(&mut opaque, &mut labels, eye, time);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
@@ -1582,6 +1588,7 @@ async fn main() {
         let shimmer = 0.03 * (time * 2.0).sin();
         draw_sphere(sc, SHIELD_R, None, Color::new(0.45, 0.75 + 0.2 * sf, 1.0, 0.09 + shimmer + 0.25 * sf));
         draw_sphere_wires(sc, SHIELD_R + 0.05, None, Color::new(0.6, 0.9, 1.0, 0.12 + 0.4 * sf));
+        lab::draw_dome(time, npcs.guard().flash);
 
         // ------------------------------------------------ Render 2D
         set_default_camera();
@@ -1623,7 +1630,7 @@ async fn main() {
         }
         // Barras de chefão: urna (e eu, se apanhar)
         let mut boss_y = 70.0;
-        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false)] {
+        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false)] {
             if !(near || d.hp < d.max) {
                 continue;
             }
@@ -1902,6 +1909,10 @@ fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::G
     if npcs.eu().alive() {
         t.push((extras::eu_base(time), 4.0, 0, npc::EU));
     }
+    if npcs.guard().alive() {
+        let (c, r) = lab::guard_target(time);
+        t.push((c, r, 0, npc::GUARD));
+    }
     t
 }
 
@@ -1925,6 +1936,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::GUEST => ("FOI DE BASE!", RED),
         npc::ROBOT => ("CURTO-CIRCUITO!", YELLOW),
         npc::URNA => ("URNA DESTRUIDA!!!", ORANGE),
+        npc::GUARD => ("SINAPSE-9 DESLIGOU!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
     events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });

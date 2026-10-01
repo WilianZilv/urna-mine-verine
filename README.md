@@ -164,6 +164,20 @@ hotbar escolhe bloco. Entra em tela cheia no primeiro toque.
 Prédio de vidro onde 5 **robôs cientistas** circulam entre estações estudando um **cérebro
 humano holográfico** girando (neurônios disparando), com painéis de hologramas e leituras.
 
+**Pesquisa de verdade (honesta):** o servidor (`server/lab.js`) busca artigos **reais já publicados**
+no [Europe PMC](https://europepmc.org) (API pública, sem chave) — cérebro primeiro, depois outros
+sistemas do corpo — e a IA só **resume o abstract** em pt-BR (título, achado em 1-2 linhas, revista,
+ano, link DOI). Não faz experimento, não inventa resultado; sem IA disponível mostra só título +
+revista. Guarda os últimos 50 achados. Ciclo a cada 30 min com fundo, 2 h sem fundo (máx. 40/dia).
+- `/lab` último achado · `/pesquisa tema` põe tema na fila (30 moedas) · `/doarlab n` doa pro fundo.
+- O **fundo do lab é moeda fictícia** do jogo: cada tema pesquisado gasta 25 do fundo (aparece no
+  ledger). Nenhum dinheiro real passa pelo jogo. Quem quiser ajudar pesquisa de verdade: doe direto
+  pra [Brain & Behavior Research Foundation](https://bbrfoundation.org/donate) ou
+  [Instituto D'Or](https://www.idor.org/).
+- **Painel holográfico** gigante na entrada (oeste) com estatísticas, os 3 últimos achados e os links.
+- **Dra. Sinapse-9**, androide cientista guardiã: mantém uma **cúpula de energia** sobre o lab (a
+  urna não entra). Dá pra derrubar (400 HP, volta em 45 s); a cúpula continua.
+
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).
 

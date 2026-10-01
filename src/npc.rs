@@ -12,6 +12,7 @@ pub const GUEST: u8 = 2;
 pub const ROBOT: u8 = 3;
 pub const URNA: u8 = 4;
 pub const EU: u8 = 5;
+pub const GUARD: u8 = 6;
 
 #[derive(Clone, Copy)]
 pub struct Vida {
@@ -57,7 +58,7 @@ impl Vida {
 }
 
 pub struct Npcs {
-    pub groups: [Vec<Vida>; 6],
+    pub groups: [Vec<Vida>; 7],
 }
 
 pub struct Death {
@@ -75,6 +76,7 @@ impl Npcs {
                 vec![Vida::new(70.0, 20.0); robots],
                 vec![Vida::new(1200.0, 45.0)],
                 vec![Vida::new(500.0, 40.0)],
+                vec![Vida::new(400.0, 45.0)],
             ],
         }
     }
@@ -93,6 +95,10 @@ impl Npcs {
 
     pub fn eu(&self) -> &Vida {
         &self.groups[EU as usize][0]
+    }
+
+    pub fn guard(&self) -> &Vida {
+        &self.groups[GUARD as usize][0]
     }
 
     /// Host: aplica dano. Some(true) = morreu agora.

@@ -79,8 +79,7 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
 - ${SITE}/sdk/urna-hub.mjs — Node helper CLI: prepare/publish/unpublish a portal
 - ${SITE}/api/passport?token=<session token> — player passport for games: avatar package, fictional wallet, items
 - ${SITE}/api/mods and ${SITE}/api/portals — public lists of mods and live portals (JSON)
-- ${SITE}/universe.txt — avatar/presence/items across games (if it returns 404, it is not published yet: use /modding.txt + /hub.txt)
-`;
+- ${SITE}/universe.txt — avatar/presence/items across games`;
 }
 
 /// GET /skill.md, /SKILL.md, /skill, /llms.txt, /AGENTS.md. null = nao e rota da skill.

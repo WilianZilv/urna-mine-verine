@@ -1,5 +1,5 @@
 // "Jogo externo" de demonstracao do Game Hub, numa origem separada (urna-hub-demo.*.workers.dev):
-// serve a Chuva de Votos e o /.well-known/urna-portal.json que prova dono da origem.
+// serve a Ilha do Por do Sol e o /.well-known/urna-portal.json que prova dono da origem.
 // Deploy: npx wrangler deploy -c server/hub-demo/wrangler.toml --var CHALLENGE:upp-...
 import page from "../../web/hub/demo.html";
 import plain from "../../web/hub/plain.html";

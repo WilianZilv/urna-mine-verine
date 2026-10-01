@@ -17,6 +17,7 @@ mod inventory;
 mod items;
 mod lab;
 mod layout;
+mod mario;
 mod models;
 mod mods;
 mod mp;
@@ -235,6 +236,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
         2 => ["PULA", "ATIRA", "ARMA", "CARRO"],
         3 => ["FREIO", "-", "-", "SAIR"],
         5 => ["PULA", "AZUL", "LARANJA", "CUBO"],
+        6 => ["PULA", "SOCO", "AGACHA", "-"],
         _ => ["PULA", "BATE", "POE", "VOA"],
     };
     [
@@ -249,12 +251,13 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     ]
 }
 
-const CHARS: [(&str, &str); 5] = [
+const CHARS: [(&str, &str); 6] = [
     ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT"),
     ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano"),
     ("SKATISTA", "SKATE 3: flick-it, grind, manual"),
     ("BANDIDO", "GTA 3: arsenal completo + carro"),
     ("ARMA DE PORTAL", "portais azul/laranja + cubo"),
+    ("ENCANADOR", "pulo triplo, mortal, sentada"),
 ];
 
 fn char_cards(sw: f32, sh: f32) -> [Rect; CHARS.len()] {
@@ -466,6 +469,7 @@ async fn main() {
     let mut voador = voador::Voador::new();
     let mut kaiju = kaiju::Kaiju::new(audio.rate);
     let mut zeppelin = zeppelin::Zeppelin::new(audio.rate);
+    let mut mario = mario::Mario::new(audio.rate);
     let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
     let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
@@ -786,6 +790,7 @@ async fn main() {
                     npcs.apply(&m["n"]);
                     mods.apply(&m["md"]);
                     kaiju.apply(&m["kj"]);
+                    mario.apply(&m["mr"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
@@ -804,6 +809,7 @@ async fn main() {
             (_, Some(b)) => 2 + b.driving as u8,
             _ if niko.is_some() => 4,
             _ if portals.active => 5,
+            _ if mario.me.is_some() => 6,
             _ => 0,
         };
         let mut buttons = touch_buttons(sw, sh, ch);
@@ -813,6 +819,7 @@ async fn main() {
         let (mut tap_hit, mut tap_place) = (false, false);
         let (mut pick_char, mut car_toggle, mut sk_ollie, mut cycle_weapon): (Option<usize>, bool, bool, i32) = (None, false, false, 0);
         let mut niko_dive = false;
+        let mut m_tap = [false; 3];
         let ts = touches();
         if !ts.is_empty() && !mobile {
             mobile = true;
@@ -857,6 +864,7 @@ async fn main() {
                         match (b, ch) {
                             (0, 1) => sk_ollie = true,
                             (1..=3, 5) => portals.tap(b),
+                            (0..=2, 6) => m_tap[b] = true,
                             (1, 0) => tap_hit = true,
                             (2, 0) => tap_place = true,
                             (2, 2) => cycle_weapon = 1,
@@ -1052,6 +1060,7 @@ async fn main() {
                 player.pos = car.pos + vec3(0.0, 2.0, 0.0);
             }
             niko = None;
+            mario.me = None;
             portals.active = c == 5;
             player.vel = Vec3::ZERO;
             player.fly = false;
@@ -1061,6 +1070,7 @@ async fn main() {
                 3 => bandido = Some(gta::Bandido::new(fw.x.atan2(fw.z))),
                 4 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
                 5 => {}
+                6 => mario.me = Some(mario::Body::new(player.pos, fw.x.atan2(fw.z))),
                 _ => steve.set_mode(c == 1, &mut player),
             }
             banner = Some((format!("PERSONAGEM: {}", CHARS[m].0), 2.0));
@@ -1143,6 +1153,29 @@ async fn main() {
             }
             player.pos = car.pos;
             player.knock = Vec3::ZERO;
+        } else if mario.me.is_some() {
+            let f = vec3(player.yaw.cos(), 0.0, player.yaw.sin());
+            let r = vec3(-f.z, 0.0, f.x);
+            let keys = f * (key(KeyCode::W) as i32 - key(KeyCode::S) as i32) as f32 + r * (key(KeyCode::D) as i32 - key(KeyCode::A) as i32) as f32;
+            let stick = if active { player.stick } else { Vec2::ZERO };
+            let inp = mario::Intent {
+                mv: if stick.length() > 0.1 { f * stick.y + r * stick.x } else { keys.normalize_or_zero() },
+                jump: m_tap[0] || (active && is_key_pressed(KeyCode::Space)),
+                hold: key(KeyCode::Space) || btn(0),
+                crouch: key(KeyCode::LeftShift) || btn(2),
+                punch: m_tap[1] || (active && is_key_pressed(KeyCode::E)),
+            };
+            let mut tg = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
+            tg.extend(mario.target(&npcs));
+            let before = player.pos;
+            for v in mario.play(&world, dt, &inp, std::mem::take(&mut player.knock), &tg) {
+                send(v, &mut loopback);
+            }
+            player.pos = mario.me.as_ref().map_or(player.pos, |b| b.pos);
+            player.vel = Vec3::ZERO;
+            let d = vec2(player.pos.x - before.x, player.pos.z - before.z).length();
+            moving = d > 0.001;
+            gta_walk += d * 3.0;
         } else if niko.as_ref().is_none_or(|n| n.controlled()) {
             player.can_fly = bandido.is_none() && niko.is_none() && steve.creative && !portals.active;
             let (before, vy) = (player.pos, player.vel.y);
@@ -1254,7 +1287,7 @@ async fn main() {
             };
             cam_smooth = Some(e);
             (e, look.map(|l| (l - e).normalize()).unwrap_or(player.forward()))
-        } else if niko.is_some() {
+        } else if niko.is_some() || mario.me.is_some() {
             let fw = player.forward();
             let right = vec3(-fw.z, 0.0, fw.x).normalize_or_zero();
             let head = player.pos + up * 1.7;
@@ -1267,7 +1300,8 @@ async fn main() {
         let pick = if ch == 0 { world.raycast(eye, fw, 6.0) } else { None };
         hub.look(eye, fw);
 
-        let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
+        let mut targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
+        targets.extend(mario.target(&npcs));
         if let Some(b) = bandido.as_mut() {
             let mut outs = Vec::new();
             if b.driving {
@@ -1446,6 +1480,7 @@ async fn main() {
         if is_host {
             actors::update_villagers(&mut villagers, &world, dt, time, |i| !npcs.alive(npc::VILLAGER, i));
             actors::update_fighters(&mut fighters, &world, dt, time, &mut events);
+            mario.think(&world, dt, time, &mut fighters, &mut npcs, &mut events);
             if (evento || ai_rage > 0.0) && !urna.charging {
                 urna.timer = urna.timer.min(0.35);
             }
@@ -1517,6 +1552,10 @@ async fn main() {
             play_at(&audio, &c, p, eye, v, muted, in_club);
         }
         zeppelin.tick(&world, &audio, dt, time, npcs.zeppelin(), eye, muted, in_club, &mut fx);
+        mario.animate(&world, dt, is_host, &mut fx);
+        for (c, p, v) in mario.sfx.drain(..) {
+            play_at(&audio, &c, p, eye, v, muted, in_club);
+        }
         for r in remotes.values_mut() {
             let moved = r.pos.distance(r.target);
             r.walk += moved * 3.0;
@@ -1590,6 +1629,7 @@ async fn main() {
             let yaw = match (&skater, &bandido) {
                 (Some(s), _) => s.heading,
                 (_, Some(b)) if b.driving => car.yaw,
+                _ if mario.me.is_some() => mario.me.as_ref().map_or(0.0, |b| b.yaw),
                 _ => fw.x.atan2(fw.z),
             };
             let mut pm = json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch});
@@ -1601,6 +1641,7 @@ async fn main() {
                 s["n"] = npcs.snapshot();
                 s["md"] = mods.snapshot();
                 s["kj"] = kaiju.snapshot();
+                s["mr"] = mario.snapshot();
                 net.send(s.to_string());
                 ev_out.clear();
             }
@@ -1760,6 +1801,7 @@ async fn main() {
                 1 => skate::Skater::new(r.pos, r.yaw).draw(&mut opaque, r.look.shirt, time),
                 3 => gta::draw_car(&mut opaque, r.pos, r.yaw, 0.0, r.walk, true),
                 2 => gta::draw_remote(&mut opaque, r.pos, r.yaw, r.walk, moving),
+                6 => mario::draw_remote(&mut opaque, &mut trans, r.pos, r.yaw, r.walk, moving, r.vy, time),
                 0 | 5 if r.av.as_deref().is_some_and(|a| uni.draw(&mut opaque, a, r.pos, r.yaw, if moving { r.spd } else { 0.0 }, r.vy.abs() > 1.5, time)) => {}
                 _ => {
                     let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
@@ -1793,6 +1835,7 @@ async fn main() {
         voador.draw(&mut opaque, &mut trans, &world, time, dt, &mut labels, npcs.voador());
         kaiju.draw(&mut opaque, &mut trans, &world, &mut labels, time, npcs.kaiju());
         zeppelin.draw(&mut opaque, &mut trans, &world, &mut labels, time, eye, npcs.zeppelin());
+        mario.draw(&mut opaque, &mut trans, &mut labels, time, npcs.get(npc::MARIO, 0));
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
@@ -2217,6 +2260,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::MODS => ("MOD ABATIDO!", ORANGE),
         npc::KAIJU => ("GODZILHA ABATIDO!!!", ORANGE),
         npc::ZEPPELIN => ("ZEPELIM ABATIDO!!!", ORANGE),
+        npc::MARIO => ("ENCANADOR ABATIDO!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
     events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });

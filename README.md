@@ -92,6 +92,7 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | 4 | Bandido (estilo GTA 3) | terceira pessoa, 12 armas (punho, taco, pistola, uzi, escopeta, AK-47, M16, sniper com zoom, lança-foguete, lança-chamas, granada, molotov); sedã da 1ª missão perto da torre (`F` entra/sai, `Espaço` freio de mão, atropela) |
 | 5 | Niko (estilo GTA 4) | ragdoll físico ativo próprio: explosão/queda/`G` faz cambalear com passos de equilíbrio e braços em moinho, cair protegendo com as mãos e levantar sozinho |
 | 6 | Arma de portal (inspirada em Portal) | primeira pessoa, não quebra bloco; `Esq` portal azul, `Dir` laranja (celular: `AZUL`/`LARANJA`); só em face plana 1x2 (parede, chão, teto), o novo substitui o antigo da mesma cor; cada portal mostra a vista do par; jogador, cubos, partículas e villagers arremessados atravessam com momento preservado; `Q` cria cubo companheiro, `E` (`CUBO`) pega/solta |
+| 7 | Encanador (paródia SM64) | `Espaço` pulo simples/duplo/triplo, `Shift` agacha → long jump/mortal pra trás, `E` soco-soco-chute (correndo = mergulho), `Shift` no ar = sentada com onda de choque; o MARIO (NPC, `src/mario.rs`) cai do céu num cano aos ~6s e briga com os candidatos (renasce em 45s) |
 
 **Portais (`src/portal.rs`):** cada jogador tem seu par (os meus azul/laranja, os dos outros em outras
 cores) e todo portal do mapa funciona pra qualquer um. A vista é renderizada de uma câmera virtual

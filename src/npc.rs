@@ -18,6 +18,7 @@ pub const VOADOR: u8 = 7;
 pub const MODS: u8 = 8;
 pub const KAIJU: u8 = 9;
 pub const ZEPPELIN: u8 = 10;
+pub const MARIO: u8 = 11;
 
 #[derive(Clone, Copy)]
 pub struct Vida {
@@ -69,7 +70,7 @@ impl Vida {
 }
 
 pub struct Npcs {
-    pub groups: [Vec<Vida>; 11],
+    pub groups: [Vec<Vida>; 12],
 }
 
 pub struct Death {
@@ -92,6 +93,7 @@ impl Npcs {
                 Vec::new(),
                 vec![Vida::new(1500.0, 90.0)],
                 vec![Vida::new(3000.0, 180.0)],
+                vec![Vida::new(260.0, 45.0)],
             ],
         }
     }

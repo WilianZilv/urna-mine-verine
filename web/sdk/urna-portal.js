@@ -13,6 +13,12 @@
  * Nunca lança erro e nunca trava o jogo: fora do iframe do Urna resolve null na hora; dentro de outro
  * iframe (itch.io etc.) resolve null depois do timeout. event()/exit() sem sessão não fazem nada.
  * Engines (Godot/Unity): leia UrnaPortal.state ("connecting"|"connected"|"standalone") e UrnaPortal.playerJson().
+ *
+ * Universo (doc: /universe.txt): s.avatar = pacote do avatar (skin) do jogador ou null; UrnaPortal.avatar();
+ *   await UrnaPortal.passport()                 // {player, avatar, wallet, inventory, limits}
+ *   const pr = UrnaPortal.presence; await pr.join(); pr.on("player", p => ...); pr.on("leave", p => ...); pr.update({x, y, anim});
+ *   await UrnaPortal.grant({ coins: 5, reason: "fase 1", key: "fase1-" + runId })   // pedido; o servidor limita
+ *   await UrnaPortal.spend({ coins: 10, reason: "vida extra", key: "vida-" + n })   // jogador confirma na tela do Urna
  */
 (function (root) {
     "use strict";
@@ -53,10 +59,16 @@
                 function onMsg(e) {
                     if (e.source !== window.parent || e.origin !== host) return;
                     const m = e.data;
-                    if (!m || m.type !== "upp:session" || m.v !== 1 || (portalId && m.portalId !== portalId)) return;
-                    session = { portalId: m.portalId, token: m.token, player: m.player || {}, returnUrl: m.returnUrl, verifyUrl: m.verifyUrl };
+                    if (!m || m.type !== "upp:session" || m.v !== 1 || (portalId && m.portalId !== portalId) || session) return;
+                    session = { portalId: m.portalId, token: m.token, player: m.player || {}, returnUrl: m.returnUrl, verifyUrl: m.verifyUrl, avatar: null };
                     send({ type: "upp:ready", v: 1 });
-                    done(session);
+                    clearInterval(timer);
+                    const s = session;
+                    if (!s.player.avatar || opts.passport === false) return done(s);
+                    let fin = false;
+                    const end = () => { if (!fin) { fin = true; done(s); } };
+                    setTimeout(end, 4000);
+                    UrnaPortal.passport().then((p) => { if (p && p.ok) { s.avatar = p.avatar || null; s.passport = p; } end(); });
                 }
                 window.addEventListener("message", onMsg);
                 const hello = () => {
@@ -91,7 +103,110 @@
             const r = await fetch(`${host}/api/portals/verify?token=${encodeURIComponent(token || (session && session.token) || "")}`);
             return r.json();
         },
+
+        /** Pacote JSON do avatar (mod kind "avatar") do jogador, ou null. Render: /sdk/urna-avatar-three.js | urna-avatar-canvas2d.js */
+        avatar() { return (session && session.avatar) || null; },
+
+        /** Passaporte fresco: {ok, player, avatar, avatar_ref, wallet:{coins}, inventory:[...], limits}. Sem sessao: null. */
+        async passport() {
+            if (!session) return null;
+            try { return await (await fetch(`${host}/api/passport?token=${encodeURIComponent(session.token)}`)).json(); } catch (e) { return null; }
+        },
+
+        /** PEDIDO de premio: {coins:N} ou {item:"id", n}, + reason e key (mesma key = mesmo pedido, nunca paga 2x).
+         *  O servidor decide (orcamento/dia por jogo, allowlist de itens). Resolve {ok, granted, ...} ou {ok:false, error}. */
+        async grant(req = {}) {
+            if (!session) return { ok: false, error: "no_session" };
+            const body = { token: session.token, reason: req.reason, key: req.key || `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` };
+            if (req.coins !== undefined) body.coins = req.coins; else { body.item = req.item; body.n = req.n; }
+            try {
+                const r = await fetch(`${host}/api/universe/grant`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+                return await r.json();
+            } catch (e) { return { ok: false, error: "network" }; }
+        },
+
+        /** Gasta moedas/itens do jogador: o Urna mostra um dialogo de confirmacao NA PAGINA DELE (o jogo nao consegue pular).
+         *  {coins:N} ou {item:"id", n}, + reason e key. Resolve {ok, spent, ...} ou {ok:false, error:"declined"|"timeout"|...}. */
+        spend(req = {}) {
+            if (!session) return Promise.resolve({ ok: false, error: "no_session" });
+            const rid = Math.random().toString(36).slice(2, 12);
+            const r = { reason: String(req.reason || "").slice(0, 80), key: req.key || `s-${Date.now().toString(36)}-${rid}` };
+            if (req.coins !== undefined) r.coins = Number(req.coins); else { r.item = String(req.item || ""); r.n = Number(req.n || 1); }
+            return new Promise((resolve) => {
+                const t = setTimeout(() => { spends.delete(rid); resolve({ ok: false, error: "timeout" }); }, 120000);
+                spends.set(rid, (res) => { clearTimeout(t); resolve(res); });
+                send({ type: "upp:spend", v: 1, rid, req: r });
+            });
+        },
+
+        presence: null,
     };
+
+    // ---------------------------------------------------------------- spend: resposta do overlay do Urna
+    const spends = new Map();
+    if (embedded) window.addEventListener("message", (e) => {
+        const m = e.data;
+        if (e.source !== window.parent || e.origin !== host || !m || m.type !== "upp:spend_result") return;
+        const cb = spends.get(m.rid);
+        if (cb) { spends.delete(m.rid); cb(m.result || { ok: false, error: "bad_result" }); }
+    });
+
+    // ---------------------------------------------------------------- presenca: quem do Urna ta no mesmo jogo
+    // Servidor so repassa: <= 12 msgs/s, estado <= 512 bytes, <= 32 jogadores. Aqui: update() manda no maximo ~10 Hz.
+    UrnaPortal.presence = (() => {
+        const subs = { player: [], join: [], leave: [], welcome: [], close: [] };
+        const players = new Map();
+        let ws = null, want = null, last = 0, flushT = null, joined = null, wanted = false;
+        const emit = (k, v) => (subs[k] || []).forEach((f) => { try { f(v); } catch (e) { } });
+        function flush() {
+            flushT = null;
+            if (!want || !ws || ws.readyState !== 1) return;
+            const s = JSON.stringify({ t: "u", s: want });
+            want = null;
+            last = Date.now();
+            if (s.length <= 560) ws.send(s);
+        }
+        function open(resolve) {
+            const url = `${host.replace(/^http/, "ws")}/api/portals/${encodeURIComponent(session.portalId)}/presence?token=${encodeURIComponent(session.token)}`;
+            try { ws = new WebSocket(url); } catch (e) { return resolve(null); }
+            ws.onmessage = (e) => {
+                let m;
+                try { m = JSON.parse(e.data); } catch (x) { return; }
+                if (m.t === "welcome") {
+                    players.clear();
+                    for (const p of m.players || []) { players.set(p.sid, p); emit("player", p); }
+                    emit("welcome", m);
+                    resolve(m);
+                } else if (m.t === "join") { players.set(m.player.sid, m.player); emit("join", m.player); emit("player", m.player); }
+                else if (m.t === "u") { const p = players.get(m.sid); if (p) { p.s = m.s; emit("player", p); } }
+                else if (m.t === "leave") { const p = players.get(m.sid); players.delete(m.sid); if (p) emit("leave", p); }
+            };
+            ws.onclose = () => {
+                for (const p of players.values()) emit("leave", p);
+                players.clear();
+                emit("close", null);
+                resolve(null);
+                if (wanted) setTimeout(() => { if (wanted && session) joined = new Promise(open); }, 2000);
+            };
+        }
+        return {
+            players,
+            /** Entra na sala de presenca desse portal. Resolve {you, players} ou null (sem sessao/erro). */
+            join() {
+                if (!session) return Promise.resolve(null);
+                wanted = true;
+                return joined || (joined = new Promise(open));
+            },
+            /** Estado livre ate 16 chaves (numero/bool/texto<=32/[<=4 numeros]), ex {x, y, z, anim:"run", dir:1}. */
+            update(s) {
+                want = { ...(want || {}), ...s };
+                if (!flushT) flushT = setTimeout(flush, Math.max(0, 100 - (Date.now() - last)));
+            },
+            /** "player" (entrou/atualizou), "join", "leave", "welcome", "close". */
+            on(k, f) { (subs[k] ||= []).push(f); return () => (subs[k] = subs[k].filter((x) => x !== f)); },
+            leave() { wanted = false; joined = null; if (ws) ws.close(); },
+        };
+    })();
 
     root.UrnaPortal = UrnaPortal;
     if (typeof module === "object" && module.exports) module.exports = UrnaPortal;

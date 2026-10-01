@@ -33,6 +33,7 @@ mod steve;
 mod synth;
 #[cfg_attr(target_arch = "wasm32", path = "telao_web.rs")]
 mod telao;
+mod universe;
 mod urna;
 mod voador;
 mod kaiju;
@@ -98,6 +99,10 @@ struct Remote {
     look: Look,
     /// Personagem: 0 Steve, 1 skatista, 2 bandido, 3 bandido dirigindo.
     ch: u8,
+    /// Skin de mod ("id@versao", carimbada pelo servidor) e velocidade estimada pros quadros do avatar.
+    av: Option<String>,
+    spd: f32,
+    vy: f32,
 }
 
 /// Dentro do clube só se ouve o que está dentro do escudo.
@@ -420,6 +425,7 @@ async fn main() {
     let mut ai_sky: Option<(Color, f32)> = None;
     let mut eco = economy::Economy::new();
     let mut mods = mods::Mods::new(sr);
+    let mut uni = universe::Universe::new();
 
     // Rede
     let mut net = net::Net::connect(url.as_deref().unwrap_or(""));
@@ -527,7 +533,7 @@ async fn main() {
                     for p in m["players"].as_array().into_iter().flatten() {
                         let pid = p[0].as_u64().unwrap_or(0);
                         if pid != my_id {
-                            remotes.insert(pid, Remote { name: p[1].as_str().unwrap_or("?").into(), pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(pid), ch: 0 });
+                            remotes.insert(pid, Remote { name: p[1].as_str().unwrap_or("?").into(), pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(pid), ch: 0, av: None, spd: 0.0, vy: 0.0 });
                         }
                     }
                     world = mods::generate();
@@ -557,7 +563,7 @@ async fn main() {
                 "join" => {
                     let n = m["n"].as_str().unwrap_or("?").to_string();
                     chat.push((format!("* {n} entrou na vila"), get_time()));
-                    remotes.insert(id, Remote { name: n, pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(id), ch: 0 });
+                    remotes.insert(id, Remote { name: n, pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(id), ch: 0, av: None, spd: 0.0, vy: 0.0 });
                 }
                 "leave" => {
                     portals.remove_owner(id);
@@ -571,9 +577,12 @@ async fn main() {
                         if r.pos == Vec3::ZERO {
                             r.pos = p;
                         }
+                        let d = p - r.target;
+                        (r.spd, r.vy) = (vec2(d.x, d.z).length() / 0.15, d.y / 0.15);
                         r.target = p;
                         r.yaw = mp::f(&m["y"]);
                         r.ch = m["c"].as_u64().unwrap_or(0) as u8;
+                        r.av = m["av"].as_str().map(String::from);
                     }
                     portals.on_p(id, &m);
                     if let Some((dmg, dir)) = steve.on_p(id, &m, my_id) {
@@ -765,6 +774,7 @@ async fn main() {
                 "lab" => lab_info.on_msg(&m),
                 "mod" | "mods" => mods.on_msg(&m),
                 "hub" | "hub_s" => hub.on_msg(&m),
+                "uv_list" | "uv_me" | "uv_pkg" | "uv_bag" | "uv_ctok" => uni.on_msg(&m),
                 _ => {}
             }
         }
@@ -803,6 +813,11 @@ async fn main() {
             match t.phase {
                 TouchPhase::Started if chars_open && quality_button(sw, sh).contains(p) => banner = Some((quality.cycle(mobile), 2.0)),
                 TouchPhase::Started if chars_open => {
+                    if let Some(b) = uni.click(p, sw, sh) {
+                        banner = Some((b, 2.0));
+                        chars_open = false;
+                        continue;
+                    }
                     pick_char = char_cards(sw, sh).iter().position(|r| r.contains(p));
                     if pick_char.is_none() {
                         chars_open = false;
@@ -911,6 +926,9 @@ async fn main() {
         if chars_open && is_mouse_button_pressed(MouseButton::Left) {
             if quality_button(sw, sh).contains(mouse) {
                 banner = Some((quality.cycle(mobile), 2.0));
+            } else if let Some(b) = uni.click(mouse, sw, sh) {
+                banner = Some((b, 2.0));
+                chars_open = false;
             } else {
                 pick_char = char_cards(sw, sh).iter().position(|r| r.contains(mouse));
             }
@@ -1398,6 +1416,11 @@ async fn main() {
         for v in mods.outbox.drain(..) {
             send(v, &mut loopback);
         }
+        for v in uni.outbox.drain(..) {
+            if online {
+                send(v, &mut loopback);
+            }
+        }
         if urna.dead && npcs.urna().alive() && !is_host {
             urna.pos.y += 30.0;
         }
@@ -1686,6 +1709,7 @@ async fn main() {
                 1 => skate::Skater::new(r.pos, r.yaw).draw(&mut opaque, r.look.shirt, time),
                 3 => gta::draw_car(&mut opaque, r.pos, r.yaw, 0.0, r.walk, true),
                 2 => gta::draw_remote(&mut opaque, r.pos, r.yaw, r.walk, moving),
+                0 | 5 if r.av.as_deref().is_some_and(|a| uni.draw(&mut opaque, a, r.pos, r.yaw, if moving { r.spd } else { 0.0 }, r.vy.abs() > 1.5, time)) => {}
                 _ => {
                     let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
                     let look = if r.ch == 4 { &niko_look } else { &r.look };
@@ -2055,6 +2079,9 @@ async fn main() {
         }
         if ch == 0 {
             steve.draw_overlay(&atlas, player.sel, sw, sh, mobile);
+            if steve.inv_open {
+                uni.draw_bag(sw, |s, x, y, z, c| text_centered(s, x, y, z, c, false));
+            }
         }
         if typing.is_none() && !chars_open && !steve.inv_open {
             hub.draw_prompt(sw, sh, mobile);
@@ -2062,6 +2089,7 @@ async fn main() {
         if chars_open {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
             text_centered("ESCOLHE O PERSONAGEM", sw * 0.5, sh * 0.5 - (sh * 0.36).min(200.0) * 0.5 - 24.0, 34.0, WHITE, true);
+            uni.draw_wardrobe(sw, sh, |s, x, y, z, c| text_centered(s, x, y, z, c, true));
             for (i, r) in char_cards(sw, sh).iter().enumerate() {
                 let sel = i == [steve.creative as usize, 2, 3, 3, 4, 5][ch as usize];
                 draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.1, 0.1, 0.15, 0.9));

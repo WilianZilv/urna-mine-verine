@@ -63,6 +63,24 @@ struct Portal {
     c: Color,
 }
 
+/// Chegada de alguém (broadcast {t:"pl",k:"term",arr:{d,n}}): feixe ~2 s, rótulo 3 s.
+struct Arrival {
+    i: usize,
+    name: String,
+    age: f32,
+}
+
+const FX_MAX: usize = 8;
+const BEAM_T: f32 = 2.0;
+const LABEL_T: f32 = 3.0;
+const WARP_T: f32 = 1.2;
+const BEAM_CYAN: Color = Color::new(0.3, 1.0, 1.0, 1.0);
+const BEAM_MAG: Color = Color::new(1.0, 0.3, 1.0, 1.0);
+
+fn alpha(c: Color, a: f32) -> Color {
+    Color::new(c.r, c.g, c.b, a)
+}
+
 pub struct Terminal {
     screen: Screen,
     trips: [i64; 8],
@@ -71,11 +89,83 @@ pub struct Terminal {
     portals: Vec<Portal>,
     go: Option<usize>,
     cool: f32,
+    arrivals: Vec<Arrival>,
+    /// Redemoinho de partida: (onde, idade).
+    warps: Vec<(Vec3, f32)>,
+    /// Carimbos do passaporte: destinos visitados nesta sessão.
+    stamps: [bool; 8],
 }
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0 }
+        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8] }
+    }
+
+    fn warp(&mut self, at: Vec3) {
+        if self.warps.len() >= FX_MAX {
+            self.warps.remove(0);
+        }
+        self.warps.push((at, 0.0));
+    }
+
+    fn arrival(&mut self, i: usize, name: &str) {
+        if self.arrivals.len() >= FX_MAX {
+            self.arrivals.remove(0);
+        }
+        let name: String = name.to_uppercase().chars().take(20).collect();
+        self.arrivals.push(Arrival { i, name: if name.is_empty() { "ALGUEM".into() } else { name }, age: 0.0 });
+        self.warp(gate(i));
+    }
+
+    fn travel(&mut self, p: &mut Player, i: usize) {
+        arrive(p, i);
+        self.stamps[i] = true;
+        self.cool = 2.0;
+    }
+
+    fn draw_fx(&self, trans: &mut Batch, labels: &mut Vec<Label>, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let parts = crate::quality::pick([6, 12, 20]);
+        for a in &self.arrivals {
+            let d = &DESTS[a.i];
+            let p = vec3(d.p.0, G as f32, d.p.1);
+            let dist = eye.distance(p);
+            let t = a.age;
+            if t < BEAM_T && dist < 180.0 {
+                let f = (1.0 - t / BEAM_T) * (t / 0.15).min(1.0);
+                let h = 40.0;
+                trans.glow(&id, p + vec3(0.0, h * 0.5, 0.0), vec3(1.6, h, 1.6), alpha(BEAM_CYAN, 0.3 * f));
+                trans.glow(&id, p + vec3(0.0, h * 0.5, 0.0), vec3(0.5, h, 0.5), alpha(BEAM_MAG, 0.75 * f));
+                let r = 1.0 + t * 3.0;
+                trans.glow(&id, p + vec3(0.0, 0.05, 0.0), vec3(r * 2.0, 0.05, r * 2.0), alpha(BEAM_CYAN, 0.25 * f));
+                for j in 0..parts {
+                    let ang = j as f32 / parts as f32 * std::f32::consts::TAU + t * 3.0;
+                    let rad = 0.8 + t * 2.5;
+                    let y = 0.3 + t * 5.0 + (j % 3) as f32 * 0.6;
+                    let c = if j % 2 == 0 { BEAM_CYAN } else { BEAM_MAG };
+                    trans.glow(&id, p + vec3(ang.cos() * rad, y, ang.sin() * rad), Vec3::splat(0.2), alpha(c, 0.9 * f));
+                }
+            }
+            if t < LABEL_T && dist < 40.0 {
+                let c = if (t * 4.0).fract() < 0.5 { BEAM_CYAN } else { BEAM_MAG };
+                labels.push(Label { pos: p + vec3(0.0, 3.4, 0.0), text: format!("{} CHEGOU DO TERMINAL", a.name), size: 20.0, color: c });
+            }
+        }
+        let n = crate::quality::pick([8, 14, 24]);
+        for &(w, t) in &self.warps {
+            if eye.distance(w) > 80.0 {
+                continue;
+            }
+            let f = 1.0 - t / WARP_T;
+            trans.glow(&id, w + vec3(0.0, 1.6, 0.0), vec3(0.4 + t, 3.2, 0.4 + t), alpha(BEAM_MAG, 0.35 * f));
+            for j in 0..n {
+                let k = j as f32 / n as f32;
+                let ang = k * std::f32::consts::TAU * 2.0 + t * 9.0;
+                let rad = (1.4 - k * 0.7) * (0.3 + f * 0.7);
+                let c = if j % 2 == 0 { BEAM_CYAN } else { BEAM_MAG };
+                trans.glow(&id, w + vec3(ang.cos() * rad, 0.2 + k * 3.0 + t * 1.5, ang.sin() * rad), Vec3::splat(0.15), alpha(c, 0.9 * f));
+            }
+        }
     }
 
     fn paint(&self, time: f32) {
@@ -126,7 +216,17 @@ impl Terminal {
             draw_text("nenhum jogo no ar agora", x1 + 30.0, 260.0, 44.0, SOFT);
             draw_text("plugue o teu: /hub.txt", x1 + 30.0, 320.0, 34.0, DIM);
         }
-        draw_text(&format!("embarque no portao GAME HUB ({:02})", HUB_GATE + 1), x1 + 30.0, 886.0, 38.0, GOLD);
+        let n = self.stamps.iter().filter(|&&s| s).count();
+        draw_text(&format!("TEU PASSAPORTE: {n}/8 CARIMBOS"), x1 + 30.0, 862.0, 36.0, if n == 8 { GOLD } else { CYAN });
+        for (i, d) in DESTS.iter().enumerate() {
+            let x = x1 + w1 - 40.0 - (8 - i) as f32 * 40.0;
+            if self.stamps[i] {
+                draw_rectangle(x, 834.0, 32.0, 32.0, d.col);
+            } else {
+                draw_rectangle_lines(x, 834.0, 32.0, 32.0, 3.0, DIM);
+            }
+        }
+        draw_text(&format!("embarque no portao GAME HUB ({:02})", HUB_GATE + 1), x1 + 30.0, 898.0, 30.0, GOLD);
 
         text_mid("/viajar destino (5 moedas)  -  ou anda no portao", TW * 0.5, 970.0, 52.0, GOLD);
         text_mid("/destinos lista tudo  -  moedas ficticias, passagem vai pro cofre da IA", TW * 0.5, 1008.0, 26.0, SOFT);
@@ -138,6 +238,12 @@ impl Place for Terminal {
     fn on_msg(&mut self, m: &Value) {
         if m["k"] == "go" {
             self.go = DESTS.iter().position(|d| m["d"] == d.id);
+            return;
+        }
+        if let Some(a) = m.get("arr") {
+            if let Some(i) = DESTS.iter().position(|d| a["d"] == d.id) {
+                self.arrival(i, a["n"].as_str().unwrap_or(""));
+            }
             return;
         }
         for (i, d) in DESTS.iter().enumerate() {
@@ -159,9 +265,17 @@ impl Place for Terminal {
 
     fn update(&mut self, p: &mut Player, dt: f32, _time: f32, online: bool, out: &mut Vec<Value>) {
         self.cool -= dt;
+        for a in &mut self.arrivals {
+            a.age += dt;
+        }
+        self.arrivals.retain(|a| a.age < LABEL_T);
+        for w in &mut self.warps {
+            w.1 += dt;
+        }
+        self.warps.retain(|w| w.1 < WARP_T);
         if let Some(i) = self.go.take() {
-            arrive(p, i);
-            self.cool = 2.0;
+            self.warp(p.pos);
+            self.travel(p, i);
             return;
         }
         if self.cool > 0.0 || p.pos.distance(CENTER) > 30.0 {
@@ -170,10 +284,11 @@ impl Place for Terminal {
         for i in 0..DESTS.len() {
             let r = p.pos - gate(i);
             if r.x.abs() < 1.1 && r.z > -0.35 && r.z < 1.0 && r.y > -0.5 && r.y < 3.5 {
-                arrive(p, i);
-                self.cool = 2.0;
+                self.travel(p, i);
                 if online {
                     out.push(json!({"t": "pl", "k": "term_trip", "d": DESTS[i].id}));
+                } else {
+                    self.arrival(i, "voce");
                 }
                 return;
             }
@@ -184,7 +299,7 @@ impl Place for Terminal {
         if eye.distance(BOARD.c) > 110.0 {
             return;
         }
-        let mut key = format!("{}|{}|{:?}", self.got, self.total, self.trips);
+        let mut key = format!("{}|{}|{:?}|{:?}", self.got, self.total, self.trips, self.stamps);
         for p in &self.portals {
             key += &format!("|{}:{}:{}", p.name, p.by, p.n);
         }
@@ -195,6 +310,7 @@ impl Place for Terminal {
     }
 
     fn draw(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        self.draw_fx(trans, labels, eye);
         if eye.distance(CENTER) > 130.0 {
             return;
         }

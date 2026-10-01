@@ -4,6 +4,7 @@
 //   /destinos         lista os ids
 //   {t:"pl",k:"term_trip",d}   cliente andou num portao (ja teleportou local): so conta, throttle por conexao
 //   snapshot {t:"pl",k:"term",trips:{id:n} (hoje),total (desde sempre)}: no join e no tick se mudou
+//   {t:"pl",k:"term",arr:{d,n}}   broadcast a cada viagem contada (feixe de chegada em todo cliente)
 import { norm } from "./places.js";
 
 const FARE = 5;
@@ -51,12 +52,13 @@ export class Terminal {
         return { t: "pl", k: "term", trips: { ...this.s.trips }, total: this.s.total };
     }
 
-    count(d) {
+    count(d, name) {
         this.roll();
         this.s.trips[d] = (this.s.trips[d] || 0) + 1;
         this.s.total++;
         this.dirty = true;
         this.pl.save("terminal", this.s);
+        this.pl.room.broadcast({ t: "pl", k: "term", arr: { d, n: String(name || "").slice(0, 20) } });
     }
 
     join(c) {
@@ -79,8 +81,8 @@ export class Terminal {
         eco.s.tr += FARE;
         eco.entry(c.name, `viajou pra ${d}`, FARE, "passagem do terminal vai pro cofre da IA");
         eco.sendMe(c.name);
-        this.count(d);
         this.pl.room.send(c, { t: "pl", k: "go", d });
+        this.count(d, c.name);
         this.pl.priv(c, "TERMINAL", `voo pra ${d} decolando. apertem os cintos, a turbulencia e interdimensional`);
         return true;
     }
@@ -90,7 +92,7 @@ export class Terminal {
         const now = Date.now();
         if (now - (this.last.get(id) || 0) < TRIP_MS) return;
         this.last.set(id, now);
-        this.count(m.d);
+        this.count(m.d, c.name);
     }
 
     tick(now, online) {

@@ -43,6 +43,8 @@ assert.deepEqual(ledger.pop(), ["ana", "viajou pra arena", 5, "passagem do termi
 const go = sent.filter((x) => x.m.k === "go");
 assert.deepEqual(go, [{ to: "ana", m: { t: "pl", k: "go", d: "arena" } }]);
 assert.equal(t.s.trips.arena, 1);
+// chegada vai pra todo mundo (feixe no destino)
+assert.deepEqual(bc.splice(0), [{ t: "pl", k: "term", arr: { d: "arena", n: "ana" } }]);
 
 // destino desconhecido: nada cobrado
 sent.length = 0;
@@ -72,6 +74,8 @@ t.last.set(2, Date.now() - 2000);
 t.onMsg(2, bob, { t: "pl", k: "term_trip", d: "bolsa" });
 assert.equal(t.s.trips.bolsa, 3);
 assert.equal(t.s.total, 5);
+// sem chegada pra destino desconhecido/saldo curto/throttle: lab (1) + bolsa (3)
+assert.deepEqual(bc.splice(0).map((m) => m.arr), [{ d: "lab", n: "ana" }, { d: "bolsa", n: "bob" }, { d: "bolsa", n: "ana" }, { d: "bolsa", n: "bob" }]);
 
 // tick: broadcast so se mudou
 t.tick(Date.now(), true);

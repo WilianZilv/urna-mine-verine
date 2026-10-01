@@ -10,6 +10,7 @@ use crate::models::rgb;
 use crate::player::Player;
 use crate::world::*;
 use macroquad::prelude::*;
+use macroquad::rand::gen_range;
 use serde_json::{Value, json};
 use std::f32::consts::{PI, TAU};
 
@@ -19,6 +20,8 @@ const GEO: Geo = Geo { c: Vec3::new(183.8, G as f32 + 13.0, 237.5), n: Vec3::new
 /// Tapetes dos caixas eletrônicos (x, z); a máquina fica 1.9 bloco pra parede.
 const PADS: [(f32, f32); 2] = [(199.5, 226.5), (199.5, 248.5)];
 const VAULT: Vec3 = Vec3::new(212.9, FL + 4.5, 237.5);
+/// Estátua do magnata no alpendre, ao lado da porta (z 235..239 fica livre).
+const STATUE: Vec3 = Vec3::new(187.0, FL, 234.4);
 
 const GOLD: Color = Color::new(1.0, 0.82, 0.3, 1.0);
 const DIMG: Color = Color::new(1.0, 0.82, 0.3, 0.35);
@@ -36,11 +39,48 @@ pub struct Banco {
     scr: Screen,
     stand: f32,
     sent: f32,
+    /// Valor do cofre mostrado no telão (conta até `tr` suave).
+    shown: f32,
+    coins: Vec<Coin>,
+    /// Moedas pendentes: cofre, caixa 0, caixa 1.
+    burst: [u32; 3],
+}
+
+struct Coin {
+    p: Vec3,
+    v: Vec3,
+    a: f32,
+    w: f32,
+    t: f32,
+}
+
+/// Quantas moedas pular pra uma mudança de `d`.
+fn burst_n(d: i64) -> u32 {
+    ((d.unsigned_abs() as f32).sqrt() as u32).clamp(4, 16)
 }
 
 impl Banco {
     pub fn new() -> Self {
-        Banco { tr: 0, rich: vec![], led: vec![], sv: 0, nsv: 0, rate: 2.0, got: false, recv: -10.0, scr: Screen::new(), stand: 0.0, sent: -100.0 }
+        Banco {
+            tr: 0,
+            rich: vec![],
+            led: vec![],
+            sv: 0,
+            nsv: 0,
+            rate: 2.0,
+            got: false,
+            recv: -10.0,
+            scr: Screen::new(),
+            stand: 0.0,
+            sent: -100.0,
+            shown: 0.0,
+            coins: vec![],
+            burst: [0; 3],
+        }
+    }
+
+    fn shown_tr(&self) -> i64 {
+        self.shown.round() as i64
     }
 
     fn paint(&self, time: f32) {
@@ -54,13 +94,14 @@ impl Banco {
         // Cofre + poupança
         let (x0, w0) = (40.0, 600.0);
         panel(x0, 135.0, w0, 420.0, "COFRE DA IA");
-        let t = self.tr.to_string();
+        let tr = self.shown_tr();
+        let t = tr.to_string();
         let sz = 220.0f32.min(220.0 * (w0 - 60.0) / measure_text(&t, None, 220, 1.0).width.max(1.0));
         text_mid(&t, x0 + w0 * 0.5, 380.0, sz, WHITE);
         text_mid("moedas ficticias  -  reserva 300", x0 + w0 * 0.5, 450.0, 34.0, SOFT);
         let (bx, bw) = (x0 + 40.0, w0 - 80.0);
         draw_rectangle(bx, 480.0, bw, 28.0, Color::new(1.0, 0.82, 0.3, 0.12));
-        draw_rectangle(bx, 480.0, bw * (self.tr as f32 / 2000.0).clamp(0.0, 1.0), 28.0, if self.tr < 400 { Color::new(1.0, 0.35, 0.25, 0.9) } else { GOLD });
+        draw_rectangle(bx, 480.0, bw * (tr as f32 / 2000.0).clamp(0.0, 1.0), 28.0, if tr < 400 { Color::new(1.0, 0.35, 0.25, 0.9) } else { GOLD });
         draw_rectangle(bx + bw * 0.15 - 2.0, 470.0, 4.0, 48.0, WHITE);
         draw_text("reserva", bx + bw * 0.15 + 8.0, 540.0, 26.0, DIMG);
 
@@ -144,6 +185,80 @@ impl Banco {
             trans.glow(&id, VAULT + vec3(0.05, 0.0, 0.0), vec3(0.04, 2.0 * r + 1.4, 2.0 * r + 1.4), Color::new(1.0, 0.8, 0.3, 0.08 + 0.05 * k));
         }
     }
+
+    /// Magnata de ouro girando no pedestal; sem ninguém, um fantasma translúcido esperando dono.
+    fn statue(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let k = 0.75 + 0.25 * (time * 2.0).sin();
+        let trim = Color::new(k, 0.8 * k, 0.28 * k, 1.0);
+        b.cube(&id, STATUE + vec3(0.0, 0.1, 0.0), vec3(1.6, 0.2, 1.6), rgb(0.55, 0.54, 0.52));
+        b.cube(&id, STATUE + vec3(0.0, 0.55, 0.0), vec3(1.3, 0.7, 1.3), rgb(0.88, 0.86, 0.8));
+        b.glow(&id, STATUE + vec3(0.0, 0.93, 0.0), vec3(1.42, 0.06, 1.42), trim);
+        b.glow(&id, STATUE + vec3(-0.66, 0.55, 0.0), vec3(0.02, 0.3, 0.9), trim);
+
+        let top = self.rich.first();
+        let m = Mat4::from_translation(STATUE + vec3(0.0, 0.96, 0.0)) * Mat4::from_rotation_y(time * 0.5);
+        let (g1, g2) = (rgb(1.0, 0.8, 0.3), rgb(0.82, 0.6, 0.16));
+        let body: [(Vec3, Vec3, Color); 10] = [
+            (vec3(-0.2, 0.55, 0.0), vec3(0.3, 1.1, 0.34), g2),
+            (vec3(0.2, 0.55, 0.0), vec3(0.3, 1.1, 0.34), g2),
+            (vec3(0.0, 1.1, 0.0), vec3(0.72, 0.16, 0.44), g2),
+            (vec3(0.0, 1.65, 0.0), vec3(0.85, 1.0, 0.5), g1),
+            (vec3(0.0, 1.5, 0.28), vec3(0.65, 0.55, 0.18), g1),
+            (vec3(-0.58, 1.6, 0.0), vec3(0.26, 0.95, 0.28), g2),
+            (vec3(0.58, 2.35, 0.0), vec3(0.26, 0.95, 0.28), g2),
+            (vec3(0.0, 2.48, 0.0), vec3(0.56, 0.56, 0.56), g1),
+            (vec3(0.0, 2.28, 0.0), vec3(0.3, 0.12, 0.3), g2),
+            (vec3(0.0, 2.95, 0.0), vec3(0.62, 0.14, 0.62), g1),
+        ];
+        let crown = [vec3(-0.24, 3.15, -0.24), vec3(0.24, 3.15, -0.24), vec3(-0.24, 3.15, 0.24), vec3(0.24, 3.15, 0.24), vec3(0.0, 3.2, 0.0)];
+        let coin = vec3(0.58, 3.0, 0.0);
+        if top.is_some() {
+            for (c, s, col) in body {
+                b.cube(&m, c, s, col);
+            }
+            for c in crown {
+                b.glow(&m, c, vec3(0.12, 0.3, 0.12), trim);
+            }
+            b.glow(&m, vec3(0.0, 2.95, 0.32), vec3(0.12, 0.1, 0.03), Color::new(1.0, 0.2, 0.25, 1.0));
+            let mc = m * Mat4::from_translation(coin) * Mat4::from_rotation_y(time * 3.0);
+            b.glow(&mc, Vec3::ZERO, vec3(0.06, 0.42, 0.42), trim);
+            if crate::quality::tier() != crate::quality::LOW {
+                trans.glow(&id, STATUE + vec3(0.0, 2.6, 0.0), vec3(1.8, 3.6, 1.8), Color::new(1.0, 0.8, 0.3, 0.06 + 0.04 * k));
+            }
+        } else {
+            let ghost = Color::new(1.0, 0.85, 0.4, 0.18 + 0.08 * k);
+            for (c, s, _) in body {
+                trans.glow(&m, c, s, ghost);
+            }
+        }
+        if eye.distance(STATUE) < 60.0 {
+            let text = match top {
+                Some((n, v)) => format!("MAGNATA DA VILA: {} - {} moedas", n, v),
+                None => "VAGA PRA MAGNATA".into(),
+            };
+            labels.push(Label { pos: STATUE + vec3(0.0, 4.9, 0.0), text, size: 22.0, color: GOLD });
+        }
+    }
+
+    fn spawn(&mut self) {
+        let cap = crate::quality::pick([12, 24, 40]);
+        for src in [1, 2, 0] {
+            for _ in 0..std::mem::take(&mut self.burst[src]) {
+                if self.coins.len() >= cap {
+                    break;
+                }
+                let (p, v) = if src == 0 {
+                    (VAULT + vec3(-0.6, gen_range(-2.5, 2.5), gen_range(-2.5, 2.5)), vec3(gen_range(-6.0, -2.0), gen_range(2.0, 6.0), gen_range(-2.5, 2.5)))
+                } else {
+                    let (px, pz) = PADS[src - 1];
+                    let dz = if src == 1 { -1.0 } else { 1.0 };
+                    (vec3(px, FL + 1.3, pz + dz * 1.3), vec3(gen_range(-1.5, 1.5), gen_range(3.0, 5.5), -dz * gen_range(0.8, 2.5)))
+                };
+                self.coins.push(Coin { p, v, a: gen_range(0.0, TAU), w: gen_range(6.0, 14.0), t: 0.0 });
+            }
+        }
+    }
 }
 
 /// Caixa com título no estilo dourado.
@@ -170,27 +285,61 @@ impl Place for Banco {
     fn on_msg(&mut self, m: &Value) {
         let i = |v: &Value| v.as_f64().unwrap_or(0.0) as i64;
         let arr = |k: &str| m[k].as_array().cloned().unwrap_or_default();
+        let (otr, osv) = (self.tr, self.sv);
         self.tr = i(&m["tr"]);
         self.rich = arr("rich").iter().map(|r| (s(&r[0]), i(&r[1]))).collect();
         self.led = arr("led").iter().map(|r| (s(&r[0]), s(&r[1]), i(&r[2]))).collect();
         self.sv = i(&m["sv"]);
         self.nsv = i(&m["nsv"]);
         self.rate = m["rate"].as_f64().unwrap_or(2.0);
+        if !self.got {
+            self.shown = self.tr as f32;
+        } else {
+            if self.tr != otr {
+                self.burst[0] += burst_n(self.tr - otr);
+            }
+            if self.sv != osv {
+                let n = burst_n(self.sv - osv);
+                self.burst[1] += n / 2;
+                self.burst[2] += n - n / 2;
+            }
+        }
         self.got = true;
         self.recv = get_time();
     }
 
     fn update(&mut self, p: &mut Player, dt: f32, time: f32, online: bool, out: &mut Vec<Value>) {
-        let on = PADS.iter().any(|&(x, z)| (p.pos.x - x).abs() < 0.9 && (p.pos.z - z).abs() < 0.9 && (p.pos.y - FL).abs() < 0.6);
-        self.stand = if on { self.stand + dt } else { 0.0 };
-        if online && self.stand >= 1.0 && (time - self.sent >= 5.0 || time < self.sent) {
+        let pad = PADS.iter().position(|&(x, z)| (p.pos.x - x).abs() < 0.9 && (p.pos.z - z).abs() < 0.9 && (p.pos.y - FL).abs() < 0.6);
+        self.stand = if pad.is_some() { self.stand + dt } else { 0.0 };
+        if let Some(i) = pad
+            && online
+            && self.stand >= 1.0
+            && (time - self.sent >= 5.0 || time < self.sent)
+        {
             self.sent = time;
+            self.burst[i + 1] += 8;
             out.push(json!({"t": "pl", "k": "banco_atm"}));
         }
+
+        let d = self.tr as f32 - self.shown;
+        self.shown = if d.abs() < 0.5 { self.tr as f32 } else { self.shown + d.signum() * (d.abs() * (1.0 - (-dt * 3.0).exp())).max(dt * 20.0).min(d.abs()) };
+
+        self.spawn();
+        for c in &mut self.coins {
+            c.v.y -= 18.0 * dt;
+            c.p += c.v * dt;
+            if c.p.y < FL + 0.2 && c.v.y < 0.0 {
+                c.p.y = FL + 0.2;
+                c.v = vec3(c.v.x * 0.6, -c.v.y * 0.35, c.v.z * 0.6);
+            }
+            c.a += c.w * dt;
+            c.t += dt;
+        }
+        self.coins.retain(|c| c.t < 2.5);
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
-        let key = if eye.distance(GEO.c) < 110.0 { hash_str(&format!("{}|{:?}|{:?}|{}|{}|{}", self.tr, self.rich, self.led, self.sv, self.nsv, self.got)) } else { 0 };
+        let key = if eye.distance(GEO.c) < 110.0 { hash_str(&format!("{}|{:?}|{:?}|{}|{}|{}", self.shown_tr(), self.rich, self.led, self.sv, self.nsv, self.got)) } else { 0 };
         if self.scr.begin(time, eye, &GEO, key, crate::quality::tier() != crate::quality::LOW) {
             self.paint(time);
             self.scr.end();
@@ -232,7 +381,14 @@ impl Place for Banco {
 
         self.vault(b, trans, time);
         if eye.distance(VAULT) < 45.0 {
-            labels.push(Label { pos: VAULT + vec3(-0.8, 4.6, 0.0), text: format!("COFRE DA IA: {} moedas", self.tr), size: 24.0, color: GOLD });
+            labels.push(Label { pos: VAULT + vec3(-0.8, 4.6, 0.0), text: format!("COFRE DA IA: {} moedas", self.shown_tr()), size: 24.0, color: GOLD });
+        }
+        self.statue(b, trans, labels, time, eye);
+        for c in &self.coins {
+            let s = (2.5 - c.t).clamp(0.0, 0.4) / 0.4;
+            let m = Mat4::from_translation(c.p) * Mat4::from_rotation_y(c.a);
+            b.glow(&m, Vec3::ZERO, vec3(0.08, 0.5, 0.5) * s, gold);
+            b.cube(&m, Vec3::ZERO, vec3(0.1, 0.3, 0.14) * s, rgb(0.75, 0.52, 0.1));
         }
 
         // Caixas eletrônicos

@@ -17,7 +17,7 @@ const eco = {
 };
 const stocks = { ana: 500 };
 const room = { eco, send: (c, m) => sent.push(m), broadcast: (m) => sent.push(m) };
-const pl = { room, bolsa: { value: (k) => stocks[k] || 0 }, save() { }, priv: (c, from, m) => chat.push(m) };
+const pl = { room, bolsa: { value: (k) => stocks[k] || 0 }, save() { }, say() { }, priv: (c, from, m) => chat.push(m) };
 const b = new Banco(pl, {});
 const bob = { name: "Bob" }, ana = { name: "Ana" };
 const total = () => eco.s.tr + Object.values(eco.s.w).reduce((s, w) => s + w.c, 0) + Object.values(b.s.sv).reduce((s, a) => s + a.c, 0);
@@ -103,4 +103,30 @@ assert.equal(s.nsv, 1);
 assert.equal(s.sv, 250);
 assert.equal(s.rate, 2);
 assert.equal(s.led.length, 6);
+
+// magnata: primeiro #1 nao anuncia; troca anuncia; cooldown de 60 s
+const said = [];
+pl.say = (from, m) => said.push(`${from}: ${m}`);
+const b2 = new Banco(pl, {});
+eco.s.w = {};
+eco.wallet("Bob").c = 500;
+eco.wallet("Ana").c = 100;
+b2.push(true);
+assert.equal(said.length, 0);
+eco.s.w.ana.c = 900;
+b2.push();
+assert.deepEqual(said, ["BANCO: NOVO MAGNATA DA VILA: Ana"]);
+b2.push();
+assert.equal(said.length, 1);
+eco.s.w.bob.c = 2000; // troca dentro do cooldown: segura
+b2.push();
+assert.equal(said.length, 1);
+b2.topAt -= 61 * 1000; // passou 1 min: anuncia quem ta no topo agora
+b2.push();
+assert.equal(said[1], "BANCO: NOVO MAGNATA DA VILA: Bob");
+eco.s.w.bob.c = 0;
+eco.s.w.ana.c = 0;
+b2.topAt -= 61 * 1000;
+b2.push(); // empate 0 x 0: Ana por nome
+assert.equal(said[2], "BANCO: NOVO MAGNATA DA VILA: Ana");
 console.log("test_banco OK");

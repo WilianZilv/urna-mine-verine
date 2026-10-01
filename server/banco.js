@@ -9,6 +9,7 @@ const HOUR = 60 * 60 * 1000;
 const CAP = 100; // juros maximo por operacao
 const RESERVE = 300; // mesma reserva do economy.js
 const ATM_MS = 3000;
+const MAGNATA_MS = 60 * 1000;
 
 export class Banco {
     constructor(places, s) {
@@ -17,6 +18,8 @@ export class Banco {
         this.s.sv ??= {};
         this.last = "";
         this.atm = new Map();
+        this.top = undefined; // ultimo #1 anunciado (normalizado); o primeiro visto nao e anunciado
+        this.topAt = 0;
     }
 
     get eco() {
@@ -77,10 +80,23 @@ export class Banco {
     /// Manda pra todo mundo se mudou (ou forca).
     push(force = false) {
         const m = this.snap();
+        this.magnata(m.rich[0]?.[0]);
         const h = JSON.stringify(m);
         if (!force && h === this.last) return;
         this.last = h;
         this.pl.room.broadcast(m);
+    }
+
+    /// Anuncia o novo #1 (no maximo 1 vez por minuto; troca no meio do cooldown sai depois).
+    magnata(name) {
+        if (!name) return;
+        const k = norm(name);
+        if (this.top === undefined) return void (this.top = k);
+        const now = Date.now();
+        if (k === this.top || now - this.topAt < MAGNATA_MS) return;
+        this.top = k;
+        this.topAt = now;
+        this.pl.say("BANCO", `NOVO MAGNATA DA VILA: ${name}`);
     }
 
     join(c) {

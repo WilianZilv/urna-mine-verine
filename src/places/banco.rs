@@ -2,7 +2,7 @@
 //! Prédio clássico (pódio, colunata de "mármore", frontão) com telão dourado acima da porta; dentro, porta de
 //! cofre redonda com volante girando e 2 caixas eletrônicos (pisar 1 s no tapete pede o extrato ao servidor).
 //! Telão alterna mais ricos / criadores (impacto, nunca moeda) / ofensivas (/diario); hall da fama dos criadores
-//! ao lado do cofre.
+//! ao lado do cofre. No alpendre, a fogueira das ofensivas cresce com a soma das ofensivas vivas.
 
 use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, text_mid};
 use crate::batch::Batch;
@@ -28,6 +28,10 @@ const STATUE: Vec3 = Vec3::new(187.0, FL, 234.4);
 const HOF_X: f32 = 212.94;
 const HOF_Z: [f32; 3] = [228.2, 225.5, 230.9];
 const TROPHY: Vec3 = Vec3::new(211.0, FL, 228.2);
+/// Fogueira das ofensivas no alpendre, ao sul da porta (espelho da estátua); chama máx. cabe sob o entablamento.
+const FOGO: Vec3 = Vec3::new(187.5, FL, 242.5);
+/// Segundos do "OFENSIVA N DIAS!" flutuando.
+const CLAIM_S: f64 = 3.0;
 
 const GOLD: Color = Color::new(1.0, 0.82, 0.3, 1.0);
 const DIMG: Color = Color::new(1.0, 0.82, 0.3, 0.35);
@@ -63,8 +67,15 @@ pub struct Banco {
     /// Valor do cofre mostrado no telão (conta até `tr` suave).
     shown: f32,
     coins: Vec<Coin>,
-    /// Moedas pendentes: cofre, caixa 0, caixa 1.
-    burst: [u32; 3],
+    /// Moedas pendentes: cofre, caixa 0, caixa 1, fogueira.
+    burst: [u32; 4],
+    /// Labaredas do check-in (subindo da fogueira) e quantas faltam soltar.
+    sparks: Vec<Coin>,
+    fire: u32,
+    /// Último check-in próprio: (dias, get_time).
+    claim: Option<(i64, f64)>,
+    /// Caixa onde o jogador está pisando.
+    pad: Option<usize>,
 }
 
 struct Coin {
@@ -99,7 +110,11 @@ impl Banco {
             sent: -100.0,
             shown: 0.0,
             coins: vec![],
-            burst: [0; 3],
+            burst: [0; 4],
+            sparks: vec![],
+            fire: 0,
+            claim: None,
+            pad: None,
         }
     }
 
@@ -392,14 +407,68 @@ impl Banco {
         }
     }
 
+    /// Braseiro no alpendre: a chama cresce com a soma das ofensivas vivas; check-in solta labareda e moedas.
+    fn fogueira(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let (iron, dark) = (rgb(0.22, 0.2, 0.2), rgb(0.12, 0.11, 0.11));
+        for (dx, dz) in [(-0.45, -0.45), (0.45, -0.45), (-0.45, 0.45), (0.45, 0.45)] {
+            b.cube(&id, FOGO + vec3(dx, 0.35, dz), vec3(0.14, 0.7, 0.14), dark);
+        }
+        b.cube(&id, FOGO + vec3(0.0, 0.78, 0.0), vec3(1.1, 0.16, 1.1), iron);
+        for (o, sz) in [(vec3(0.0, 0.98, 0.6), vec3(1.4, 0.3, 0.12)), (vec3(0.0, 0.98, -0.6), vec3(1.4, 0.3, 0.12)), (vec3(0.6, 0.98, 0.0), vec3(0.12, 0.3, 1.4)), (vec3(-0.6, 0.98, 0.0), vec3(0.12, 0.3, 1.4))] {
+            b.cube(&id, FOGO + o, sz, iron);
+        }
+        let ember = 0.6 + 0.4 * (time * 3.1).sin().abs();
+        b.glow(&id, FOGO + vec3(0.0, 0.9, 0.0), vec3(1.05, 0.08, 1.05), Color::new(ember, 0.25 * ember, 0.05, 1.0));
+
+        let lvl = 1.0 - (-(self.ofs.max(0) as f32) / 25.0).exp();
+        let boost = self.claim.map_or(0.0, |(_, t)| (1.0 - (get_time() - t) as f32 / CLAIM_S as f32).max(0.0));
+        let h = 0.35 + 3.4 * lvl + 0.8 * boost;
+        let n = crate::quality::pick([3, 5, 7]);
+        for j in 0..n {
+            let f = j as f32 / n as f32;
+            let fl = 0.85 + 0.15 * (time * 11.0 + j as f32 * 1.7).sin();
+            let wd = (0.95 - 0.8 * f) * (0.6 + 0.4 * lvl.max(boost)) * fl;
+            let jit = vec3((time * 7.0 + j as f32).sin() * 0.08 * f, 0.0, (time * 6.3 + j as f32 * 2.0).cos() * 0.08 * f);
+            let col = if f < 0.34 { FIRE[2] } else if f < 0.67 { FIRE[1] } else { FIRE[0] };
+            b.glow(&id, FOGO + vec3(0.0, 1.0 + h * (f + 0.5 / n as f32), 0.0) + jit, vec3(wd, h / n as f32 + 0.05, wd), col);
+        }
+        if crate::quality::tier() != crate::quality::LOW {
+            trans.glow(&id, FOGO + vec3(0.0, 1.0 + h * 0.5, 0.0), vec3(1.6, h + 0.8, 1.6), Color::new(1.0, 0.5, 0.15, 0.08 + 0.06 * lvl.max(boost)));
+        }
+        for s in &self.sparks {
+            let k = 1.0 - s.t / 1.2;
+            let col = if s.t < 0.3 { FIRE[2] } else if s.t < 0.7 { FIRE[1] } else { FIRE[0] };
+            b.glow(&id, s.p, Vec3::splat(s.w * (0.4 + 0.6 * k)), col);
+        }
+        if eye.distance(FOGO) < 40.0 {
+            labels.push(Label { pos: FOGO + vec3(0.0, 1.6 + h, 0.0), text: format!("FOGUEIRA DAS OFENSIVAS: {}", self.ofs), size: 18.0, color: FIRE[1] });
+        }
+        if let Some((d, t)) = self.claim {
+            let age = get_time() - t;
+            if age < CLAIM_S {
+                labels.push(Label { pos: FOGO + vec3(0.0, 2.4 + h + age as f32 * 0.8, 0.0), text: format!("OFENSIVA {} DIA{}!", d, if d == 1 { "" } else { "S" }), size: 30.0, color: FIRE[2] });
+            }
+        }
+    }
+
     fn spawn(&mut self) {
         let cap = crate::quality::pick([12, 24, 40]);
-        for src in [1, 2, 0] {
+        for _ in 0..std::mem::take(&mut self.fire) {
+            if self.sparks.len() >= cap {
+                break;
+            }
+            let p = FOGO + vec3(gen_range(-0.4, 0.4), 1.3, gen_range(-0.4, 0.4));
+            self.sparks.push(Coin { p, v: vec3(gen_range(-1.2, 1.2), gen_range(3.0, 7.0), gen_range(-1.2, 1.2)), a: gen_range(0.0, TAU), w: gen_range(0.18, 0.4), t: 0.0 });
+        }
+        for src in [3, 1, 2, 0] {
             for _ in 0..std::mem::take(&mut self.burst[src]) {
                 if self.coins.len() >= cap {
                     break;
                 }
-                let (p, v) = if src == 0 {
+                let (p, v) = if src == 3 {
+                    (FOGO + vec3(0.0, 1.4, 0.0), vec3(gen_range(-2.5, 2.5), gen_range(4.0, 7.0), gen_range(-2.5, 2.5)))
+                } else if src == 0 {
                     (VAULT + vec3(-0.6, gen_range(-2.5, 2.5), gen_range(-2.5, 2.5)), vec3(gen_range(-6.0, -2.0), gen_range(2.0, 6.0), gen_range(-2.5, 2.5)))
                 } else {
                     let (px, pz) = PADS[src - 1];
@@ -448,6 +517,12 @@ impl Place for Banco {
     fn on_msg(&mut self, m: &Value) {
         let i = |v: &Value| v.as_f64().unwrap_or(0.0) as i64;
         if !m["ofx"].is_null() {
+            self.claim = Some((i(&m["ofx"]), get_time()));
+            self.fire += 30;
+            self.burst[3] += if i(&m["pay"]) > 0 { 12 } else { 3 };
+            if let Some(p) = self.pad {
+                self.burst[p + 1] += 8;
+            }
             return;
         }
         let arr = |k: &str| m[k].as_array().cloned().unwrap_or_default();
@@ -480,6 +555,7 @@ impl Place for Banco {
     fn update(&mut self, p: &mut Player, dt: f32, time: f32, online: bool, out: &mut Vec<Value>) {
         let pad = PADS.iter().position(|&(x, z)| (p.pos.x - x).abs() < 0.9 && (p.pos.z - z).abs() < 0.9 && (p.pos.y - FL).abs() < 0.6);
         self.stand = if pad.is_some() { self.stand + dt } else { 0.0 };
+        self.pad = pad;
         if let Some(i) = pad
             && online
             && self.stand >= 1.0
@@ -505,6 +581,13 @@ impl Place for Banco {
             c.t += dt;
         }
         self.coins.retain(|c| c.t < 2.5);
+        for f in &mut self.sparks {
+            f.v *= 1.0 - 1.5 * dt;
+            f.v.y += 2.0 * dt;
+            f.p += f.v * dt;
+            f.t += dt;
+        }
+        self.sparks.retain(|f| f.t < 1.2);
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
@@ -549,6 +632,12 @@ impl Place for Banco {
         b.glow(&id, vec3(183.95, G as f32 + 18.05, 237.5), vec3(0.1, 0.1, 29.0), gold);
 
         self.statue(b, trans, labels, time, eye);
+        self.fogueira(b, trans, labels, time, eye);
+        for c in self.coins.iter().filter(|c| c.p.x < 190.0) {
+            let s = (2.5 - c.t).clamp(0.0, 0.4) / 0.4;
+            let m = Mat4::from_translation(c.p) * Mat4::from_rotation_y(c.a);
+            b.glow(&m, Vec3::ZERO, vec3(0.08, 0.5, 0.5) * s, gold);
+        }
         // Salão (cofre, hall, moedas, caixas, lustres): só se vê pela porta, some de longe
         if eye.distance(vec3(201.0, FL, 237.5)) > crate::quality::pick([45.0, 70.0, 70.0]) {
             return;
@@ -558,7 +647,7 @@ impl Place for Banco {
             labels.push(Label { pos: VAULT + vec3(-0.8, 4.6, 0.0), text: format!("COFRE DA IA: {} moedas", self.shown_tr()), size: 24.0, color: GOLD });
         }
         self.hall(b, trans, labels, time, eye);
-        for c in &self.coins {
+        for c in self.coins.iter().filter(|c| c.p.x >= 190.0) {
             let s = (2.5 - c.t).clamp(0.0, 0.4) / 0.4;
             let m = Mat4::from_translation(c.p) * Mat4::from_rotation_y(c.a);
             b.glow(&m, Vec3::ZERO, vec3(0.08, 0.5, 0.5) * s, gold);

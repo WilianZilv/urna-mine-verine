@@ -196,11 +196,13 @@ pub fn laser(sr: u32) -> Vec<f32> {
 }
 
 pub fn punch(sr: u32) -> Vec<f32> {
-    let mut lp = 0.0;
-    render(sr, 0.18, move |t, r| {
-        lp += (r.f() - lp) * 0.3;
-        let thud = (TAU * (60.0 + 80.0 * (-t / 0.02).exp()) * t).sin() * (-t / 0.05).exp();
-        (lp * 1.2 * (-t / 0.03).exp() + thud).tanh() * 0.9
+    let (mut lp, mut lp2) = (0.0, 0.0);
+    render(sr, 0.32, move |t, r| {
+        lp += (r.f() - lp) * 0.06;
+        lp2 += (lp - lp2) * 0.06;
+        let thud = (TAU * (42.0 + 70.0 * (-t / 0.03).exp()) * t).sin() * (-t / 0.12).exp();
+        let sub = (TAU * 32.0 * t).sin() * (-t / 0.18).exp();
+        (lp2 * 6.0 * (-t / 0.04).exp() + thud * 1.3 + sub * 0.6).tanh() * 0.95
     })
 }
 

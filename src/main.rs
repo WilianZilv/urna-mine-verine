@@ -239,12 +239,11 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     ]
 }
 
-const CHARS: [(&str, &str); 6] = [
+const CHARS: [(&str, &str); 5] = [
     ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT"),
     ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano"),
     ("SKATISTA", "SKATE 3: flick-it, grind, manual"),
     ("BANDIDO", "GTA 3: arsenal completo + carro"),
-    ("NIKO", "GTA 4: ragdoll fisico ativo"),
     ("ARMA DE PORTAL", "portais azul/laranja + cubo"),
 ];
 
@@ -1028,7 +1027,8 @@ async fn main() {
                 }
             }
         }
-        if let Some(c) = pick_char {
+        if let Some(m) = pick_char {
+            let c = if m >= 4 { m + 1 } else { m };
             chars_open = false;
             if let Some(s) = skater.take() {
                 player.pos = s.pos;
@@ -1049,7 +1049,7 @@ async fn main() {
                 5 => {}
                 _ => steve.set_mode(c == 1, &mut player),
             }
-            banner = Some((format!("PERSONAGEM: {}", CHARS[c].0), 2.0));
+            banner = Some((format!("PERSONAGEM: {}", CHARS[m].0), 2.0));
         }
         if car_toggle {
             if let Some(b) = bandido.as_mut() {
@@ -2112,7 +2112,7 @@ async fn main() {
                     text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.86, (r.w / 14.0).min(15.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
                 }
             }
-            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-6 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
+            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-5 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
             let qb = quality_button(sw, sh);
             draw_rectangle(qb.x, qb.y, qb.w, qb.h, Color::new(0.1, 0.1, 0.15, 0.9));
             draw_rectangle_lines(qb.x, qb.y, qb.w, qb.h, 2.0, Color::new(0.45, 1.0, 1.0, 1.0));

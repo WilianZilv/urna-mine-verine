@@ -82,11 +82,11 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | # | Personagem | Jogabilidade |
 | --- | --- | --- |
 | 1 | Steve | padrão Minecraft (quebra/põe bloco, soco) |
-| 2 | Skatista (estilo Skate 3) | flick-it no mouse/arrasto: baixo→cima ollie, diagonais kickflip/heelflip, lado shove-it, cima→baixo nollie; `W` rema, `S` freia/powerslide, `A/D` carve (no ar gira 180/360), `Q/E` grab, `Shift` manual, grind caindo em muro de 1 bloco; combo com multiplicador e bail |
+| 2 | Skatista (estilo Skate 3) | flick-it no mouse/arrasto (velocidade do flick = altura do pop): baixo→cima ollie, baixo→diagonal kickflip/heelflip, baixo→lado shove-it, baixo→lado→cima 360 shove-it, baixo→lado→diagonal varial, esq→baixo→cima-dir 360 flip/laser, invertido = nollie; `W` rema, `S` freia/powerslide, `A/D` carve (no ar gira, no grind equilibra), `Q/E` grab (mouse escolhe indy/melon/nose/tail/stalefish), `Shift` manual/nose manual com equilíbrio, grind 50-50/5-0/nosegrind/boardslide em muro ou quina; fakie, aterrissagem limpa/sketchy/bail, câmera baixa estilo Skate 3 |
 | 3 | Bandido (estilo GTA 3) | terceira pessoa, 12 armas (punho, taco, pistola, uzi, escopeta, AK-47, M16, sniper com zoom, lança-foguete, lança-chamas, granada, molotov); sedã da 1ª missão perto da torre (`F` entra/sai, `Espaço` freio de mão, atropela) |
 | 4 | Niko (estilo GTA 4) | ragdoll físico ativo próprio: explosão/queda/`G` faz cambalear com passos de equilíbrio e braços em moinho, cair protegendo com as mãos e levantar sozinho |
 
-Tudo original (sem código/asset de Skate 3, GTA ou Euphoria).
+Tudo original (sem código/asset de Skate 3, GTA ou Euphoria). As mecânicas do skate seguem o design documentado pelo projeto de engenharia reversa [SK8-ENGINE/skate-3-rust-engine](https://github.com/SK8-ENGINE/skate-3-rust-engine), reimplementadas do zero (aquele repo não tem licença, então nenhum código foi copiado).
 
 ### Agente IA no chat (`/comando`)
 

@@ -763,7 +763,7 @@ impl Portals {
     /// Antes do opaque.flush: cubos, vistas pelos portais (render targets), quads dos portais e arma.
     /// `body` = (pos, yaw, look, walk, andando) do jogador local pra ele se ver pelo portal.
     #[allow(clippy::too_many_arguments)]
-    pub fn render(&mut self, opaque: &mut Batch, chunks: &[Vec<Mesh>], tex: &Texture2D, cam: &Camera3D, sky: Color, body: Option<(Vec3, f32, Look, f32, bool)>, mobile: bool) {
+    pub fn render(&mut self, opaque: &mut Batch, chunks: &crate::chunks::Chunks, tex: &Texture2D, cam: &Camera3D, sky: Color, body: Option<(Vec3, f32, Look, f32, bool)>, mobile: bool) {
         for c in &self.cubes {
             draw_cube(opaque, c.pos, c.yaw);
         }
@@ -782,7 +782,7 @@ impl Portals {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_portals(&mut self, opaque: &Batch, chunks: &[Vec<Mesh>], tex: &Texture2D, cam: &Camera3D, sky: Color, body: Option<(Vec3, f32, Look, f32, bool)>, mobile: bool) {
+    fn render_portals(&mut self, opaque: &Batch, chunks: &crate::chunks::Chunks, tex: &Texture2D, cam: &Camera3D, sky: Color, body: Option<(Vec3, f32, Look, f32, bool)>, mobile: bool) {
         let (Some(view_mat), Some(swirl_mat)) = (self.view_mat.clone(), self.swirl_mat.clone()) else { return };
         let (sw, sh) = (screen_width(), screen_height());
         let vp = cam.matrix();
@@ -826,11 +826,7 @@ impl Portals {
             let p2 = if pv.w < 0.0 { oblique(proj, pv) } else { proj };
             set_camera(&ViewCam { m: p2 * v2, pass: self.rts[k].render_pass.clone() });
             clear_background(sky);
-            for list in chunks {
-                for m in list {
-                    draw_mesh(m);
-                }
-            }
+            chunks.draw(&(p2 * v2), Some(&self.rts[k].render_pass), cam.position, f32::MAX);
             opaque.redraw(tex);
             bodies.redraw(tex);
             gl_use_material(&swirl_mat);

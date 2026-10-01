@@ -6,6 +6,7 @@ mod atlas;
 #[cfg_attr(target_arch = "wasm32", path = "audio_web.rs")]
 mod audio;
 mod batch;
+mod chunks;
 mod club;
 mod economy;
 mod eleicao;
@@ -359,7 +360,7 @@ async fn main() {
 
     let atlas = atlas::build();
     let mut world = mods::generate();
-    let mut chunks = build_all(&mut world, &atlas.tex);
+    let mut chunks = chunks::Chunks::new(&mut world, &atlas.tex);
 
     // Áudio: house sintetizado de fallback até o telão (YouTube) começar a tocar
     let audio = Audio::new();
@@ -528,7 +529,7 @@ async fn main() {
                     }
                     portals.joined(|o| o == my_id || remotes.contains_key(&o));
                     steve.scan(&world);
-                    chunks = build_all(&mut world, &atlas.tex);
+                    chunks.build_all(&mut world);
                     if let Some(u) = m["tv"].as_str().filter(|u| *u != tv_src) {
                         tv_src = u.to_string();
                         telao.load(&tv_src);
@@ -679,7 +680,7 @@ async fn main() {
                             }
                         }
                         if m["k"] == "reset" {
-                            chunks = build_all(&mut world, &atlas.tex);
+                            chunks.build_all(&mut world);
                             let w_on = fighters[3].spawned;
                             (villagers, fighters) = spawn_actors();
                             npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
@@ -1533,14 +1534,7 @@ async fn main() {
         }
         texts.retain(|t| t.t < 1.6);
 
-        let mut rebuilt = 0;
-        for k in 0..(CX * CZ) as usize {
-            if world.dirty[k] && rebuilt < 8 {
-                chunks[k] = world.build_chunk(k as i32 % CX, k as i32 / CX, &atlas.tex);
-                world.dirty[k] = false;
-                rebuilt += 1;
-            }
-        }
+        chunks.update(&mut world, 8);
 
         // Volume da música pela distância do clube
         telao.update();
@@ -1592,11 +1586,8 @@ async fn main() {
             opaque.glow(&id, vec3(x, 62.0, kz), s, Color::new(day, day, day, 1.0));
         }
 
-        for list in &chunks {
-            for m in list {
-                draw_mesh(m);
-            }
-        }
+        chunks.draw(&vp, None, eye, f32::MAX);
+        prof.mark(prof::WORLD);
 
         labels.clear();
         club::draw(&mut opaque, &mut trans, time, beat);

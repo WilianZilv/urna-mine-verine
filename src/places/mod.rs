@@ -215,7 +215,9 @@ impl Screen {
         if d > 110.0 || !g.facing(eye) {
             return false;
         }
-        let (every, res) = crate::quality::pick([(1.0, 0.25), (0.25, 0.5), (0.1, 0.5)]);
+        let (every, res) = crate::quality::pick([(1.0f32, 0.25), (0.25, 0.5), (0.1, 0.5)]);
+        // LOD: de longe ninguém lê o painel; a animação cai pra um quadro a cada 2 s (o cache segue na tela).
+        let every = if d > 60.0 { every.max(2.0) } else { every };
         let fresh = self.rt.as_ref().is_some_and(|rt| rt.texture.width() == TW * res);
         if fresh && time - self.last < every && time >= self.last {
             return false;

@@ -1,6 +1,7 @@
 // FPS headless (mudo) nas câmeras dos lugares (Avenida dos Poderes + distrito sul), via window.urnaProf (?debug=1).
 // Uso: node tools/perf_places.mjs [qualidades separadas por vírgula, ex: "low,high" ("" = auto)] [segundos por câmera] [mobile]
 // Serve web/ (ou URNA_WEB) em SHOT_HTTP_PORT; Chrome CDP em SHOT_CDP_PORT. Conta também os avisos de textura GL apagada.
+// "rt repaints/s" = glGenerateMipmap por segundo (todo painel em render target gera mipmaps ao repintar).
 // PERF_CAMS=bolsa,tv filtra câmeras; PERF_SHOTS=<pasta> salva um PNG por câmera.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -23,6 +24,8 @@ const CAMS = {
     terminal: "200.5,27,254,1.5708,0",
     tv: "64.5,26,242,1.5708,0.1",
     sul: "150,45,240,0.3,-0.3",
+    bolsa_longe: "180,30,86,0,0",
+    tv_longe: "64.5,30,195,1.5708,0",
 };
 const only = process.env.PERF_CAMS ? process.env.PERF_CAMS.split(",") : Object.keys(CAMS);
 // A/B intercalado: PERF_WEBS="antes=D:\\a,depois=D:\\b" (cada pasta = cópia de web/ com seu urna.wasm); PERF_ROUNDS repete.
@@ -71,6 +74,11 @@ await cmd("Page.enable", {}, sessionId);
 await cmd("Runtime.enable", {}, sessionId);
 // Quem apagou a textura que depois foi bindada: primeira função do jogo na pilha do glDeleteTextures.
 await cmd("Page.addScriptToEvaluateOnNewDocument", { source: `
+window.__gl = { mip: 0 };
+for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
+    const mip = C.prototype.generateMipmap;
+    C.prototype.generateMipmap = function (...a) { __gl.mip++; return mip.apply(this, a); };
+}
 document.addEventListener("DOMContentLoaded", () => {
     const env = importObject.env, del = env.glDeleteTextures, by = {};
     env.glDeleteTextures = (n, p) => {
@@ -99,22 +107,25 @@ for (let round = 0; round < rounds; round++) for (const q of qs) for (const name
     await cmd("Page.navigate", { url: `http://127.0.0.1:${HTTP}/?nome=perf&debug=1&cam=${CAMS[name]}${q ? `&q=${q}` : ""}` }, sessionId);
     await sleep(+(process.env.PERF_WARMUP || 12000));
     const samples = [];
+    const gl0 = await eval_("JSON.stringify(__gl)"), t0 = Date.now();
     for (let i = 0; i < secs; i++) {
         await sleep(1000);
         const p = await eval_("JSON.stringify(window.urnaProf || null)");
         if (p && p !== "null") samples.push(JSON.parse(p));
     }
+    const [a, b] = [JSON.parse(gl0), JSON.parse(await eval_("JSON.stringify(__gl)"))];
+    const span = (Date.now() - t0) / 1000;
     if (process.env.PERF_SHOTS) {
         const shot = await cmd("Page.captureScreenshot", { format: "png" }, sessionId);
         writeFileSync(join(process.env.PERF_SHOTS, `${web}-${q || "auto"}-${name}.png`), Buffer.from(shot.data, "base64"));
     }
-    const r = { web, q: q || "auto", cam: name, fps: avg(samples, (x) => x.fps), rt: avg(samples, (x) => x.ms["lab rt"]), actors: avg(samples, (x) => x.ms.actors), cubes: avg(samples, (x) => x.cubes), texts: avg(samples, (x) => x.texts), gl: glWarn };
+    const r = { web, q: q || "auto", cam: name, fps: avg(samples, (x) => x.fps), rt: avg(samples, (x) => x.ms["lab rt"]), actors: avg(samples, (x) => x.ms.actors), cubes: avg(samples, (x) => x.cubes), texts: avg(samples, (x) => x.texts), gl: glWarn, mips: (b.mip - a.mip) / span };
     rows.push(r);
-    console.log(`${r.web.padEnd(6)} ${r.q.padEnd(5)} ${r.cam.padEnd(10)} fps ${r.fps.toFixed(1).padStart(5)}  rt ${r.rt.toFixed(2).padStart(6)}ms  actors ${r.actors.toFixed(2).padStart(6)}ms  cubes ${r.cubes.toFixed(0).padStart(5)}  texts ${r.texts.toFixed(0).padStart(4)}  glwarn ${r.gl}${glSrc.size ? ` (apagada em ${[...glSrc].join(", ")})` : ""}`);
+    console.log(`${r.web.padEnd(6)} ${r.q.padEnd(5)} ${r.cam.padEnd(10)} fps ${r.fps.toFixed(1).padStart(5)}  rt ${r.rt.toFixed(2).padStart(6)}ms  actors ${r.actors.toFixed(2).padStart(6)}ms  cubes ${r.cubes.toFixed(0).padStart(5)}  texts ${r.texts.toFixed(0).padStart(4)}  rt repaints/s ${r.mips.toFixed(1).padStart(5)}  glwarn ${r.gl}${glSrc.size ? ` (apagada em ${[...glSrc].join(", ")})` : ""}`);
 }
 for (const q of qs) for (const [web] of webs) {
     const sel = rows.filter((r) => r.q === (q || "auto") && r.web === web);
-    console.log(`media ${web.padEnd(6)} ${(q || "auto").padEnd(5)} fps ${avg(sel, (r) => r.fps).toFixed(1)}  rt ${avg(sel, (r) => r.rt).toFixed(2)}ms  actors ${avg(sel, (r) => r.actors).toFixed(2)}ms  cubes ${avg(sel, (r) => r.cubes).toFixed(0)}  glwarn ${sel.reduce((s, r) => s + r.gl, 0)}`);
+    console.log(`media ${web.padEnd(6)} ${(q || "auto").padEnd(5)} fps ${avg(sel, (r) => r.fps).toFixed(1)}  rt ${avg(sel, (r) => r.rt).toFixed(2)}ms  actors ${avg(sel, (r) => r.actors).toFixed(2)}ms  cubes ${avg(sel, (r) => r.cubes).toFixed(0)}  rt repaints/s ${avg(sel, (r) => r.mips).toFixed(1)}  glwarn ${sel.reduce((s, r) => s + r.gl, 0)}`);
 }
 ws.close();
 chrome.kill();

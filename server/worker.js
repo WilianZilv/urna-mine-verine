@@ -5,6 +5,7 @@ import { Economy } from "./economy.js";
 import { Brain } from "./brain.js";
 import { Lab } from "./lab.js";
 import { Mods, docs } from "./mods.js";
+import { Hub } from "./hub.js";
 
 export default {
     async fetch(req, env) {
@@ -12,6 +13,7 @@ export default {
         const doc = docs(url);
         if (doc) return doc;
         if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
+        if (url.pathname.startsWith("/api/portals")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname === "/ws") {
             if (req.headers.get("Upgrade") !== "websocket") return new Response("use websocket", { status: 426 });
             return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
@@ -118,6 +120,7 @@ export class Room extends DurableObject {
         this.eco = new Economy(this, sanitize, SYSTEM);
         this.lab = new Lab(this);
         this.mods = new Mods(this);
+        this.hub = new Hub(this);
         // Obras da IA ("w" k:"ai") sobrevivem ao DO dormir: viram o comeco do log quando ele acorda.
         this.aiLog = [];
         this.aiSave = null;
@@ -192,6 +195,8 @@ export class Room extends DurableObject {
 
     async fetch(req) {
         if (new URL(req.url).pathname.startsWith("/api/mods")) return this.mods.http(req);
+        const hub = await this.hub.route(req);
+        if (hub) return hub;
         const [client, server] = Object.values(new WebSocketPair());
         server.accept();
         const id = this.next++;
@@ -226,6 +231,7 @@ export class Room extends DurableObject {
             this.eco.join(c);
             this.lab.join(c);
             this.mods.join(c);
+            this.hub.join(c);
             return;
         }
         m.id = id;
@@ -245,6 +251,9 @@ export class Room extends DurableObject {
                 break;
             case "mk":
                 this.mods.onKill(c, m);
+                break;
+            case "hub":
+                this.hub.onMsg(id, c, m).catch(() => { });
                 break;
             case "tv":
                 this.tv = String(m.u || "").slice(0, 500);
@@ -272,6 +281,7 @@ export class Room extends DurableObject {
     }
 
     leave(id) {
+        this.hub.leave(id);
         if (!this.clients.delete(id)) return;
         this.broadcast({ t: "leave", id });
         if (id === this.host) {

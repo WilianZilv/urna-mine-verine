@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chuva de Votos - demo do Urna Portal Protocol</title>
+    <style>
+        html, body { margin: 0; height: 100%; background: #0b0820; color: #fff; font: 14px monospace; overflow: hidden; }
+        canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+        #hud { position: absolute; left: 10px; top: 8px; pointer-events: none; text-shadow: 0 1px 2px #000; }
+        #sair { position: absolute; right: 10px; top: 8px; font: bold 13px monospace; background: #ff3d7f; color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <div id="hud">conectando ao Urna...</div>
+    <button id="sair" type="button">SAIR PRO URNA</button>
+    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js"></script>
+    <script>
+        "use strict";
+        // Demo de jogo externo: pega os votos verdes (CONFIRMA), desvia dos vermelhos. Usa o SDK UPP.
+        const cv = document.getElementById("c"), g = cv.getContext("2d"), hud = document.getElementById("hud");
+        let W = 0, H = 0, x = 0.5, keys = {}, items = [], score = 0, lives = 3, t = 0, last = performance.now();
+        let me = { name: "convidado", color: "#00e5ff", character: "?" }, online = false, sentScore = 0, got30 = false;
+        const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; };
+        addEventListener("resize", resize); resize();
+        addEventListener("keydown", (e) => { keys[e.key] = true; });
+        addEventListener("keyup", (e) => { keys[e.key] = false; });
+        cv.addEventListener("pointermove", (e) => { x = e.clientX / W; });
+        document.getElementById("sair").onclick = () => (online ? UrnaPortal.exit("botao") : history.back());
+
+        UrnaPortal.connect({ portalId: "chuva-de-votos" }).then((s) => {
+            online = true;
+            me = { ...me, ...s.player };
+            UrnaPortal.event("chat", "entrei na Chuva de Votos!");
+        }).catch(() => { hud.dataset.off = "1"; });
+
+        function frame(now) {
+            const dt = Math.min(0.05, (now - last) / 1000);
+            last = now; t += dt;
+            x += ((keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0)) * dt * 0.9;
+            x = Math.max(0.05, Math.min(0.95, x));
+            if (Math.random() < dt * (2 + t * 0.05)) items.push({ x: Math.random() * 0.9 + 0.05, y: -0.05, good: Math.random() < 0.7, v: 0.25 + Math.random() * 0.25 });
+            for (const it of items) {
+                it.y += it.v * dt;
+                if (!it.hit && it.y > 0.86 && it.y < 0.93 && Math.abs(it.x - x) < 0.06) {
+                    it.hit = true;
+                    if (it.good) score++; else lives--;
+                }
+            }
+            items = items.filter((it) => !it.hit && it.y < 1.1);
+            if (lives <= 0) { score = 0; lives = 3; items = []; t = 0; }
+            if (online && score >= sentScore + 10) { sentScore = score; UrnaPortal.event("score", score * 100); }
+            if (online && score >= 30 && !got30) { got30 = true; UrnaPortal.event("achievement", "30 votos confirmados"); }
+
+            g.fillStyle = "#0b0820"; g.fillRect(0, 0, W, H);
+            for (let i = 0; i < 40; i++) { g.fillStyle = `hsla(${(i * 37 + t * 20) % 360},80%,60%,0.15)`; g.fillRect((i * 97) % W, ((i * 53 + t * 30) % H), 3, 3); }
+            for (const it of items) {
+                g.fillStyle = it.good ? "#3dff7a" : "#ff3d5a";
+                g.fillRect(it.x * W - 14, it.y * H - 10, 28, 20);
+                g.fillStyle = "#000"; g.font = "bold 10px monospace"; g.textAlign = "center";
+                g.fillText(it.good ? "OK" : "X", it.x * W, it.y * H + 4);
+            }
+            g.fillStyle = me.color || "#00e5ff";
+            g.fillRect(x * W - 40, H * 0.9 - 8, 80, 16);
+            g.fillStyle = "#fff"; g.font = "bold 13px monospace"; g.textAlign = "center";
+            g.fillText(me.name, x * W, H * 0.9 - 14);
+            hud.textContent = `${online ? "conectado ao Urna como " + me.name + " (" + me.character + ")" : hud.dataset.off ? "fora do Urna: modo convidado" : "conectando ao Urna..."} | votos ${score} | vidas ${lives} | setas/mouse`;
+            requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+    </script>
+</body>
+</html>

@@ -11,6 +11,7 @@ mod economy;
 mod eleicao;
 mod extras;
 mod gta;
+mod hub;
 mod inventory;
 mod items;
 mod lab;
@@ -378,6 +379,7 @@ async fn main() {
     let relogio = eleicao::Relogio::new();
     let lab = extras::Lab::new();
     let mut lab_info = lab::LabInfo::new();
+    let mut hub = hub::Hub::new();
     let mut club_k = 0.0f32;
     // Celular
     #[cfg(target_arch = "wasm32")]
@@ -729,6 +731,7 @@ async fn main() {
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
+                "hub" | "hub_s" => hub.on_msg(&m),
                 _ => {}
             }
         }
@@ -1069,6 +1072,18 @@ async fn main() {
                 player.pos = vec3(pv.x, world.floor_at(pv.x, pv.y, pv.z), pv.z);
                 player.knock = Vec3::ZERO;
             }
+        }
+        let (hub_msg, hub_release) = hub.update(&mut player, dt, online, remote_look(my_id).shirt, ch);
+        if let Some(m) = hub_msg {
+            send(m, &mut loopback);
+        }
+        if hub_release {
+            grabbed = false;
+            set_cursor_grab(false);
+            show_mouse(true);
+        }
+        if let Some(b) = hub.msg.take() {
+            banner = Some(b);
         }
         // Carro: física mesmo estacionado, dano, fumaça, explosão e ronco do motor
         let driving_now = bandido.as_ref().is_some_and(|b| b.driving);
@@ -1591,6 +1606,7 @@ async fn main() {
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
+        hub.draw(&mut opaque, &mut trans, &mut labels, time, eye);
         eco.draw_world(&mut opaque, &mut labels, eye, time);
         steve.draw_world(&mut opaque, time, eye, fw, ch == 0, player.sel, remotes.iter().map(|(id, r)| (*id, r.pos, r.yaw, r.ch)), &atlas.avg);
         fx.draw_opaque(&mut opaque);

@@ -197,6 +197,17 @@ revista. Guarda os últimos 50 achados. Ciclo a cada 30 min com fundo, 2 h sem f
 - **Dra. Sinapse-9**, androide cientista guardiã: mantém uma **cúpula de energia** sobre o lab (a
   urna não entra). Dá pra derrubar (400 HP, volta em 45 s); a cúpula continua.
 
+### Game Hub (corredor ao sul do lab) — portais pra jogos da web
+Quem portou um jogo pra web conecta ele como **arco-portal** pelo **Urna Portal Protocol v1**: o agente lê
+[`/hub.txt`](https://urna-mine-verine.wilianzilv.workers.dev/hub.txt), registra o portal com o mesmo token do
+modding (`POST /api/portals`, versionado com ativar/rollback), prova que é dono da origem servindo o challenge em
+`/.well-known/urna-portal.json` (`POST /api/portals/:id/verify`) e ativa. Entrar no arco abre o jogo num **iframe
+sandbox** em tela cheia com token de sessão assinado (HMAC, 10 min, `GET /api/portals/verify`) entregue por
+`postMessage` com origem conferida; Esc/voltar sempre devolve pra vila. Score vira poucas moedas fictícias
+(limitado), conquistas/chat caem no chat. SDK: `/sdk/urna-portal.js`; demo "Chuva de Votos" em
+`urna-hub-demo.wilianzilv.workers.dev` (`server/hub-demo/`). Segredo: `wrangler secret put HUB_SECRET` (sem ele, o DO
+gera e guarda um). Docs `docs/HUB.md`, schema `/hub.json`. Código: `server/hub.js`, `src/hub.rs`, `web/hub.js`.
+
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).
 

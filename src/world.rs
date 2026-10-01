@@ -352,6 +352,7 @@ impl World {
                 w.fill(x, top, z, x, top + th - 1, z, LOG);
             }
         }
+        crate::hub::build(&mut w);
         w
     }
 

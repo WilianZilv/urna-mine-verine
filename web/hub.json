@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://urna-mine-verine.wilianzilv.workers.dev/hub.json",
+  "title": "Urna Portal Protocol v1 - portal manifest",
+  "description": "Body of POST /api/portals and PUT /api/portals/:id/versions. Docs: /hub.txt",
+  "type": "object",
+  "required": ["name", "version", "url"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,31}$", "description": "Only on create. Default: slug of name." },
+    "name": { "type": "string", "minLength": 2, "maxLength": 32 },
+    "version": { "type": "string", "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$" },
+    "url": { "type": "string", "format": "uri", "pattern": "^https://", "maxLength": 300 },
+    "origin": { "type": "string", "pattern": "^https://[^/]+$", "description": "Must equal the origin of url." },
+    "description": { "type": "string", "maxLength": 200 },
+    "thumbnail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "colors": { "type": "array", "maxItems": 2, "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" } }
+      }
+    }
+  },
+  "$defs": {
+    "wellKnown": {
+      "description": "https://<origin>/.well-known/urna-portal.json",
+      "type": "object",
+      "required": ["urna_portal", "portals"],
+      "properties": {
+        "urna_portal": { "const": 1 },
+        "portals": {
+          "type": "array",
+          "items": { "type": "object", "required": ["id", "challenge"], "properties": { "id": { "type": "string" }, "challenge": { "type": "string" } } }
+        }
+      }
+    },
+    "message": {
+      "description": "postMessage payloads (game <-> urna)",
+      "oneOf": [
+        { "type": "object", "required": ["type", "v"], "properties": { "type": { "const": "upp:hello" }, "v": { "const": 1 }, "portalId": { "type": "string" } } },
+        { "type": "object", "required": ["type", "v", "token", "player"], "properties": { "type": { "const": "upp:session" }, "v": { "const": 1 }, "portalId": { "type": "string" }, "token": { "type": "string" }, "player": { "type": "object", "properties": { "name": { "type": "string" }, "color": { "type": "string" }, "character": { "type": "string" } } }, "returnUrl": { "type": "string" }, "verifyUrl": { "type": "string" } } },
+        { "type": "object", "required": ["type", "v"], "properties": { "type": { "const": "upp:ready" }, "v": { "const": 1 } } },
+        { "type": "object", "required": ["type", "v", "event"], "properties": { "type": { "const": "upp:event" }, "v": { "const": 1 }, "event": { "type": "object", "required": ["type"], "properties": { "type": { "enum": ["score", "achievement", "chat"] }, "value": { "type": "number" }, "text": { "type": "string", "maxLength": 160 } } } } },
+        { "type": "object", "required": ["type", "v"], "properties": { "type": { "const": "upp:exit" }, "v": { "const": 1 }, "reason": { "type": "string" } } }
+      ]
+    }
+  }
+}

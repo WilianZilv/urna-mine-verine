@@ -1,0 +1,7 @@
+name = "urna-hub-demo"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+PORTAL_ID = "chuva-de-votos"
+CHALLENGE = ""

@@ -2,7 +2,7 @@
 //! Pregão aberto a oeste com o painel holográfico virado pra avenida; salão a leste com letreiro LED
 //! rolando em cima da porta (textura só repinta quando a cotação muda; o rolar é UV) e touro de neon.
 
-use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, wrap};
+use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, text_mid, wrap};
 use crate::batch::Batch;
 use crate::extras::Label;
 use crate::lab::panel::{CYAN, DIM, GOLD, PINK, SOFT, fit, frame, frame_at, holo_fx, mipmaps, text_right};
@@ -55,10 +55,26 @@ struct Tk {
     d: f32,
     h: Vec<f32>,
     w: String,
+    /// Criador (só ações de mods).
+    c: String,
+}
+
+/// IPO no ar: takeover do painel + confete na porta até `until` (get_time).
+struct Ipo {
+    s: String,
+    n: String,
+    c: String,
+    p: f32,
+    until: f64,
+    slots: i64,
+    dl_until: f64,
 }
 
 pub struct Bolsa {
+    ipo: Option<Ipo>,
     tk: Vec<Tk>,
+    /// Ações de mods listados (página MODS do painel, alterna com a principal).
+    mk: Vec<Tk>,
     top: Vec<(String, i64)>,
     hot: String,
     /// Índice da vila (média das variações, %), humor do alerta (-1 crash, 0, +1 rali) e texto.
@@ -77,7 +93,9 @@ pub struct Bolsa {
 impl Bolsa {
     pub fn new() -> Self {
         Bolsa {
+            ipo: None,
             tk: Vec::new(),
+            mk: Vec::new(),
             top: Vec::new(),
             hot: String::new(),
             ix: 0.0,
@@ -97,8 +115,63 @@ impl Bolsa {
         if self.mood < 0 { RED } else { GREEN }
     }
 
+    /// Página MODS: 10 s a cada 24 s, se tiver mod listado.
+    fn mods_page(&self, time: f32) -> bool {
+        !self.mk.is_empty() && time.rem_euclid(24.0) >= 14.0
+    }
+
+    fn paint_mods(&self, time: f32) {
+        let (cw, ch) = (446.0, 300.0);
+        for (i, t) in self.mk.iter().take(6).enumerate() {
+            card(40.0 + (i % 3) as f32 * (cw + 20.0), 140.0 + (i / 3) as f32 * (ch + 20.0), cw, ch, t, time);
+        }
+        let (rx, rw) = (1440.0, TW - 1480.0);
+        frame(rx, 140.0, rw, 620.0, "COMO VIRA ACAO");
+        let how = "todo mod npc ativo concorre. os 6 mais populares (porrada, abates, tempo no ar e compras) entram no pregao a 50.00. desativou? o cofre paga o ultimo preco pros donos.";
+        for (j, l) in wrap(how, rw - 48.0, 36.0, 11).iter().enumerate() {
+            draw_text(l, rx + 24.0, 220.0 + j as f32 * 46.0, 36.0, if j == 0 { GOLD } else { WHITE });
+        }
+        draw_text("/bolsa mods", rx + 24.0, 740.0, 34.0, CYAN);
+    }
+
+    fn live_ipo(&self) -> Option<&Ipo> {
+        self.ipo.as_ref().filter(|i| get_time() < i.until)
+    }
+
+    fn paint_ipo(&self, ip: &Ipo, time: f32) {
+        draw_rectangle(0.0, 0.0, TW, TH, Color::new(0.14, 0.09, 0.0, 0.85));
+        for i in 0..70u32 {
+            let speed = 140.0 + rnd(i, 2) * 220.0;
+            let y = (time * speed + rnd(i, 3) * TH).rem_euclid(TH + 40.0) - 20.0;
+            let x = rnd(i, 1) * TW + 30.0 * (time * 2.0 + i as f32).sin();
+            draw_rectangle(x, y, 16.0, 9.0, confetti_color(i));
+        }
+        let blink = (time * 2.0).fract() < 0.6;
+        text_mid("IPO HOJE", TW * 0.5, 270.0, 230.0, if blink { GOLD } else { WHITE });
+        text_mid(&fit(&ip.n, TW - 120.0, 130.0), TW * 0.5, 450.0, 130.0, WHITE);
+        let by = if ip.c.is_empty() { String::new() } else { format!("  -  mod de {}", ip.c) };
+        text_mid(&format!("{} a {:.2}{by}", ip.s, ip.p), TW * 0.5, 560.0, 64.0, CYAN);
+        let secs = (ip.dl_until - get_time()).max(0.0).ceil();
+        let (deal, dc) = if ip.slots > 0 && secs > 0.0 {
+            (format!("3 PRIMEIRAS COMPRAS COM 10% OFF  -  restam {} ({secs}s)", ip.slots), PINK)
+        } else {
+            ("desconto de IPO esgotado. agora e preco de mercado".to_string(), SOFT)
+        };
+        text_mid(&deal, TW * 0.5, 690.0, 58.0, dc);
+        text_mid(&format!("/investir {} n", ip.s), TW * 0.5, 830.0, 96.0, GOLD);
+        text_mid("acao ficticia de mod, moeda ficticia. isso nao e conselho financeiro", TW * 0.5, 960.0, 32.0, DIM);
+        let a = if blink { 1.0 } else { 0.4 };
+        draw_rectangle_lines(10.0, 10.0, TW - 20.0, TH - 20.0, 16.0, Color::new(1.0, 0.8, 0.2, a));
+    }
+
     fn paint(&self, time: f32) {
-        draw_text("BOLSA DE VALORES DA VILA  -  ACOES FICTICIAS", 40.0, 84.0, 70.0, CYAN);
+        if let Some(ip) = self.live_ipo() {
+            self.paint_ipo(ip, time);
+            holo_fx(time, self.flash);
+            return;
+        }
+        let mods = self.mods_page(time);
+        draw_text(if mods { "BOLSA DE VALORES DA VILA  -  ACOES DE MODS" } else { "BOLSA DE VALORES DA VILA  -  ACOES FICTICIAS" }, 40.0, 84.0, 70.0, CYAN);
         let blink = (time * 1.5).fract() < 0.7;
         let (st, stc) = if self.tk.is_empty() {
             ("CONECTANDO...".to_string(), GOLD)
@@ -110,33 +183,38 @@ impl Bolsa {
         text_right(&st, TW - 40.0, 80.0, 44.0, stc);
         draw_rectangle(40.0, 120.0, TW - 80.0, 4.0, Color::new(0.45, 1.0, 1.0, 0.7));
 
-        let (cw, ch) = (330.0, 300.0);
-        for (i, t) in self.tk.iter().take(8).enumerate() {
-            card(40.0 + (i % 4) as f32 * (cw + 20.0), 140.0 + (i / 4) as f32 * (ch + 20.0), cw, ch, t, time);
-        }
-
-        let (rx, rw) = (1440.0, TW - 1480.0);
-        frame(rx, 140.0, rw, 620.0, "MAIORES INVESTIDORES");
-        for (i, (n, v)) in self.top.iter().enumerate() {
-            let y = 250.0 + i as f32 * 96.0;
-            let c = if i == 0 { GOLD } else { WHITE };
-            draw_text(&format!("{}", i + 1), rx + 24.0, y, 56.0, c);
-            draw_text(&fit(n, rw - 280.0, 46.0), rx + 80.0, y, 46.0, c);
-            text_right(&format!("{v}"), rx + rw - 24.0, y, 50.0, GOLD);
-        }
-        if self.top.is_empty() {
-            for (j, l) in wrap("ninguem investiu ainda. seja o primeiro trouxa: /investir LULA 5", rw - 48.0, 38.0, 4).iter().enumerate() {
-                draw_text(l, rx + 24.0, 250.0 + j as f32 * 46.0, 38.0, SOFT);
+        if mods {
+            self.paint_mods(time);
+        } else {
+            let (cw, ch) = (330.0, 300.0);
+            for (i, t) in self.tk.iter().take(8).enumerate() {
+                card(40.0 + (i % 4) as f32 * (cw + 20.0), 140.0 + (i / 4) as f32 * (ch + 20.0), cw, ch, t, time);
             }
+
+            let (rx, rw) = (1440.0, TW - 1480.0);
+            frame(rx, 140.0, rw, 620.0, "MAIORES INVESTIDORES");
+            for (i, (n, v)) in self.top.iter().enumerate() {
+                let y = 250.0 + i as f32 * 96.0;
+                let c = if i == 0 { GOLD } else { WHITE };
+                draw_text(&format!("{}", i + 1), rx + 24.0, y, 56.0, c);
+                draw_text(&fit(n, rw - 280.0, 46.0), rx + 80.0, y, 46.0, c);
+                text_right(&format!("{v}"), rx + rw - 24.0, y, 50.0, GOLD);
+            }
+            if self.top.is_empty() {
+                for (j, l) in wrap("ninguem investiu ainda. seja o primeiro trouxa: /investir LULA 5", rw - 48.0, 38.0, 4).iter().enumerate() {
+                    draw_text(l, rx + 24.0, 250.0 + j as f32 * 46.0, 38.0, SOFT);
+                }
+            }
+            draw_text("valor em acoes (moedas ficticias)", rx + 24.0, 740.0, 28.0, DIM);
         }
-        draw_text("valor em acoes (moedas ficticias)", rx + 24.0, 740.0, 28.0, DIM);
 
         frame(40.0, 780.0, TW - 80.0, 150.0, "ANALISTA DA VILA");
         let hot = self.hot.trim_start_matches("ANALISTA: ");
         for (j, l) in wrap(hot, TW - 140.0, 44.0, 2).iter().enumerate() {
             draw_text(l, 70.0, 866.0 + j as f32 * 48.0, 44.0, if j == 0 { PINK } else { WHITE });
         }
-        draw_text("/investir LULA 5   /vender LULA 5   /carteira   -   moeda ficticia", 40.0, 990.0, 38.0, SOFT);
+        let sym = if mods { self.mk[0].s.as_str() } else { "LULA" };
+        draw_text(&format!("/investir {sym} 5   /vender {sym} 5   /carteira   -   moeda ficticia"), 40.0, 990.0, 38.0, SOFT);
         text_right("cotacao a cada 20s  -  taxa 1% vai pro cofre da IA", TW - 40.0, 990.0, 30.0, DIM);
         holo_fx(time, self.flash);
         if self.mood != 0 {
@@ -168,7 +246,7 @@ impl Bolsa {
             segs.push((self.alert.clone(), self.alert_color()));
             segs.push(sep.clone());
         }
-        for t in &self.tk {
+        for t in self.tk.iter().chain(&self.mk) {
             segs.push((format!("{} ", t.s), GOLD));
             segs.push((format!("{:.2} ", t.p), WHITE));
             segs.push((pct(t.d), trend(t.d)));
@@ -248,6 +326,9 @@ fn card(x: f32, y: f32, w: f32, h: f32, t: &Tk, time: f32) {
     draw_rectangle(x, y + h - 6.0, w, 6.0, Color::new(col.r, col.g, col.b, 0.6));
     draw_text(&t.s, x + 18.0, y + 64.0, 62.0, GOLD);
     text_right(&fit(&t.n, w - 190.0, 24.0), x + w - 16.0, y + 40.0, 24.0, SOFT);
+    if !t.c.is_empty() {
+        text_right(&fit(&format!("por {}", t.c), w - 190.0, 22.0), x + w - 16.0, y + 68.0, 22.0, DIM);
+    }
     draw_text(&format!("{:.2}", t.p), x + 18.0, y + 134.0, 64.0, WHITE);
     text_right(&pct(t.d), x + w - 16.0, y + 132.0, 42.0, col);
     spark(x + 18.0, y + 156.0, w - 36.0, 92.0, &t.h, col, time);
@@ -272,6 +353,32 @@ fn spark(x: f32, y: f32, w: f32, h: f32, v: &[f32], col: Color, time: f32) {
     }
     let e = pt(v.len() - 1);
     draw_circle(e.x, e.y, 6.0 + 3.0 * (time * 4.0).sin().abs(), WHITE);
+}
+
+/// Pseudo-aleatório estável em [0, 1] (confete sem estado).
+fn rnd(i: u32, k: u32) -> f32 {
+    let mut h = i.wrapping_mul(0x9E37_79B9) ^ k.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0xFFFF) as f32 / 65535.0
+}
+
+fn confetti_color(i: u32) -> Color {
+    [Color::new(1.0, 0.84, 0.2, 1.0), Color::new(1.0, 0.95, 0.55, 1.0), Color::new(0.85, 0.6, 0.1, 1.0), Color::new(1.0, 1.0, 0.85, 1.0)][(i % 4) as usize]
+}
+
+/// Chuva de confete dourado na frente da porta do salão (IPO).
+fn confetti(b: &mut Batch, time: f32, n: u32) {
+    let top = G as f32 + 13.0;
+    for i in 0..n {
+        let speed = 1.2 + rnd(i, 2) * 1.8;
+        let y = top - (time * speed + rnd(i, 3) * 12.0).rem_euclid(12.0);
+        let x = 251.0 + rnd(i, 1) * 6.5 + 0.3 * (time * 1.7 + i as f32).sin();
+        let z = 94.0 + rnd(i, 4) * 8.0 + 0.3 * (time * 1.3 + i as f32).cos();
+        let m = Mat4::from_translation(vec3(x, y, z)) * Mat4::from_rotation_y(time * 3.0 + i as f32) * Mat4::from_rotation_x(time * 4.0 + i as f32 * 0.7);
+        b.glow(&m, Vec3::ZERO, vec3(0.2, 0.03, 0.13), confetti_color(i));
+    }
 }
 
 /// Touro de neon dourado investindo pra oeste (cabeça em -x), e a seta do humor do mercado em cima.
@@ -368,10 +475,27 @@ impl Place for Bolsa {
     fn on_msg(&mut self, m: &Value) {
         let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
         let arr = |v: &Value| v.as_array().cloned().unwrap_or_default();
-        self.tk = arr(&m["tk"])
-            .iter()
-            .map(|t| Tk { s: s(&t["s"]), n: s(&t["n"]), p: f(&t["p"]), d: f(&t["d"]), h: arr(&t["h"]).iter().map(f).collect(), w: s(&t["w"]) })
-            .collect();
+        let tks = |v: &Value| -> Vec<Tk> {
+            arr(v)
+                .iter()
+                .map(|t| Tk { s: s(&t["s"]), n: s(&t["n"]), p: f(&t["p"]), d: f(&t["d"]), h: arr(&t["h"]).iter().map(f).collect(), w: s(&t["w"]), c: s(&t["c"]) })
+                .collect()
+        };
+        self.tk = tks(&m["tk"]);
+        self.mk = tks(&m["mk"]);
+        let ip = &m["ipo"];
+        if ip.is_object() {
+            let now = get_time();
+            self.ipo = Some(Ipo {
+                s: s(&ip["s"]),
+                n: s(&ip["n"]),
+                c: s(&ip["c"]),
+                p: f(&ip["p"]),
+                until: now + ip["left"].as_f64().unwrap_or(0.0).clamp(0.0, 20.0),
+                slots: ip["slots"].as_i64().unwrap_or(0),
+                dl_until: now + ip["dl"].as_f64().unwrap_or(0.0).clamp(0.0, 120.0),
+            });
+        }
         self.top = arr(&m["top"]).iter().map(|e| (s(&e[0]), e[1].as_i64().unwrap_or(0))).collect();
         self.hot = s(&m["hot"]);
         self.ix = f(&m["ix"]);
@@ -439,6 +563,10 @@ impl Place for Bolsa {
         }
         if eye.distance(vec3(LX, G as f32 + 10.0, LZ)) < 70.0 {
             labels.push(Label { pos: vec3(LX - 0.5, G as f32 + 10.5, LZ), text: "BOLSA DE VALORES DA VILA".into(), size: 24.0, color: GOLD });
+        }
+        if let Some(ip) = self.live_ipo() {
+            confetti(b, time, crate::quality::pick([40, 90, 130]));
+            labels.push(Label { pos: vec3(LX - 0.5, G as f32 + 12.5, LZ), text: format!("IPO HOJE: {} ({})", ip.n, ip.s), size: 22.0, color: GOLD });
         }
         if eye.distance(BULL) < 60.0 {
             let (text, color) = if self.ix < 0.0 {

@@ -170,7 +170,10 @@ fn text_centered(s: &str, x: f32, y: f32, size: f32, color: Color, bg: bool) {
     }
     prof::add(&prof::TEXTS, 1);
     let p = |color| TextParams { font_size: base, font_scale: scale, color, ..Default::default() };
-    draw_text_ex(s, x - dim.width * 0.5 + 2.0, y + 2.0, p(Color::new(0.0, 0.0, 0.0, color.a * 0.7)));
+    // Com fundo escuro a sombra quase não aparece: qualidade baixa pula (metade dos glifos)
+    if !(bg && quality::tier() == quality::LOW) {
+        draw_text_ex(s, x - dim.width * 0.5 + 2.0, y + 2.0, p(Color::new(0.0, 0.0, 0.0, color.a * 0.7)));
+    }
     draw_text_ex(s, x - dim.width * 0.5, y, p(color));
 }
 

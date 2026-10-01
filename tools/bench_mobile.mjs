@@ -14,7 +14,7 @@ const PORT = 9338, HTTP = 8737;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm" };
 const server = createServer((req, res) => {
-    const f = join("web", decodeURIComponent(req.url.split("?")[0]).replace(/^\/$/, "/index.html"));
+    const f = join(process.env.URNA_WEB || "web", decodeURIComponent(req.url.split("?")[0]).replace(/^\/$/, "/index.html"));
     if (!existsSync(f)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { "content-type": types[extname(f)] || "application/octet-stream" });
     res.end(readFileSync(f));
@@ -33,8 +33,17 @@ const pending = new Map();
 ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result || m.error); pending.delete(m.id); }
+    if (m.method === "Page.javascriptDialogOpening") {
+        console.log("dialog:", m.params.message);
+        cmd("Page.handleJavaScriptDialog", { accept: true }, m.sessionId);
+    }
 };
-const cmd = (method, params = {}, sessionId) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params, sessionId })); });
+const cmd = (method, params = {}, sessionId) => new Promise((r) => {
+    const i = ++id;
+    pending.set(i, r);
+    setTimeout(() => { if (pending.delete(i)) r({ timeout: method }); }, 10000);
+    ws.send(JSON.stringify({ id: i, method, params, sessionId }));
+});
 
 const { targetId } = await cmd("Target.createTarget", { url: "about:blank" });
 const { sessionId } = await cmd("Target.attachToTarget", { targetId, flatten: true });

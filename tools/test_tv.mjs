@@ -207,6 +207,34 @@ ok(tv.s.rec.d === today(N) && !tv.s.rec.don && !Object.keys(tv.s.rec.trips).leng
 ok(empty.length === 3 && empty[0].cat === "COFRE DA IA", "sem recordes: tapa-buraco com fatos fixos");
 ok(new Tv(pl, { rec: { d: "2000-01-01", don: { v: 9, n: "x" } } }).s.rec.don === null, "estado salvo de outro dia zera no load");
 ok(new Tv(pl, { rec: { ...freshKeep(), d: today() } }).s.rec.don?.v === 7, "estado salvo de hoje persiste");
+
+// AUDIENCIA: plateia em frente ao telao + recorde persistido
+const recSay = () => bc.filter((m) => m.t === "chat" && /recorde de audiencia/.test(m.m)).map((m) => m.m);
+tv.s.aud = { v: 0, d: "" };
+tv.audSaid = 0;
+c.pos = [64, 20, 250];
+room.clients.set(2, { name: "zeca", pos: [40, 20, 231] });
+room.clients.set(3, { name: "longe", pos: [64, 20, 280] });
+room.clients.set(4, { pos: [64, 20, 250] });
+tv.watch(Date.now());
+s = last();
+ok(s.aud === 2 && s.rec === 2 && s.recd === today(), `audiencia conta so quem ta na frente do telao: ${s.aud}`);
+ok(recSay().length === 1 && /: 2$/.test(recSay()[0]), `chat recorde: ${recSay()[0]}`);
+const nb = bc.length;
+tv.watch(Date.now());
+ok(bc.length === nb, "sem mudanca, sem push");
+room.clients.set(5, { name: "nova", pos: [99, 20, 265] });
+tv.watch(Date.now());
+ok(last().aud === 3 && tv.s.aud.v === 3 && recSay().length === 1, "recorde novo em menos de 1 min: atualiza calado");
+tv.audSaid -= 61000;
+tv.watch(Date.now());
+ok(recSay().length === 2 && /: 3$/.test(recSay()[1]), "anuncio pendente sai depois de 1 min");
+for (const k of [2, 3, 4, 5]) room.clients.delete(k);
+tv.watch(Date.now());
+ok(last().aud === 1 && last().rec === 3 && recSay().length === 2, "plateia cai, recorde fica");
+ok(new Tv(pl, { aud: { v: 9, d: "2026-01-01" } }).snap().rec === 9, "recorde persiste no load");
+delete c.pos;
+
 function freshKeep() {
     return { drop: null, rally: null, law: null, don: { v: 7, n: "y" }, rich: null, trips: {}, hits: {} };
 }

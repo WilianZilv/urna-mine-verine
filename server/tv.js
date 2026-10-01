@@ -22,7 +22,10 @@ const MOM_CD = 60 * 1000;
 const MOM_MAX = 5;
 const HIT_MS = 250;
 const TRIP_MS = 1500;
+const AUD_SAY = 60 * 1000;
 const FROM = "TV URNA";
+/// Plateia do telao: area em frente a fachada norte (telao em z 266, centro x 64.5), por c.pos.
+export const VIEW = { x0: 30, x1: 100, z0: 230, z1: 266 };
 // g/i do golpe ("a"), mesma ordem do bolsa.js
 const PUNCHED = { "0:0": "LULA", "0:1": "FLAVIO", "0:2": "RENAN", "0:3": "WOLVERINE", 4: "URNA GIGANTE", 9: "GODZILHA" };
 
@@ -100,6 +103,10 @@ export class Tv {
         this.momAt = Date.now();
         this.momLast = 0;
         this.dirty = false;
+        this.s.aud ??= { v: 0, d: "" };
+        this.aud = 0;
+        this.audPend = false;
+        this.audSaid = 0;
         this.air = null;
         this.cd = new Map();
         this.busy = false;
@@ -131,6 +138,9 @@ export class Tv {
             sp: this.s.sp.filter((x) => x.until > now).map((x) => ({ text: x.text, by: x.by, left: left(x.until) })),
             urg: this.urg && this.urg.until > now ? { text: this.urg.text, left: left(this.urg.until) } : null,
             mom: this.mom && this.mom.until > now ? { left: left(this.mom.until), items: this.mom.items } : null,
+            aud: this.aud,
+            rec: this.s.aud.v,
+            recd: this.s.aud.d,
         };
     }
 
@@ -175,6 +185,7 @@ export class Tv {
             if (this.sibK[k] !== undefined && this.sibK[k] !== x && (!this.pend || 4 >= this.pend.p)) this.pend = { p: 4, text: x, t: now };
             this.sibK[k] = x;
         }
+        if (this.audience(now)) this.push();
         if (this.dirty) {
             this.dirty = false;
             this.pl.save("tv", this.s);
@@ -201,6 +212,29 @@ export class Tv {
         }
         if (online && now - this.s.at >= BULLETIN_MS) this.bulletin(null);
         else if (online && this.pl.online().length && !this.mom && !this.urg && now - this.momAt >= MOM_EVERY) this.momento(now);
+    }
+
+    // ------------------------------------------------ AUDIENCIA (quem ta na frente do telao)
+    /// Conta a plateia e cuida do recorde. true = numero mudou (vale um push).
+    audience(now) {
+        let n = 0;
+        for (const c of this.room.clients?.values?.() || []) {
+            const p = Array.isArray(c?.pos) ? c.pos.map(Number) : null;
+            if (c.name && p && p[0] >= VIEW.x0 && p[0] <= VIEW.x1 && p[2] >= VIEW.z0 && p[2] <= VIEW.z1) n++;
+        }
+        if (n > this.s.aud.v) {
+            this.s.aud = { v: n, d: today(now) };
+            this.dirty = true;
+            this.audPend = true;
+        }
+        if (this.audPend && now - this.audSaid >= AUD_SAY) {
+            this.audPend = false;
+            this.audSaid = now;
+            this.pl.say(FROM, `TV URNA bate recorde de audiencia: ${this.s.aud.v}`);
+        }
+        if (n === this.aud) return false;
+        this.aud = n;
+        return true;
     }
 
     // ------------------------------------------------ MOMENTO DO DIA (recordes do dia local)

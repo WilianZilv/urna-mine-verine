@@ -23,6 +23,30 @@ ws.onmessage = (e) => {
     }
 };
 await new Promise((r) => (ws.onopen = r));
+if (process.argv[3] === "audiencia") {
+    // fica parado na frente do telao: espera AUDIENCIA >= 1 no snapshot; segue conectado `espera_ms`
+    ws.send(JSON.stringify({ t: "hello", n: `ibope${Date.now() % 100000}` }));
+    await sleep(1000);
+    let seen = null;
+    const prev = ws.onmessage;
+    ws.onmessage = (e) => {
+        prev(e);
+        const m = JSON.parse(e.data);
+        if (m.t === "pl" && m.k === "tv" && m.aud >= 1) seen = m;
+    };
+    for (let i = 0; i < 20 && !seen; i++) {
+        ws.send(JSON.stringify({ t: "p", p: [64, 20, 250], y: 1.57 }));
+        await sleep(500);
+    }
+    console.log(seen ? `audiencia ${seen.aud} recorde ${seen.rec} (${seen.recd})` : "sem audiencia");
+    const until = Date.now() + +(process.argv[4] || 0);
+    while (Date.now() < until) {
+        ws.send(JSON.stringify({ t: "p", p: [64, 20, 250], y: 1.57 }));
+        await sleep(1000);
+    }
+    ws.close();
+    process.exit(seen ? 0 : 1);
+}
 if (mom) {
     ws.send(JSON.stringify({ t: "hello", n: `mom${Date.now() % 100000}` }));
     await sleep(1500);

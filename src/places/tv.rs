@@ -42,13 +42,34 @@ pub struct Tv {
     urg: Option<(String, f64, f64)>,
     /// MOMENTO DO DIA: itens (categoria, valor, nome), fim e início em get_time.
     mom: Option<(Vec<(String, String, String)>, f64, f64)>,
+    /// AUDIENCIA (do servidor), recorde e dia dele; `watching` = este cliente olhando o telão de perto.
+    aud: i64,
+    rec: i64,
+    recd: String,
+    watching: bool,
     pad: f32,
     cool: f32,
 }
 
 impl Tv {
     pub fn new() -> Self {
-        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, pad: 0.0, cool: 0.0 }
+        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, aud: 0, rec: 0, recd: String::new(), watching: false, pad: 0.0, cool: 0.0 }
+    }
+
+    /// Canto do telão: AO VIVO pulsando + AUDIENCIA e recorde. (x, y) = canto superior esquerdo, 470x100.
+    fn badge(&self, time: f32, x: f32, y: f32) {
+        let p = 0.5 + 0.5 * (time * 4.0).sin();
+        draw_rectangle(x, y, 470.0, 100.0, Color::new(0.0, 0.0, 0.0, 0.8));
+        draw_rectangle_lines(x, y, 470.0, 100.0, 4.0, Color::new(1.0, 0.2, 0.2, 0.5 + 0.5 * p));
+        draw_circle(x + 30.0, y + 30.0, 10.0 + 5.0 * p, Color::new(1.0, 0.1 + 0.2 * p, 0.1, 1.0));
+        draw_text("AO VIVO", x + 54.0, y + 44.0, 44.0, Color::new(1.0, 0.25 + 0.5 * p, 0.25 + 0.5 * p, 1.0));
+        let day = self.recd.get(5..).map(|d| d.split('-').rev().collect::<Vec<_>>().join("/")).unwrap_or_default();
+        text_right(&format!("REC {}{}", self.rec, if day.is_empty() { String::new() } else { format!(" ({day})") }), x + 455.0, y + 40.0, 30.0, GOLD);
+        let c = if self.watching { GOLD } else { WHITE };
+        draw_text(&format!("AUDIENCIA: {}", self.aud), x + 18.0, y + 88.0, 44.0, c);
+        if self.watching {
+            text_right("(TU)", x + 455.0, y + 88.0, 30.0, GOLD);
+        }
     }
 
     fn mom_now(&self) -> Option<&(Vec<(String, String, String)>, f64, f64)> {
@@ -82,9 +103,10 @@ impl Tv {
         for (x, y) in [(44.0, 44.0), (TW - 44.0, 44.0), (44.0, 980.0), (TW - 44.0, 980.0)] {
             draw_poly(x, y, 4, 34.0, time * 40.0, GOLD);
         }
-        draw_rectangle(300.0, 70.0, TW - 600.0, 170.0, Color::new(0.35, 0.22, 0.0, 0.9));
-        draw_rectangle(300.0, 232.0, TW - 600.0, 8.0, GOLD);
-        text_mid("MOMENTO DO DIA", TW * 0.5, 200.0, 150.0, gold);
+        draw_rectangle(110.0, 70.0, 1360.0, 170.0, Color::new(0.35, 0.22, 0.0, 0.9));
+        draw_rectangle(110.0, 232.0, 1360.0, 8.0, GOLD);
+        text_mid("MOMENTO DO DIA", 790.0, 200.0, 150.0, gold);
+        self.badge(time, TW - 560.0, 100.0);
         // Entrada do item: desliza da direita e acende nos primeiros instantes
         let e = (f * 8.0).clamp(0.0, 1.0);
         let dx = (1.0 - e) * (1.0 - e) * 900.0;
@@ -132,8 +154,9 @@ impl Tv {
         draw_rectangle(0.0, 900.0, TW, 124.0, Color::new(0.02, 0.02, 0.05, 0.95));
         draw_rectangle(0.0, 900.0, 420.0, 124.0, RED);
         text_mid("TV URNA", 210.0, 984.0, 80.0, WHITE);
-        draw_text("INTERROMPEMOS A PROGRAMACAO PRA ISSO AI", 460.0, 980.0, 60.0, SOFT);
-        text_right(&format!("{:.0}s", (end - now).max(0.0)), TW - 40.0, 984.0, 80.0, GOLD);
+        draw_text(&fit("INTERROMPEMOS A PROGRAMACAO PRA ISSO AI", TW - 1010.0, 48.0), 460.0, 978.0, 48.0, SOFT);
+        text_right(&format!("{:.0}s", (end - now).max(0.0)), TW - 40.0, 90.0, 80.0, WHITE);
+        self.badge(time, TW - 510.0, 912.0);
         holo_fx(time, if blink { 0.3 } else { 0.0 });
     }
 
@@ -149,14 +172,10 @@ impl Tv {
         // Cabeçalho
         draw_rectangle(0.0, 0.0, TW, 120.0, Color::new(0.5, 0.03, 0.06, 0.95));
         draw_rectangle(0.0, 116.0, TW, 6.0, RED);
-        draw_text("URNA NEWS  -  AO VIVO", 40.0, 92.0, 90.0, WHITE);
-        let dx = measure_text("URNA NEWS  -  AO VIVO", None, 90, 1.0).width;
-        if (time * 1.5).fract() < 0.6 {
-            draw_circle(80.0 + dx, 60.0, 22.0, RED);
-            draw_circle(80.0 + dx, 60.0, 12.0, Color::new(1.0, 0.7, 0.7, 1.0));
-        }
+        draw_text("URNA NEWS", 40.0, 92.0, 90.0, WHITE);
         let ago = if self.ago < 0.0 { "sintonizando".to_string() } else { format!("ha {} min", ((self.ago + now - self.recv) / 60.0).floor() as i64) };
-        text_right(&format!("BOLETIM #{:04}  -  {ago}", self.n), TW - 40.0, 78.0, 48.0, GOLD);
+        text_right(&format!("BOLETIM #{:04}  -  {ago}", self.n), TW - 520.0, 78.0, 48.0, GOLD);
+        self.badge(time, TW - 490.0, 10.0);
 
         self.anchor(time, now);
 
@@ -324,6 +343,9 @@ impl Place for Tv {
             };
             (s(&u["text"]), now + u["left"].as_f64().unwrap_or(0.0), start)
         });
+        self.aud = m["aud"].as_i64().unwrap_or(0);
+        self.rec = m["rec"].as_i64().unwrap_or(0);
+        self.recd = s(&m["recd"]);
         let mo = &m["mom"];
         self.mom = mo.is_object().then(|| {
             let items: Vec<(String, String, String)> = mo["items"].as_array().map(|v| v.iter().map(|x| (s(&x["cat"]), s(&x["v"]), s(&x["n"]))).collect()).unwrap_or_default();
@@ -338,6 +360,9 @@ impl Place for Tv {
     }
 
     fn update(&mut self, p: &mut Player, dt: f32, time: f32, online: bool, out: &mut Vec<Value>) {
+        let (gs, eye) = (geo(), p.eye());
+        let to = gs.c - eye;
+        self.watching = to.length() < 60.0 && gs.facing(eye) && p.forward().dot(to.normalize_or_zero()) > 0.7;
         let on = (p.pos.x - PAD.x).abs() < 1.5 && (p.pos.z - PAD.y).abs() < 1.5 && (p.pos.y - G as f32).abs() < 1.2;
         if !on || !online || time < self.cool {
             self.pad = 0.0;
@@ -355,7 +380,7 @@ impl Place for Tv {
         let air = self.air_now().map(|a| a.0.clone()).unwrap_or_default();
         let urg = self.urg_now().map(|u| u.0.as_str()).unwrap_or("");
         let mom = self.mom_now().map(|m| m.0.len()).unwrap_or(0);
-        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom));
+        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom, self.aud, self.rec, self.watching));
         if self.scr.begin(time, eye, &geo(), key, true) {
             self.paint(time);
             self.scr.end();

@@ -56,6 +56,7 @@
         if (document.exitPointerLock) document.exitPointerLock();
         history.pushState({ upp: 1 }, "");
         cur = { el, frame: f, origin, tok: info.tok, pid: info.p, ret: info.ret, player: claims(info.tok).player || {}, ready: false };
+        window.dispatchEvent(new CustomEvent("upp:open", { detail: { el, frame: f, origin, tok: info.tok, pid: info.p, name: info.name } }));
         f.focus();
     }
 
@@ -64,6 +65,7 @@
         const c = cur;
         cur = null;
         post(c.tok, "exit");
+        window.dispatchEvent(new CustomEvent("upp:close"));
         c.el.remove();
         if (!fromHistory) history.back();
         const cv = document.getElementById("glcanvas");
@@ -99,12 +101,13 @@
         }
     });
     window.addEventListener("keydown", (e) => {
-        if (!cur || e.key !== "Escape") return;
+        if (!cur || e.key !== "Escape" || (e.target.closest && e.target.closest("#upp-pres"))) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         close();
     }, true);
     window.addEventListener("popstate", () => close(true));
+    window.UrnaHubOverlay = { open, close };
 
     miniquad_add_plugin({
         register_plugin: function (io) {

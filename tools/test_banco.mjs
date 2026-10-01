@@ -229,4 +229,44 @@ assert.equal(said[2], "BANCO: NOVO MAGNATA DA VILA: Ana");
     assert.equal(Object.keys(bc.s.cr).length, 100);
     assert.ok(bc.s.cr.lia && bc.s.cr.c119 && !bc.s.cr.c0);
 }
+
+// HALL DA FAMA: quem entra no top 3 de criadores e anunciado (1x por minuto, primeiro top sem ranking salvo nao)
+{
+    const said = [];
+    const st = {};
+    const hroom = { eco, send: () => { }, broadcast: () => { } };
+    const hpl = { room: hroom, save() { }, say: (from, m) => said.push(`${from}: ${m}`), priv() { } };
+    const h = new Banco(hpl, st);
+    const set = (o) => (h.s.cr = Object.fromEntries(Object.entries(o).map(([n, e]) => [norm(n), { n, e, p: 0, h: 0 }])));
+    set({ A: 5, B: 4, C: 3 });
+    h.push();
+    assert.equal(said.length, 0);
+    set({ A: 5, B: 4, C: 3, D: 1 }); // D fora do top 3
+    h.push();
+    assert.equal(said.length, 0);
+    set({ A: 5, B: 4, C: 3, D: 9 });
+    h.push();
+    assert.deepEqual(said, ["BANCO: D entrou pro HALL DA FAMA dos criadores"]);
+    set({ A: 5, B: 4, C: 30, D: 9, E: 20 }); // E entra no cooldown: segura
+    h.push();
+    assert.equal(said.length, 1);
+    h.hofAt -= 61 * 1000;
+    h.push();
+    assert.equal(said[1], "BANCO: C e E entraram pro HALL DA FAMA dos criadores"); // C tinha caido pro #4 quando D entrou
+    set({ A: 50, B: 40, C: 30 });
+    h.hofAt -= 61 * 1000;
+    h.push();
+    assert.equal(said[2], "BANCO: A e B entraram pro HALL DA FAMA dos criadores");
+    h.tick(Date.now(), true);
+    assert.deepEqual(st.cri.slice(0, 3), [["A", 500], ["B", 400], ["C", 300]]);
+
+    // DO reinicia com ranking salvo: top 3 conhecido nao e reanunciado
+    said.length = 0;
+    const h2 = new Banco(hpl, st);
+    h2.push();
+    assert.equal(said.length, 0);
+    h2.s.cr.z = { n: "Z", e: 99, p: 0, h: 0 };
+    h2.push();
+    assert.deepEqual(said, ["BANCO: Z entrou pro HALL DA FAMA dos criadores"]);
+}
 console.log("test_banco OK");

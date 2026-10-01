@@ -11,6 +11,7 @@ const CAP = 100; // juros maximo por operacao
 const RESERVE = 300; // mesma reserva do economy.js
 const ATM_MS = 3000;
 const MAGNATA_MS = 60 * 1000;
+const HOF_MS = 60 * 1000;
 // IMPACTO de criador (nunca dinheiro): mods ativos e portais no ar contam ao vivo; visitas, presenca e golpes acumulam.
 const W = { mod: 40, portal: 25, visit: 10, pres: 1, hits: 5 }; // hits: 1 ponto a cada 5 golpes
 const MAX_CR = 100;
@@ -30,6 +31,9 @@ export class Banco {
         this.seen = new Map(); // "jogador|portal" -> ultima visita contada
         this.hitAt = new Map();
         this.dirty = false;
+        // Top 3 ja anunciado no HALL DA FAMA; sem ranking salvo, o primeiro top visto nao e anunciado
+        this.hof = this.s.cri.length ? this.s.cri.slice(0, 3).map(([n]) => norm(n)) : undefined;
+        this.hofAt = 0;
         this.top = undefined; // ultimo #1 anunciado (normalizado); o primeiro visto nao e anunciado
         this.topAt = 0;
     }
@@ -171,6 +175,7 @@ export class Banco {
     push(force = false) {
         const m = this.snap();
         this.magnata(m.rich[0]?.[0]);
+        this.hall(m.cri.slice(0, 3).map((r) => r[0]));
         const h = JSON.stringify(m);
         if (!force && h === this.last) return;
         this.last = h;
@@ -187,6 +192,19 @@ export class Banco {
         this.top = k;
         this.topAt = now;
         this.pl.say("BANCO", `NOVO MAGNATA DA VILA: ${name}`);
+    }
+
+    /// Anuncia quem entrou no top 3 de criadores (1 fala por minuto; quem entrar no cooldown sai depois).
+    hall(names) {
+        const ks = names.map(norm);
+        if (this.hof === undefined) return void (this.hof = ks);
+        const fresh = names.filter((n, i) => !this.hof.includes(ks[i]));
+        if (!fresh.length) return void (this.hof = ks);
+        const now = Date.now();
+        if (now - this.hofAt < HOF_MS) return;
+        this.hof = ks;
+        this.hofAt = now;
+        this.pl.say("BANCO", `${fresh.join(" e ")} ${fresh.length > 1 ? "entraram" : "entrou"} pro HALL DA FAMA dos criadores`);
     }
 
     join(c) {

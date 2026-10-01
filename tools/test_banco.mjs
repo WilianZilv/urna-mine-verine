@@ -1,6 +1,6 @@
 // Teste do server/banco.js com places/room/eco falsos: node tools/test_banco.mjs
 import assert from "node:assert/strict";
-import { Banco } from "../server/banco.js";
+import { Banco, today } from "../server/banco.js";
 
 const HOUR = 3600 * 1000;
 const chat = [], sent = [];
@@ -94,6 +94,7 @@ assert.equal(chat.length, n);
 
 // snapshot so muda com hash
 sent.length = 0;
+b.last = ""; // o caixa acima fez check-in da ofensiva e ja empurrou o snapshot
 b.tick(0, true);
 b.tick(0, true);
 assert.equal(sent.length, 1);
@@ -268,5 +269,123 @@ assert.equal(said[2], "BANCO: NOVO MAGNATA DA VILA: Ana");
     h2.s.cr.z = { n: "Z", e: 99, p: 0, h: 0 };
     h2.push();
     assert.deepEqual(said, ["BANCO: Z entrou pro HALL DA FAMA dos criadores"]);
+}
+// OFENSIVA DIARIA: 1 check-in por dia local, pula um dia e zera, ciclo de 7, reserva protege o cofre
+{
+    const msgs = [], out = [];
+    const oeco = {
+        s: { tr: 1000, w: {}, led: [] },
+        wallet: eco.wallet,
+        entry: eco.entry,
+        sendMe() { },
+    };
+    const oroom = { eco: oeco, send: (c, m) => (m.t === "chat" ? msgs.push(m.m) : out.push(m)), broadcast() { } };
+    const opl = { room: oroom, save() { }, say() { }, priv: (c, from, m) => msgs.push(m) };
+    const o = new Banco(opl, {});
+    const zeca = { name: "Zeca" };
+    const day = today();
+    const lastMsg = () => msgs[msgs.length - 1];
+    const sum = () => oeco.s.tr + Object.values(oeco.s.w).reduce((s, w) => s + w.c, 0);
+    oeco.wallet("Zeca");
+    const t0 = sum();
+
+    // dia local UTC-3: 02:59 UTC ainda e o dia anterior
+    assert.equal(today(Date.UTC(2026, 9, 2, 2, 59)), today(Date.UTC(2026, 9, 1, 12, 0)));
+    assert.equal(today(Date.UTC(2026, 9, 2, 3, 0)), today(Date.UTC(2026, 9, 1, 12, 0)) + 1);
+
+    // join com check-in disponivel: dica privada
+    o.join(zeca);
+    assert.match(lastMsg(), /check-in do dia disponivel/);
+
+    // dia 1 paga 3; segunda vez no mesmo dia nao paga
+    assert.equal(o.command(1, zeca, "diario", []), true);
+    assert.deepEqual(o.s.of.zeca, { n: "Zeca", d: 1, last: day });
+    assert.equal(oeco.s.w.zeca.c, 103);
+    assert.equal(oeco.s.tr, 997);
+    assert.match(lastMsg(), /OFENSIVA 1 DIA! \+3/);
+    assert.deepEqual(out.at(-1), { t: "pl", k: "banco", ofx: 1, pay: 3 });
+    assert.deepEqual(oeco.s.led.at(-1).what, "ofensiva diaria: 1 dia");
+    const nled = oeco.s.led.length;
+    o.command(1, zeca, "diario", []);
+    assert.match(lastMsg(), /ja pegou o de hoje/);
+    assert.equal(oeco.s.w.zeca.c, 103);
+    assert.equal(oeco.s.led.length, nled);
+    const nmsg = msgs.length;
+    o.join(zeca); // ja pegou hoje: sem dica
+    assert.equal(msgs.length, nmsg);
+
+    // tabela de pagamento: dias 1..7 = 3,4,5,6,8,10,15, dia 8 recomeca o ciclo
+    const pays = [3];
+    for (let i = 2; i <= 9; i++) {
+        o.s.of.zeca.last = day - 1; // virou o dia
+        const before = oeco.s.w.zeca.c;
+        o.command(1, zeca, "diario", []);
+        assert.equal(o.s.of.zeca.d, i);
+        pays.push(oeco.s.w.zeca.c - before);
+    }
+    assert.deepEqual(pays, [3, 4, 5, 6, 8, 10, 15, 3, 4]);
+    assert.equal(sum(), t0);
+    assert.equal(oeco.s.led.filter((e) => e.what.startsWith("ofensiva")).length, 9);
+
+    // /ofensiva: mostra a tua
+    o.command(1, zeca, "ofensiva", []);
+    assert.match(lastMsg(), /tua OFENSIVA: 9 dias seguidos \(#1 da vila\) \| hoje ja foi\. amanha paga 5/);
+    o.command(1, { name: "Rui" }, "ofensiva", []);
+    assert.match(lastMsg(), /nao tem OFENSIVA.*\/diario paga 3/);
+
+    // pulou um dia: zera e paga o dia 1 de novo
+    o.s.of.zeca.last = day - 2;
+    assert.equal(o.streak("zeca"), 0);
+    o.join(zeca);
+    assert.match(lastMsg(), /check-in do dia disponivel/);
+    o.command(1, zeca, "diario", []);
+    assert.equal(o.s.of.zeca.d, 1);
+    assert.match(lastMsg(), /\+3/);
+
+    // ofensiva viva de ontem ainda conta no ranking e na dica
+    o.s.of.zeca.last = day - 1;
+    assert.equal(o.streak("zeca"), 1);
+    o.join(zeca);
+    assert.match(lastMsg(), /OFENSIVA de 1 dia ta esperando/);
+
+    // reserva: cofre nao paga abaixo de 300, mas a ofensiva conta
+    oeco.s.tr = 302; // dia 2 pagaria 4 -> 298
+    const w0 = oeco.s.w.zeca.c, l0 = oeco.s.led.length;
+    o.command(1, zeca, "diario", []);
+    assert.equal(o.s.of.zeca.d, 2);
+    assert.equal(oeco.s.tr, 302);
+    assert.equal(oeco.s.w.zeca.c, w0);
+    assert.equal(oeco.s.led.length, l0);
+    assert.match(lastMsg(), /OFENSIVA 2 DIAS registrada.*reserva/);
+    assert.deepEqual(out.at(-1), { t: "pl", k: "banco", ofx: 2, pay: 0 });
+    oeco.s.tr = 303; // dia 3 paga 5 -> 298: nao; exatamente 300 paga
+    o.s.of.zeca.last = day - 1;
+    o.command(1, zeca, "diario", []);
+    assert.equal(oeco.s.tr, 303);
+    oeco.s.tr = 306; // dia 4 paga 6 -> 300
+    o.s.of.zeca.last = day - 1;
+    o.command(1, zeca, "diario", []);
+    assert.equal(oeco.s.tr, 300);
+    assert.equal(o.s.of.zeca.d, 4);
+
+    // caixa eletronico faz o check-in (1x por dia), extrato continua saindo
+    oeco.s.tr = 1000;
+    const ana2 = { name: "Ana" };
+    o.onMsg(1, ana2, { k: "banco_atm" });
+    assert.equal(o.s.of.ana.d, 1);
+    assert.ok(msgs.at(-2).startsWith("OFENSIVA 1 DIA!"));
+    assert.match(lastMsg(), /CAIXA ELETRONICO/);
+    o.atm.clear();
+    const c0 = oeco.s.w.ana.c;
+    o.onMsg(1, ana2, { k: "banco_atm" });
+    assert.equal(oeco.s.w.ana.c, c0);
+    assert.match(lastMsg(), /CAIXA ELETRONICO/);
+
+    // fachada: top 5 ofensivas vivas + soma (fogueira); mortas nao contam
+    for (let i = 0; i < 6; i++) o.s.of[`p${i}`] = { n: `P${i}`, d: 10 + i, last: day };
+    o.s.of.velho = { n: "Velho", d: 99, last: day - 2 };
+    const sn = o.snap();
+    assert.deepEqual(sn.of, [["P5", 15], ["P4", 14], ["P3", 13], ["P2", 12], ["P1", 11]]);
+    assert.equal(sn.ofs, 15 + 14 + 13 + 12 + 11 + 10 + 4 + 1);
 }
 console.log("test_banco OK");

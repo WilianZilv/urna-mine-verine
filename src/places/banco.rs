@@ -1,7 +1,8 @@
 //! Banco Central da Vila: ranking, ledger na fachada, caixa eletrônico e poupança fictícia (server/banco.js).
 //! Prédio clássico (pódio, colunata de "mármore", frontão) com telão dourado acima da porta; dentro, porta de
 //! cofre redonda com volante girando e 2 caixas eletrônicos (pisar 1 s no tapete pede o extrato ao servidor).
-//! Telão alterna mais ricos / criadores (impacto, nunca moeda); hall da fama dos criadores ao lado do cofre.
+//! Telão alterna mais ricos / criadores (impacto, nunca moeda) / ofensivas (/diario); hall da fama dos criadores
+//! ao lado do cofre.
 
 use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, text_mid};
 use crate::batch::Batch;
@@ -31,12 +32,15 @@ const TROPHY: Vec3 = Vec3::new(211.0, FL, 228.2);
 const GOLD: Color = Color::new(1.0, 0.82, 0.3, 1.0);
 const DIMG: Color = Color::new(1.0, 0.82, 0.3, 0.35);
 const SOFT: Color = Color::new(0.95, 0.9, 0.78, 1.0);
+/// Fogo de fora pra dentro: vermelho, laranja, amarelo.
+const FIRE: [Color; 3] = [Color::new(1.0, 0.25, 0.08, 1.0), Color::new(1.0, 0.55, 0.1, 1.0), Color::new(1.0, 0.92, 0.45, 1.0)];
 const MEDAL: [Color; 3] = [GOLD, Color::new(0.85, 0.88, 0.92, 1.0), Color::new(0.85, 0.55, 0.3, 1.0)];
-/// Segundos de cada página do painel do meio (ricos / criadores).
+/// Segundos de cada página do painel do meio (ricos / criadores / ofensivas).
 const PAGE_S: f32 = 10.0;
+const PAGES: i64 = 3;
 
-fn creators_page(time: f32) -> bool {
-    (time / PAGE_S) as i64 % 2 == 1
+fn page(time: f32) -> i64 {
+    (time / PAGE_S) as i64 % PAGES
 }
 
 pub struct Banco {
@@ -45,6 +49,9 @@ pub struct Banco {
     /// Criadores por impacto: (nome, impacto, mods, portais, visitas).
     cri: Vec<(String, i64, i64, i64, i64)>,
     led: Vec<(String, String, i64)>,
+    /// Top 5 ofensivas vivas (nome, dias) e soma de todas.
+    of: Vec<(String, i64)>,
+    ofs: i64,
     sv: i64,
     nsv: i64,
     rate: f64,
@@ -80,6 +87,8 @@ impl Banco {
             rich: vec![],
             cri: vec![],
             led: vec![],
+            of: vec![],
+            ofs: 0,
             sv: 0,
             nsv: 0,
             rate: 2.0,
@@ -128,14 +137,14 @@ impl Banco {
 
         // Painel do meio alterna: mais ricos (patrimônio) / criadores (impacto)
         let (x1, w1) = (670.0, 680.0);
-        let cri = creators_page(time);
-        if cri {
-            self.paint_creators(x1, w1);
-        } else {
-            self.paint_rich(x1, w1);
+        let pg = page(time);
+        match pg {
+            1 => self.paint_creators(x1, w1),
+            2 => self.paint_streaks(x1, w1, time),
+            _ => self.paint_rich(x1, w1),
         }
-        for (k, on) in [!cri, cri].into_iter().enumerate() {
-            draw_circle(x1 + w1 - 56.0 + k as f32 * 28.0, 920.0, 9.0, if on { GOLD } else { DIMG });
+        for k in 0..PAGES {
+            draw_circle(x1 + w1 - 28.0 * PAGES as f32 + k as f32 * 28.0, 920.0, 9.0, if k == pg { GOLD } else { DIMG });
         }
 
         // Ledger público (mais novo em cima)
@@ -153,7 +162,7 @@ impl Banco {
             draw_text("nenhuma moeda se mexeu", x2 + 30.0, 260.0, 36.0, SOFT);
         }
 
-        text_mid("/poupar n   /sacar n   /ranking   /criadores   -   pisa no caixa eletronico", TW * 0.5, 1002.0, 46.0, GOLD);
+        text_mid("/diario   /ofensiva   /poupar n   /sacar n   /ranking   /criadores   -   pisa no caixa eletronico", TW * 0.5, 1002.0, 42.0, GOLD);
         gold_fx(time, flash);
     }
 
@@ -193,6 +202,34 @@ impl Banco {
             draw_text("sobe um mod ou portal e vira lenda", x1 + 30.0, 310.0, 34.0, DIMG);
         }
         draw_text("mods + portais + visitas + presenca (pontos)", x1 + 24.0, 930.0, 28.0, DIMG);
+    }
+
+    /// Top 5 ofensivas vivas (dias seguidos de /diario) com chaminhas do ciclo de 7.
+    fn paint_streaks(&self, x1: f32, w1: f32, time: f32) {
+        panel(x1, 135.0, w1, 810.0, "OFENSIVAS - DIAS SEGUIDOS");
+        text_right(&format!("fogueira: {}", self.ofs), x1 + w1 - 24.0, 172.0, 30.0, FIRE[1]);
+        for (i, (n, d)) in self.of.iter().take(5).enumerate() {
+            let y = 200.0 + i as f32 * 140.0;
+            let col = *MEDAL.get(i).unwrap_or(&SOFT);
+            draw_text(&format!("{}.", i + 1), x1 + 24.0, y + 64.0, 54.0, col);
+            flame(x1 + 120.0, y + 70.0, 34.0 + (*d as f32).min(30.0), time + i as f32);
+            draw_text(&fit(n, 330.0, 48.0), x1 + 170.0, y + 52.0, 48.0, WHITE);
+            text_right(&format!("{} dia{}", d, if *d == 1 { "" } else { "s" }), x1 + w1 - 24.0, y + 52.0, 48.0, FIRE[1]);
+            let cyc = (d - 1) % 7 + 1;
+            for k in 0..7 {
+                let x = x1 + 182.0 + k as f32 * 34.0;
+                if k < cyc {
+                    flame(x, y + 106.0, 16.0, time * 1.3 + k as f32);
+                } else {
+                    draw_circle(x, y + 98.0, 5.0, DIMG);
+                }
+            }
+        }
+        if self.of.is_empty() {
+            draw_text("ninguem com ofensiva viva", x1 + 30.0, 260.0, 40.0, SOFT);
+            draw_text("/diario e acende a fogueira", x1 + 30.0, 310.0, 34.0, DIMG);
+        }
+        draw_text("1 check-in por dia; pulou um dia, apagou", x1 + 24.0, 930.0, 28.0, DIMG);
     }
 
     fn vault(&self, b: &mut Batch, trans: &mut Batch, time: f32) {
@@ -383,6 +420,18 @@ fn panel(x: f32, y: f32, w: f32, h: f32, title: &str) {
     draw_text(title, x + 18.0, y + 42.0, 36.0, GOLD);
 }
 
+/// Chaminha 2D (base em `y`, altura `h`) tremendo com `t`.
+fn flame(x: f32, y: f32, h: f32, t: f32) {
+    let k = 1.0 + 0.12 * (t * 9.0).sin() * (t * 5.3).cos();
+    for (j, col) in FIRE.iter().enumerate() {
+        let s = 1.0 - j as f32 * 0.3;
+        let (r, top) = (h * 0.32 * s, h * k * s);
+        let cy = y - r;
+        draw_circle(x, cy, r, *col);
+        draw_triangle(vec2(x - r, cy), vec2(x + r, cy), vec2(x + (t * 4.0).sin() * r * 0.25, y - top), *col);
+    }
+}
+
 /// holo_fx dourado: varredura, faixa correndo e borda que pisca com dado novo.
 fn gold_fx(time: f32, flash: f32) {
     let mut y = 0.0;
@@ -398,12 +447,17 @@ fn gold_fx(time: f32, flash: f32) {
 impl Place for Banco {
     fn on_msg(&mut self, m: &Value) {
         let i = |v: &Value| v.as_f64().unwrap_or(0.0) as i64;
+        if !m["ofx"].is_null() {
+            return;
+        }
         let arr = |k: &str| m[k].as_array().cloned().unwrap_or_default();
         let (otr, osv) = (self.tr, self.sv);
         self.tr = i(&m["tr"]);
         self.rich = arr("rich").iter().map(|r| (s(&r[0]), i(&r[1]))).collect();
         self.cri = arr("cri").iter().map(|r| (s(&r[0]), i(&r[1]), i(&r[2]), i(&r[3]), i(&r[4]))).collect();
         self.led = arr("led").iter().map(|r| (s(&r[0]), s(&r[1]), i(&r[2]))).collect();
+        self.of = arr("of").iter().map(|r| (s(&r[0]), i(&r[1]))).collect();
+        self.ofs = i(&m["ofs"]);
         self.sv = i(&m["sv"]);
         self.nsv = i(&m["nsv"]);
         self.rate = m["rate"].as_f64().unwrap_or(2.0);
@@ -454,7 +508,7 @@ impl Place for Banco {
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
-        let key = || hash_str(&format!("{}|{:?}|{:?}|{:?}|{}|{}|{}|{}", self.shown.round() as i64, self.rich, self.cri, self.led, self.sv, self.nsv, self.got, creators_page(time)));
+        let key = || hash_str(&format!("{}|{:?}|{:?}|{:?}|{:?}|{}|{}|{}|{}|{}", self.shown.round() as i64, self.rich, self.cri, self.led, self.of, self.ofs, self.sv, self.nsv, self.got, page(time)));
         if self.scr.begin_with(time, eye, &GEO, crate::quality::tier() != crate::quality::LOW, key) {
             self.paint(time);
             self.scr.end();

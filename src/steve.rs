@@ -12,6 +12,7 @@ use crate::models::{U, root};
 use crate::mp;
 use crate::npc;
 use crate::player::Player;
+use crate::tnt::{self, Tnt};
 use crate::urna::{self, Fx, Particle};
 use crate::world::*;
 use macroquad::miniquad::PassAction;
@@ -24,7 +25,6 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 pub const MAX_HP: f32 = 20.0;
 /// Valor de "by" no tiro da explosão de TNT.
 pub const BY: u64 = 11;
-const FUSE: f32 = 4.0;
 const FIRE_LIFE: f32 = 6.0;
 const REACH: f32 = 4.5;
 /// Ângulo do braço direito dos Steves remotos (Pose.arm_r no main): o item segue esse braço.
@@ -47,12 +47,6 @@ struct Arrow {
     mine: bool,
 }
 
-struct Fuse {
-    p: IVec3,
-    t: f32,
-    owner: u64,
-}
-
 pub struct Steve {
     pub creative: bool,
     pub inv: Inv,
@@ -72,7 +66,7 @@ pub struct Steve {
     was_use: bool,
     swing: f32,
     arrows: Vec<Arrow>,
-    fuses: Vec<Fuse>,
+    pub tnt: Tnt,
     fires: Vec<(IVec3, f32)>,
     pending: HashSet<IVec3>,
     /// Mensagens pro main mandar (eventos de mundo / golpes em NPC).
@@ -137,7 +131,8 @@ fn set_msg(p: IVec3, b: u8) -> Value {
 }
 
 fn lit_msg(p: IVec3, t: f32) -> Value {
-    json!({"t": "w", "k": "set", "p": ip(p), "b": AIR, "lit": t})
+    let n = tnt::id_at(gen_range(0, u32::MAX) as u64, p);
+    json!({"t": "w", "k": "set", "p": ip(p), "b": AIR, "lit": t, "n": n})
 }
 
 impl Steve {
@@ -161,7 +156,7 @@ impl Steve {
             was_use: false,
             swing: 0.0,
             arrows: Vec::new(),
-            fuses: Vec::new(),
+            tnt: Tnt::default(),
             fires: Vec::new(),
             pending: HashSet::new(),
             outbox: Vec::new(),
@@ -212,53 +207,42 @@ impl Steve {
         }
     }
 
-    /// Antes de aplicar um evento "w": pavio aceso, fogo novo, reação em cadeia (host), reset.
-    pub fn before_world(&mut self, world: &World, m: &Value, is_host: bool, my_id: u64) {
+    /// Antes de aplicar um evento "w": TNT acesa, fogo novo, reação em cadeia, reset.
+    /// `false` = explosão de TNT repetida (não aplicar).
+    pub fn before_world(&mut self, world: &World, m: &Value) -> bool {
         match m["k"].as_str() {
             Some("set") => {
                 let p = &m["p"];
                 let p = ivec3(p[0].as_i64().unwrap_or(0) as i32, p[1].as_i64().unwrap_or(0) as i32, p[2].as_i64().unwrap_or(0) as i32);
                 if let Some(t) = m["lit"].as_f64() {
                     self.pending.remove(&p);
-                    if world.get(p.x, p.y, p.z) == TNT {
-                        self.fuses.push(Fuse { p, t: t as f32, owner: m["id"].as_u64().unwrap_or(0) });
-                    }
+                    self.tnt.prime(world, p, m["n"].as_u64().unwrap_or_else(|| tnt::id_at(0, p)), t as f32);
                 }
                 if m["b"].as_u64() == Some(FIRE as u64) {
                     self.fires.push((p, FIRE_LIFE));
                 }
             }
-            Some("shot") if is_host && !m["d"].as_bool().unwrap_or(false) => {
-                // TNT no raio da explosão acende com pavio curto (só o host conta, depois manda a explosão)
+            Some("shot") => {
                 let plan = mp::get_shot(m);
-                let (c, r) = (plan.hit, plan.r + 1.0);
-                let ri = r.ceil() as i32;
-                let ci = c.floor().as_ivec3();
-                for dy in -ri..=ri {
-                    for dz in -ri..=ri {
-                        for dx in -ri..=ri {
-                            let p = ci + ivec3(dx, dy, dz);
-                            if world.get(p.x, p.y, p.z) == TNT && (p.as_vec3() + Vec3::splat(0.5)).distance(c) <= r {
-                                self.fuses.push(Fuse { p, t: gen_range(0.5, 1.3), owner: my_id });
-                            }
-                        }
-                    }
+                if !urna::deflected(&plan) {
+                    return self.tnt.on_blast(world, plan.hit, plan.r, m["tnt"].as_u64());
                 }
             }
             Some("reset") => {
-                self.fuses.clear();
+                self.tnt.clear();
                 self.fires.clear();
                 self.pending.clear();
                 self.arrows.clear();
             }
             _ => {}
         }
+        true
     }
 
     /// Depois de recarregar o mundo pelo log (entrada): fogo que ficou aceso volta a contar.
     pub fn scan(&mut self, world: &World) {
         self.fires.clear();
-        self.fuses.clear();
+        self.tnt.clear();
         for y in 1..WY {
             for z in 0..WZ {
                 for x in 0..WX {
@@ -452,7 +436,7 @@ impl Steve {
                     }
                 } else if it == FLINT {
                     if world.get(p.x, p.y, p.z) == TNT {
-                        self.outbox.push(lit_msg(p, FUSE));
+                        self.outbox.push(lit_msg(p, tnt::FUSE));
                     } else if at == AIR {
                         self.outbox.push(set_msg(prev, FIRE));
                     }
@@ -479,7 +463,7 @@ impl Steve {
 
     /// Todo frame (mesmo sem ser o Steve): vida, pavios, fogo, flechas.
     #[allow(clippy::too_many_arguments)]
-    pub fn tick(&mut self, world: &World, player: &mut Player, active: bool, is_host: bool, my_id: u64, targets: &[Target], others: &[(u64, Vec3)], dt: f32, fx: &mut Fx) {
+    pub fn tick(&mut self, world: &World, player: &mut Player, active: bool, is_host: bool, targets: &[Target], others: &[(u64, Vec3)], dt: f32, fx: &mut Fx) {
         self.active = active;
         self.sneak = active && player.sneaking && !player.fly;
         self.swing = (self.swing - dt * 4.0).max(0.0);
@@ -536,17 +520,13 @@ impl Steve {
         self.was_ground = player.on_ground;
         self.last_vy = player.vel.y;
 
-        // Pavios: quem acendeu manda a explosão (se saiu, o host assume)
-        for f in self.fuses.iter_mut() {
-            f.t -= dt;
-            if f.t <= 0.0 && (f.owner == my_id || (is_host && !others.iter().any(|o| o.0 == f.owner))) {
-                let c = f.p.as_vec3() + Vec3::splat(0.5);
-                let mut v = mp::shot(&urna::Plan { o: c, hit: c, r: 3.5, deflect: false });
-                v["by"] = json!(BY);
-                self.outbox.push(v);
-            }
+        // TNT acesa: física e pavio; só o host manda a explosão
+        for (id, c) in self.tnt.update(world, dt, is_host) {
+            let mut v = mp::shot(&urna::Plan { o: c, hit: c, r: tnt::R, deflect: false });
+            v["by"] = json!(BY);
+            v["tnt"] = json!(id);
+            self.outbox.push(v);
         }
-        self.fuses.retain(|f| f.t > 0.0);
 
         // Fogo: chama, acende TNT vizinha e apaga sozinho (host decide)
         for (p, t) in self.fires.iter_mut() {
@@ -559,9 +539,9 @@ impl Steve {
             }
             for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
                 let q = *p + d;
-                if world.get(q.x, q.y, q.z) == TNT && !self.pending.contains(&q) && !self.fuses.iter().any(|f| f.p == q) {
+                if world.get(q.x, q.y, q.z) == TNT && !crate::shield::protected(q) && !self.pending.contains(&q) {
                     self.pending.insert(q);
-                    self.outbox.push(lit_msg(q, FUSE));
+                    self.outbox.push(lit_msg(q, tnt::FUSE));
                 }
             }
             if *t <= 0.0 && world.get(p.x, p.y, p.z) == FIRE {
@@ -639,11 +619,11 @@ impl Steve {
             }
         }
         // TNT acesa: pisca branco a cada 0,25 s e incha no fim do pavio
-        for f in &self.fuses {
+        for f in &self.tnt.primed {
             let k = (1.0 - f.t / 0.5).clamp(0.0, 1.0).powi(4);
-            let m = Mat4::from_scale_rotation_translation(Vec3::splat(1.0 + k * 0.3), Quat::IDENTITY, f.p.as_vec3() + Vec3::splat(0.5));
+            let m = Mat4::from_scale_rotation_translation(Vec3::splat(0.98 * (1.0 + k * 0.3)), Quat::IDENTITY, f.pos + Vec3::Y * 0.49);
             self.tm.block(&m, TNT, WHITE);
-            if (f.t * 4.0) as i32 % 2 == 0 {
+            if (f.t * 4.0).max(0.0) as i32 % 2 == 0 {
                 self.tm.cube(&(m * Mat4::from_scale(Vec3::splat(1.004))), |_| crate::atlas::T_WHITE, Color::new(1.0, 1.0, 1.0, 0.7));
             }
         }

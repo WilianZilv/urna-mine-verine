@@ -540,10 +540,20 @@ pub fn plan(world: &World, o: Vec3, target: Vec3, big_chance: f32) -> Plan {
     Plan { o, hit: wt.map(|w| o + d * w).unwrap_or(target), r, deflect: false }
 }
 
+fn dome_hit(plan: &Plan) -> Option<(f32, Vec3, usize)> {
+    let d = (plan.hit - plan.o).normalize_or_zero();
+    if plan.deflect { None } else { crate::shield::ray(plan.o, d).filter(|h| h.0 < plan.o.distance(plan.hit)) }
+}
+
+/// O tiro bate num escudo e não explode.
+pub fn deflected(plan: &Plan) -> bool {
+    plan.deflect || dome_hit(plan).is_some()
+}
+
 pub fn apply(world: &mut World, plan: &Plan, fx: &mut Fx, avg: &[Color]) -> Shot {
     let (o, sc) = (plan.o, shield_center());
     let d = (plan.hit - o).normalize_or_zero();
-    let dome = if plan.deflect { None } else { crate::shield::ray(o, d).filter(|h| h.0 < o.distance(plan.hit)) };
+    let dome = dome_hit(plan);
     {
         if plan.deflect || dome.is_some() {
             let (p, n) = match dome {
@@ -577,17 +587,22 @@ pub fn apply(world: &mut World, plan: &Plan, fx: &mut Fx, avg: &[Color]) -> Shot
     Shot::Exploded(impact, r)
 }
 
+/// Bloco `p` some na explosão em `c` de raio `r` (fora dos escudos, borda irregular).
+pub fn blast_hits(c: Vec3, r: f32, p: IVec3) -> bool {
+    let bc = p.as_vec3() + Vec3::splat(0.5);
+    let jitter = crate::atlas::hash2(p.x * 7 + p.y, p.z, 4242) * 0.8;
+    bc.distance(c) <= r + jitter - 0.4 && p.y > 0 && bc.distance(shield_center()) >= SHIELD_R + 0.5 && !crate::shield::protected(p)
+}
+
 pub fn explode(world: &mut World, c: Vec3, r: f32, fx: &mut Fx, avg: &[Color]) {
     let ri = r.ceil() as i32 + 1;
     let ci = c.floor().as_ivec3();
-    let sc = shield_center();
     for dy in -ri..=ri {
         for dz in -ri..=ri {
             for dx in -ri..=ri {
                 let p = ci + ivec3(dx, dy, dz);
                 let bc = p.as_vec3() + Vec3::splat(0.5);
-                let jitter = crate::atlas::hash2(p.x * 7 + p.y, p.z, 4242) * 0.8;
-                if bc.distance(c) > r + jitter - 0.4 || p.y <= 0 || bc.distance(sc) < SHIELD_R + 0.5 || crate::shield::protected(p) {
+                if !blast_hits(c, r, p) {
                     continue;
                 }
                 let b = world.get(p.x, p.y, p.z);

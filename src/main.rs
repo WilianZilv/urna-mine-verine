@@ -35,6 +35,7 @@ mod steve;
 mod synth;
 #[cfg_attr(target_arch = "wasm32", path = "telao_web.rs")]
 mod telao;
+mod tnt;
 mod universe;
 mod urna;
 mod voador;
@@ -630,9 +631,9 @@ async fn main() {
                     banner = Some((format!("{} TROCOU O TELAO", m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes))), 2.5));
                 }
                 "w" => match {
-                    steve.before_world(&world, &m, is_host, my_id);
+                    let fresh = steve.before_world(&world, &m);
                     portals.on_world(&m);
-                    apply_world(&mut world, &m, &mut fx, &atlas.avg)
+                    if fresh { apply_world(&mut world, &m, &mut fx, &atlas.avg) } else { None }
                 } {
                     Some((plan, shot)) => {
                         let eye = player.eye();
@@ -1457,7 +1458,7 @@ async fn main() {
             };
             steve.act(&world, &player, eye, fw, pick, &targets, &others, &inp, dt, &mut fx, &atlas.avg);
         }
-        steve.tick(&world, &mut player, ch == 0, is_host, my_id, &targets, &others, dt, &mut fx);
+        steve.tick(&world, &mut player, ch == 0, is_host, &targets, &others, dt, &mut fx);
         for v in steve.outbox.drain(..) {
             send(v, &mut loopback);
         }

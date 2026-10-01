@@ -48,6 +48,8 @@ pub struct Tv {
     recd: String,
     watching: bool,
     ar: Option<Arena>,
+    /// REPLAY do lance da rodada: (jogador, gigante, dano, arma, fim, início em get_time).
+    rep: Option<(String, String, f64, String, f64, f64)>,
     pad: f32,
     cool: f32,
 }
@@ -74,7 +76,43 @@ struct Arena {
 
 impl Tv {
     pub fn new() -> Self {
-        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, aud: 0, rec: 0, recd: String::new(), watching: false, ar: None, pad: 0.0, cool: 0.0 }
+        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, aud: 0, rec: 0, recd: String::new(), watching: false, ar: None, rep: None, pad: 0.0, cool: 0.0 }
+    }
+
+    /// REPLAY: barra de dano enchendo em câmera lenta, atacante -> gigante e carimbo LANCE DA RODADA.
+    fn paint_rep(&self, time: f32, (who, f, dmg, w, end, start): &(String, String, f64, String, f64, f64), now: f64) {
+        let t = ((now - start) / (end - start).max(1.0)).clamp(0.0, 1.0) as f32;
+        draw_rectangle(0.0, 0.0, TW, 1024.0, Color::new(0.05, 0.05, 0.07, 1.0));
+        draw_rectangle(0.0, 0.0, TW, 110.0, Color::new(0.0, 0.0, 0.0, 1.0));
+        draw_rectangle(0.0, 914.0, TW, 110.0, Color::new(0.0, 0.0, 0.0, 1.0));
+        if (time * 1.5).fract() < 0.6 {
+            draw_circle(80.0, 60.0, 22.0, RED);
+        }
+        draw_text("REPLAY", 120.0, 84.0, 80.0, WHITE);
+        text_right("0.25x", TW - 60.0, 84.0, 70.0, GOLD);
+        text_mid(&fit(&format!("{} -> {}", who.to_uppercase(), f), TW - 200.0, 120.0), TW * 0.5, 300.0, 120.0, WHITE);
+        if !w.is_empty() {
+            text_mid(w, TW * 0.5, 380.0, 56.0, SOFT);
+        }
+        let e = 1.0 - (1.0 - t.min(0.8) / 0.8).powi(3);
+        let (bx, bw) = (160.0, TW - 320.0);
+        draw_rectangle(bx, 470.0, bw, 110.0, Color::new(0.2, 0.03, 0.03, 1.0));
+        draw_rectangle(bx, 470.0, bw * e * (*dmg as f32 / 100.0).clamp(0.15, 1.0), 110.0, Color::new(1.0, 0.45, 0.08, 1.0));
+        draw_rectangle_lines(bx, 470.0, bw, 110.0, 5.0, WHITE);
+        text_mid(&format!("{:.0} DE DANO", dmg * e as f64), TW * 0.5, 760.0, 160.0, GOLD);
+        if t > 0.35 {
+            let (cx, cy, r) = (TW - 420.0, 820.0, -0.2f32);
+            let (c, s) = (r.cos(), r.sin());
+            let pts: Vec<Vec2> = [(-330.0, -70.0), (330.0, -70.0), (330.0, 70.0), (-330.0, 70.0)].iter().map(|&(x, y)| vec2(cx + x * c - y * s, cy + x * s + y * c)).collect();
+            for i in 0..4 {
+                draw_line(pts[i].x, pts[i].y, pts[(i + 1) % 4].x, pts[(i + 1) % 4].y, 8.0, RED);
+            }
+            let tw = measure_text("LANCE DA RODADA", None, 72, 1.0).width;
+            draw_text_ex("LANCE DA RODADA", cx - tw * 0.5 * c, cy + 24.0 - tw * 0.5 * s, TextParams { font_size: 72, rotation: r, color: RED, ..Default::default() });
+        }
+        text_right(&format!("{:.0}s", (end - now).max(0.0)), TW - 60.0, 990.0, 56.0, SOFT);
+        draw_text("TV URNA - o lance que a urna mandou repetir", 60.0, 990.0, 44.0, SOFT);
+        holo_fx(time, 0.15);
     }
 
     fn ar_now(&self) -> Option<&Arena> {
@@ -278,6 +316,9 @@ impl Tv {
         if let Some(a) = self.ar_now() {
             return self.paint_arena(time, a, now);
         }
+        if let Some(r) = self.rep.as_ref().filter(|r| r.4 > now) {
+            return self.paint_rep(time, r, now);
+        }
         if let Some((items, end, start)) = self.mom_now() {
             return self.paint_mom(time, items, *end, *start, now);
         }
@@ -470,6 +511,15 @@ impl Place for Tv {
             (items, now + left, start)
         });
         self.sp = m["sp"].as_array().map(|v| v.iter().map(|x| (s(&x["text"]), s(&x["by"]), now + x["left"].as_f64().unwrap_or(0.0))).collect()).unwrap_or_default();
+        let r = &m["rep"];
+        self.rep = r.is_object().then(|| {
+            let (who, f) = (s(&r["n"]), s(&r["f"]));
+            let start = match &self.rep {
+                Some(o) if o.0 == who && o.1 == f => o.5,
+                _ => now,
+            };
+            (who, f, r["dmg"].as_f64().unwrap_or(0.0), s(&r["w"]), now + r["left"].as_f64().unwrap_or(0.0), start)
+        });
         let ar = &m["ar"];
         self.ar = ar.is_object().then(|| {
             let n = ar["n"].as_i64().unwrap_or(0);
@@ -520,6 +570,7 @@ impl Place for Tv {
         let urg = self.urg.as_ref().filter(|u| u.1 > now).map_or("", |u| u.0.as_str());
         let mom = self.mom.as_ref().filter(|m| m.1 > now).map_or(0, |m| m.0.len());
         let ar = self.ar_now().map_or(String::new(), |a| format!("{}|{}|{:?}|{:?}|{:?}", a.n, a.nar, a.f, a.top, a.lead));
+        let ar = format!("{ar}|{:?}", self.rep.as_ref().filter(|r| r.4 > now).map(|r| (&r.0, &r.1)));
         let key = || hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom, self.aud, self.rec, self.watching, ar));
         if self.scr.begin_with(time, eye, &geo(), true, key) {
             self.paint(time);

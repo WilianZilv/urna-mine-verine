@@ -275,6 +275,13 @@ ok(/CAMPEONATO DA ARENA \d{4}-W\d\d .*1\. beto 115 \| 2\. Ana 107 \| 3\. caio 16
 tv2.ar.until = 0;
 tv2.watch(Date.now());
 ok(last().ar === null && !tv2.ar && tv2.arEnd > 0, "transmissao sai do ar depois de 45 s");
+s = last();
+const repSay = bc.filter((m) => m.t === "chat" && /lance da rodada/.test(m.m)).map((m) => m.m);
+ok(s.rep && s.rep.n === "beto" && s.rep.f === "LULA" && s.rep.dmg === 100 && s.rep.left >= 9, `replay do maior golpe: ${JSON.stringify(s.rep)}`);
+ok(repSay.length === 1 && repSay[0] === "TV URNA: lance da rodada - beto acertou LULA com 100", `chat lance da rodada: ${repSay[0]}`);
+tv2.rep.until = 0;
+tv2.watch(Date.now());
+ok(last().rep === null, "replay sai do ar depois de 10 s");
 for (let i = 0; i < 40; i++) tv2.arenaHit({ name: `z${i}` }, "LULA", { dmg: 1 }, Date.now());
 ok(!tv2.ar, "pico logo depois respeita cooldown de 3 min");
 room.brain.ask = async (sys, user) => (/narracao/.test(user) ? { narracao: "golpe de mestre do <<<beto>>>" } : null);

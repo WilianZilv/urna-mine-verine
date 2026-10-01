@@ -34,6 +34,7 @@ const SPIKE = 30;
 const COMBO_GAP = 1500;
 const KO_MS = 3000;
 const KO_DMG = 80;
+const REP_MS = 10 * 1000;
 const FROM = "TV URNA";
 /// Plateia do telao: area em frente a fachada norte (telao em z 266, centro x 64.5), por c.pos.
 export const VIEW = { x0: 30, x1: 100, z0: 230, z1: 266 };
@@ -156,6 +157,7 @@ export class Tv {
         this.arAt = Date.now();
         this.arEnd = 0;
         this.arDirty = false;
+        this.rep = null;
     }
 
     get room() {
@@ -180,6 +182,7 @@ export class Tv {
             rec: this.s.aud.v,
             recd: this.s.aud.d,
             ar: this.ar && this.ar.until > now ? this.arSnap(now) : null,
+            rep: this.rep && this.rep.until > now ? { n: this.rep.n, f: this.rep.f, dmg: this.rep.dmg, w: this.rep.w, left: left(this.rep.until) } : null,
         };
     }
 
@@ -205,6 +208,10 @@ export class Tv {
         }
         if (this.mom && this.mom.until <= now) {
             this.mom = null;
+            this.push();
+        }
+        if (this.rep && this.rep.until <= now) {
+            this.rep = null;
             this.push();
         }
         if (this.ar && this.ar.until <= now) this.arenaEnd(now);
@@ -358,6 +365,7 @@ export class Tv {
     arenaStart(now, spike) {
         const ar = { from: now - SPIKE_MS, until: now + AR_MS, n: ++this.s.arn, ai: "" };
         this.ar = ar;
+        this.rep = null;
         this.arAt = now;
         this.arDirty = false;
         this.dirty = true;
@@ -381,10 +389,14 @@ export class Tv {
             });
     }
 
+    /// Fim da transmissao: REPLAY de 10 s do maior golpe da janela (se teve golpe).
     arenaEnd(now) {
+        const b = this.arStats(now).best;
         this.ar = null;
         this.arEnd = now;
+        this.rep = b ? { ...b, until: now + REP_MS } : null;
         this.push();
+        if (b) this.pl.say(FROM, `TV URNA: lance da rodada - ${b.n} acertou ${b.f} com ${b.dmg}`);
     }
 
     // ------------------------------------------------ AUDIENCIA (quem ta na frente do telao)

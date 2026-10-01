@@ -25,7 +25,9 @@ pub const T_GRAVEL: usize = 15;
 pub const T_WOOL: usize = 16;
 pub const T_NEON: usize = 17;
 pub const T_WHITE: usize = 18;
-const N_TILES: usize = 19;
+pub const T_TNT_SIDE: usize = 19;
+pub const T_TNT_TOP: usize = 20;
+const N_TILES: usize = 21;
 
 pub struct Atlas {
     pub tex: Texture2D,
@@ -183,6 +185,23 @@ fn pixel(tile: usize, x: i32, y: i32) -> [u8; 3] {
         T_NEON => {
             let border = x == 0 || y == 0 || x == 15 || y == 15;
             if border { [170, 20, 140] } else { mul((255.0, 70.0, 210.0), 0.92 + 0.1 * n) }
+        }
+        T_TNT_SIDE => {
+            // Faixa branca com "TNT" em pixel no meio
+            const TXT: [&str; 5] = ["###.#..#.###", ".#..##.#..#.", ".#..#.##..#.", ".#..#..#..#.", ".#..#..#..#."];
+            if (5..11).contains(&y) {
+                let (tx, ty) = (x - 2, y - 6);
+                let ink = (0..5).contains(&ty) && (0..12).contains(&tx) && TXT[ty as usize].as_bytes()[tx as usize] == b'#';
+                if ink { [30, 30, 30] } else { mul((235.0, 235.0, 230.0), 0.95 + 0.05 * n) }
+            } else if x % 4 == 0 {
+                mul((150.0, 30.0, 25.0), 0.9 + 0.1 * n)
+            } else {
+                mul((205.0, 45.0, 35.0), 0.9 + 0.15 * n)
+            }
+        }
+        T_TNT_TOP => {
+            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
+            if d < 2.0 { [60, 60, 60] } else { mul((190.0, 45.0, 35.0), 0.85 + 0.2 * n) }
         }
         _ => [255, 255, 255],
     }

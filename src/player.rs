@@ -19,8 +19,6 @@ pub struct Player {
     pub can_fly: bool,
 }
 
-pub const HOTBAR: [u8; 9] = [GRASS, DIRT, STONE, PLANKS, LOG, COBBLE, GLASS, BRICK, NEON];
-
 impl Player {
     pub fn new() -> Self {
         Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0, stick: Vec2::ZERO, jump_held: false, can_fly: true }

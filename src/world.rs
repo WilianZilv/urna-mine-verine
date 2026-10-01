@@ -29,6 +29,9 @@ pub const BRICK: u8 = 13;
 pub const GRAVEL: u8 = 14;
 pub const WOOL: u8 = 15;
 pub const NEON: u8 = 16;
+pub const TNT: u8 = 17;
+/// Fogo do isqueiro: não colide, não para o raycast nem vira malha (desenhado à parte).
+pub const FIRE: u8 = 18;
 
 // Clube de house (lado oeste)
 pub const CLUB_X0: i32 = 8;
@@ -76,6 +79,9 @@ pub fn face_tile(b: u8, face: usize) -> usize {
         GRAVEL => T_GRAVEL,
         WOOL => T_WOOL,
         NEON => T_NEON,
+        TNT => {
+            if face == 2 || face == 3 { T_TNT_TOP } else { T_TNT_SIDE }
+        }
         _ => T_WHITE,
     }
 }
@@ -129,7 +135,7 @@ impl World {
 
     #[inline]
     pub fn solid(&self, x: i32, y: i32, z: i32) -> bool {
-        self.get(x, y, z) != AIR
+        !matches!(self.get(x, y, z), AIR | FIRE)
     }
 
     pub fn solid_f(&self, x: f32, y: f32, z: f32) -> bool {
@@ -411,7 +417,7 @@ impl World {
             for z in cz * CHUNK..(cz + 1) * CHUNK {
                 for x in cx * CHUNK..(cx + 1) * CHUNK {
                     let b = self.get(x, y, z);
-                    if b == AIR {
+                    if b == AIR || b == FIRE {
                         continue;
                     }
                     for (d, &(dx, dy, dz)) in DIRS.iter().enumerate() {

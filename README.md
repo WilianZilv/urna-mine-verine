@@ -68,7 +68,8 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | Mouse | olhar |
 | Botão esquerdo | quebrar bloco / socar lutador ou villager |
 | Botão direito | colocar bloco |
-| `1`-`9` / roda | escolher bloco da hotbar |
+| `1`-`9` / roda | escolher slot da hotbar (Steve) |
+| `E` / `I` | inventário do Steve |
 | `K` | chamar Wolverine agora |
 | `Y` | tocar no telão o link do YouTube copiado (navegador: cola numa caixa) |
 | `T` / `Enter` | chat (Enter envia, Esc cancela) |
@@ -81,10 +82,19 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 
 | # | Personagem | Jogabilidade |
 | --- | --- | --- |
-| 1 | Steve | padrão Minecraft (quebra/põe bloco, soco) |
-| 2 | Skatista (estilo Skate 3) | flick-it no mouse/arrasto (velocidade do flick = altura do pop): baixo→cima ollie, baixo→diagonal kickflip/heelflip, baixo→lado shove-it, baixo→lado→cima 360 shove-it, baixo→lado→diagonal varial, esq→baixo→cima-dir 360 flip/laser, invertido = nollie; `W` rema, `S` freia/powerslide, `A/D` carve (no ar gira, no grind equilibra), `Q/E` grab (mouse escolhe indy/melon/nose/tail/stalefish), `Shift` manual/nose manual com equilíbrio, grind 50-50/5-0/nosegrind/boardslide em muro ou quina; fakie, aterrissagem limpa/sketchy/bail, câmera baixa estilo Skate 3 |
-| 3 | Bandido (estilo GTA 3) | terceira pessoa, 12 armas (punho, taco, pistola, uzi, escopeta, AK-47, M16, sniper com zoom, lança-foguete, lança-chamas, granada, molotov); sedã da 1ª missão perto da torre (`F` entra/sai, `Espaço` freio de mão, atropela) |
-| 4 | Niko (estilo GTA 4) | ragdoll físico ativo próprio: explosão/queda/`G` faz cambalear com passos de equilíbrio e braços em moinho, cair protegendo com as mãos e levantar sozinho |
+| 1 | Steve Survival | 10 corações, dano de queda/explosão/fogo/PvP, morre e renasce na torre, sem voo; hotbar com picareta, machado, pá, espada, arco + flechas, TNT e isqueiro; segura `Esq` pra minerar (rachadura; ferramenta certa ~8x mais rápida) e o bloco vai pro inventário |
+| 2 | Steve Criativo | voa (`F`), quebra na hora, blocos infinitos, sem dano |
+| 3 | Skatista (estilo Skate 3) | flick-it no mouse/arrasto (velocidade do flick = altura do pop): baixo→cima ollie, baixo→diagonal kickflip/heelflip, baixo→lado shove-it, baixo→lado→cima 360 shove-it, baixo→lado→diagonal varial, esq→baixo→cima-dir 360 flip/laser, invertido = nollie; `W` rema, `S` freia/powerslide, `A/D` carve (no ar gira, no grind equilibra), `Q/E` grab (mouse escolhe indy/melon/nose/tail/stalefish), `Shift` manual/nose manual com equilíbrio, grind 50-50/5-0/nosegrind/boardslide em muro ou quina; fakie, aterrissagem limpa/sketchy/bail, câmera baixa estilo Skate 3 |
+| 4 | Bandido (estilo GTA 3) | terceira pessoa, 12 armas (punho, taco, pistola, uzi, escopeta, AK-47, M16, sniper com zoom, lança-foguete, lança-chamas, granada, molotov); sedã da 1ª missão perto da torre (`F` entra/sai, `Espaço` freio de mão, atropela) |
+| 5 | Niko (estilo GTA 4) | ragdoll físico ativo próprio: explosão/queda/`G` faz cambalear com passos de equilíbrio e braços em moinho, cair protegendo com as mãos e levantar sozinho |
+
+**Steve:** `1`-`9`/roda escolhem o slot; `E` ou `I` abre o inventário (criativo: grade com todos os
+blocos, clica pra pôr no slot; survival: clica em dois slots pra trocar). Arco: segura `Dir` e solta
+(flecha com gravidade, crava no bloco). Isqueiro: `Dir` na TNT acende (pavio de 4s piscando) ou põe
+fogo que apaga sozinho e acende TNT vizinha; explosão derruba TNT perto em cadeia. TNT, fogo e
+blocos vão pelos eventos de mundo (quem entra depois vê igual); flechas, dano PvP e item na mão vão
+na mensagem de posição. Celular: toca no slot, `...` abre o inventário, segura `BATE` pra minerar,
+segura `POE` com o arco.
 
 Tudo original (sem código/asset de Skate 3, GTA ou Euphoria). As mecânicas do skate seguem o design documentado pelo projeto de engenharia reversa [SK8-ENGINE/skate-3-rust-engine](https://github.com/SK8-ENGINE/skate-3-rust-engine), reimplementadas do zero (aquele repo não tem licença, então nenhum código foi copiado).
 
@@ -268,6 +278,9 @@ src/
   urna.rs     urna (modelo + IA de tiro), laser, escudo, explosão, partículas
   club.rs     decoração animada do clube no beat
   player.rs   jogador 1ª pessoa (AABB, voo, knockback)
+  steve.rs    Steve survival/criativo: vida, mineração, arco, TNT, fogo, PvP
+  items.rs    itens (blocos + ferramentas), tempo de quebra, ícones pixel-art
+  inventory.rs hotbar e tela do inventário (E/I)
   synth.rs    síntese do house e dos efeitos (amostras f32)
   audio.rs    mixer cpal (vozes + stream do telão, relógio de áudio)
   telao.rs    player YouTube do telão (yt-dlp + ffmpeg → textura + áudio)

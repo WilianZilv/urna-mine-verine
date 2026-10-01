@@ -11,6 +11,8 @@ mod economy;
 mod eleicao;
 mod extras;
 mod gta;
+mod inventory;
+mod items;
 mod lab;
 mod models;
 mod mp;
@@ -20,6 +22,7 @@ mod net;
 mod player;
 mod ragdoll;
 mod skate;
+mod steve;
 mod synth;
 #[cfg_attr(target_arch = "wasm32", path = "telao_web.rs")]
 mod telao;
@@ -35,7 +38,7 @@ use extras::Label;
 use macroquad::prelude::*;
 use macroquad::rand::gen_range;
 use models::{Look, Pose, draw_flag, draw_humanoid, draw_villager, rgb, root};
-use player::{HOTBAR, Player};
+use player::Player;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -216,18 +219,20 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     ]
 }
 
-const CHARS: [(&str, &str); 4] = [
-    ("STEVE", "MINECRAFT: quebra e poe bloco"),
+const CHARS: [(&str, &str); 5] = [
+    ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT"),
+    ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano"),
     ("SKATISTA", "SKATE 3: flick-it, grind, manual"),
     ("BANDIDO", "GTA 3: arsenal completo + carro"),
     ("NIKO", "GTA 4: ragdoll fisico ativo"),
 ];
 
-fn char_cards(sw: f32, sh: f32) -> [Rect; 4] {
-    let w = (sw * 0.22).min(230.0);
+fn char_cards(sw: f32, sh: f32) -> [Rect; 5] {
+    let gap = 10.0;
+    let w = ((sw - gap * 6.0) / 5.0).min(210.0);
     let h = (sh * 0.36).min(200.0);
-    let x0 = sw * 0.5 - w * 2.0 - 18.0;
-    [0, 1, 2, 3].map(|i| Rect::new(x0 + i as f32 * (w + 12.0), sh * 0.5 - h * 0.5, w, h))
+    let x0 = sw * 0.5 - (w * 5.0 + gap * 4.0) * 0.5;
+    [0, 1, 2, 3, 4].map(|i| Rect::new(x0 + i as f32 * (w + gap), sh * 0.5 - h * 0.5, w, h))
 }
 
 /// Lê texto digitado (nome / chat). Retorna true no Enter.
@@ -413,6 +418,7 @@ async fn main() {
     let mut was_online = false;
 
     let mut player = Player::new();
+    let mut steve = steve::Steve::new();
     let (mut villagers, mut fighters) = spawn_actors();
     let mut npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
     let mut cam_smooth: Option<Vec3> = None;
@@ -496,6 +502,7 @@ async fn main() {
                     for w in m["log"].as_array().into_iter().flatten() {
                         apply_world(&mut world, w, &mut scratch, &atlas.avg);
                     }
+                    steve.scan(&world);
                     chunks = build_all(&mut world, &atlas.tex);
                     if let Some(u) = m["tv"].as_str().filter(|u| *u != tv_src) {
                         tv_src = u.to_string();
@@ -531,6 +538,13 @@ async fn main() {
                         r.yaw = mp::f(&m["y"]);
                         r.ch = m["c"].as_u64().unwrap_or(0) as u8;
                     }
+                    if let Some((dmg, dir)) = steve.on_p(id, &m, my_id) {
+                        player.knock += dir * 6.0 + up * 3.0;
+                        if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
+                            b.hurt(dmg * 5.0);
+                        }
+                    }
+                }
                 }
                 "chat" => {
                     let who = m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes));
@@ -541,7 +555,10 @@ async fn main() {
                     telao.load(&tv_src);
                     banner = Some((format!("{} TROCOU O TELAO", m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes))), 2.5));
                 }
-                "w" => match apply_world(&mut world, &m, &mut fx, &atlas.avg) {
+                "w" => match {
+                    steve.before_world(&world, &m, is_host, my_id);
+                    apply_world(&mut world, &m, &mut fx, &atlas.avg)
+                } {
                     Some((plan, shot)) => {
                         let eye = player.eye();
                         if m["by"].is_null() {
@@ -582,6 +599,7 @@ async fn main() {
                                     let k = 1.0 - d / (r * 2.2);
                                     let dir = (player.pos - p).normalize_or_zero();
                                     player.knock += vec3(dir.x, 0.0, dir.z) * 14.0 * k + up * 9.0 * k;
+                                    steve.hurt(24.0 * k);
                                     if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
                                         b.hurt(90.0 * k);
                                     }
@@ -709,7 +727,10 @@ async fn main() {
             _ if niko.is_some() => 4,
             _ => 0,
         };
-        let buttons = touch_buttons(sw, sh, ch);
+        let mut buttons = touch_buttons(sw, sh, ch);
+        if ch == 0 && !steve.creative {
+            buttons[3].2 = "-";
+        }
         let (mut tap_hit, mut tap_place) = (false, false);
         let (mut pick_char, mut car_toggle, mut sk_ollie, mut cycle_weapon): (Option<usize>, bool, bool, i32) = (None, false, false, 0);
         let mut niko_dive = false;
@@ -728,10 +749,15 @@ async fn main() {
                         chars_open = false;
                     }
                 }
+                TouchPhase::Started if steve.inv_open => steve.inv_click(&mut player.sel, p, sw, sh),
                 TouchPhase::Started => {
-                    let hot = (ch == 0 && p.y > sh - slot - 14.0 && (p.x - (sw * 0.5 - slot * 4.5)).abs() < slot * 9.0 && p.x > sw * 0.5 - slot * 4.5).then(|| ((p.x - (sw * 0.5 - slot * 4.5)) / slot) as usize);
-                    if let Some(k) = hot.filter(|k| *k < 9) {
-                        player.sel = k;
+                    let hot = if ch == 0 { inventory::hotbar_hit(p, sw, sh, slot, mobile) } else { None };
+                    if let Some(k) = hot {
+                        if k < 9 {
+                            player.sel = k;
+                        } else {
+                            steve.inv_open = true;
+                        }
                     } else if let Some(b) = buttons.iter().position(|(c, r, _)| p.distance(*c) < *r) {
                         held.insert(t.id, b);
                         match (b, ch) {
@@ -740,7 +766,7 @@ async fn main() {
                             (2, 0) => tap_place = true,
                             (2, 2) => cycle_weapon = 1,
                             (3, 2) | (3, 3) => car_toggle = true,
-                            (3, 0) => {
+                            (3, 0) if player.can_fly => {
                                 player.fly = !player.fly;
                                 player.vel.y = 0.0;
                             }
@@ -797,7 +823,9 @@ async fn main() {
 
         // ------------------------------------------------ Input
         let mut just_grabbed = false;
-        if !mobile && !grabbed && is_mouse_button_pressed(MouseButton::Left) {
+        if steve.inv_open && is_mouse_button_pressed(MouseButton::Left) {
+            steve.inv_click(&mut player.sel, mouse_position().into(), sw, sh);
+        } else if !mobile && !grabbed && !steve.inv_open && is_mouse_button_pressed(MouseButton::Left) {
             grabbed = true;
             just_grabbed = true;
             set_cursor_grab(true);
@@ -811,7 +839,7 @@ async fn main() {
         let mouse: Vec2 = mouse_position().into();
         let md = mouse - last_mouse;
         last_mouse = mouse;
-        if grabbed && !just_grabbed && ch != 1 && !chars_open {
+        if grabbed && !just_grabbed && ch != 1 && !chars_open && !steve.inv_open {
             player.look(md);
         }
         if chars_open && is_mouse_button_pressed(MouseButton::Left) {
@@ -862,6 +890,13 @@ async fn main() {
                     show_mouse(true);
                 }
             }
+            let inv_key = is_key_pressed(KeyCode::E) || is_key_pressed(KeyCode::I) || (steve.inv_open && is_key_pressed(KeyCode::Escape));
+            if ch == 0 && !chars_open && inv_key {
+                steve.inv_open = !steve.inv_open;
+                grabbed = !steve.inv_open && !mobile;
+                set_cursor_grab(grabbed);
+                show_mouse(!grabbed);
+            }
             if ch >= 2 && is_key_pressed(KeyCode::F) {
                 car_toggle = true;
             }
@@ -897,10 +932,10 @@ async fn main() {
             player.fly = false;
             let fw = player.forward();
             match c {
-                1 => skater = Some(skate::Skater::new(player.pos, fw.x.atan2(fw.z))),
-                2 => bandido = Some(gta::Bandido::new(fw.x.atan2(fw.z))),
-                3 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
-                _ => {}
+                2 => skater = Some(skate::Skater::new(player.pos, fw.x.atan2(fw.z))),
+                3 => bandido = Some(gta::Bandido::new(fw.x.atan2(fw.z))),
+                4 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
+                _ => steve.set_mode(c == 1, &mut player),
             }
             banner = Some((format!("PERSONAGEM: {}", CHARS[c].0), 2.0));
         }
@@ -941,7 +976,7 @@ async fn main() {
             player.sel = (player.sel + 1) % 9;
         }
 
-        let active = (grabbed || mobile) && typing.is_none() && !chars_open;
+        let active = (grabbed || mobile) && typing.is_none() && !chars_open && !steve.inv_open;
         let key = |k: KeyCode| active && is_key_down(k);
         let btn = |i: usize| held.values().any(|b| *b == i);
         let steer = ((key(KeyCode::A) as i32 - key(KeyCode::D) as i32) as f32 - player.stick.x).clamp(-1.0, 1.0);
@@ -982,7 +1017,7 @@ async fn main() {
             player.pos = car.pos;
             player.knock = Vec3::ZERO;
         } else if niko.as_ref().is_none_or(|n| n.controlled()) {
-            player.can_fly = bandido.is_none() && niko.is_none();
+            player.can_fly = bandido.is_none() && niko.is_none() && steve.creative;
             let (before, vy) = (player.pos, player.vel.y);
             if let Some(n) = niko.as_mut() {
                 let imp = std::mem::take(&mut player.knock);
@@ -1191,52 +1226,21 @@ async fn main() {
             });
         }
 
-        if ch == 0 && (tap_hit || (grabbed && !just_grabbed && is_mouse_button_pressed(MouseButton::Left))) {
-            // Soco em lutador/villager tem prioridade sobre quebrar bloco
-            let mut best: Option<(f32, usize, u8)> = None;
-            for &(c, r, i, g) in &targets {
-                if let Some(t) = urna::ray_sphere(eye, fw, c, r) {
-                    if t < 4.5 + r - 0.75 && best.is_none_or(|b| t < b.0) {
-                        best = Some((t, i, g));
-                    }
-                }
-            }
-            let fwh = vec3(fw.x, 0.0, fw.z).normalize_or_zero();
-            if let Some((t, i, g)) = best {
-                let k = match g {
-                    npc::FIGHTER => "pf",
-                    npc::VILLAGER => "pv",
-                    _ => "hit",
-                };
-                send(json!({"t": "a", "k": k, "g": g, "i": i, "d": mp::v3(fwh), "p": mp::v3(eye + fw * t), "dmg": 6.0}), &mut loopback);
-            } else if let Some((p, _, _)) = pick {
-                if p.y > 0 {
-                    let b = world.get(p.x, p.y, p.z);
-                    send(json!({"t": "w", "k": "set", "p": [p.x, p.y, p.z], "b": AIR}), &mut loopback);
-                    for _ in 0..8 {
-                        fx.particles.push(urna::Particle {
-                            pos: p.as_vec3() + Vec3::splat(0.5),
-                            vel: vec3(gen_range(-2.0, 2.0), gen_range(1.0, 4.0), gen_range(-2.0, 2.0)),
-                            col: atlas.avg[face_tile(b, 0)],
-                            life: gen_range(0.4, 0.9),
-                            size: 0.12,
-                            gravity: true,
-                        });
-                    }
-                }
-            }
+        // Steve: golpe/mineração (segura), usar item; pavios, fogo e flechas rodam sempre
+        let others: Vec<(u64, Vec3)> = remotes.iter().map(|(id, r)| (*id, r.pos)).collect();
+        if ch == 0 {
+            let mouse_ok = grabbed && !just_grabbed && active;
+            let inp = steve::Input {
+                attack: tap_hit || (mouse_ok && is_mouse_button_pressed(MouseButton::Left)),
+                mine: tap_hit || (active && btn(1)) || (mouse_ok && is_mouse_button_down(MouseButton::Left)),
+                use_press: tap_place || (mouse_ok && is_mouse_button_pressed(MouseButton::Right)),
+                use_hold: (active && btn(2)) || (mouse_ok && is_mouse_button_down(MouseButton::Right)),
+            };
+            steve.act(&world, &player, eye, fw, pick, &targets, &others, &inp, dt, &mut fx, &atlas.avg);
         }
-        if ch == 0 && (tap_place || (grabbed && is_mouse_button_pressed(MouseButton::Right))) {
-            if let Some((_, prev, _)) = pick {
-                if world.get(prev.x, prev.y, prev.z) == AIR {
-                    world.set(prev.x, prev.y, prev.z, HOTBAR[player.sel]);
-                    let blocked = player.collides_at(&world, player.pos);
-                    world.set(prev.x, prev.y, prev.z, AIR);
-                    if !blocked {
-                        send(json!({"t": "w", "k": "set", "p": [prev.x, prev.y, prev.z], "b": HOTBAR[player.sel]}), &mut loopback);
-                    }
-                }
-            }
+        steve.tick(&world, &mut player, ch == 0, is_host, my_id, &targets, &others, dt, &mut fx);
+        for v in steve.outbox.drain(..) {
+            send(v, &mut loopback);
         }
 
         // ------------------------------------------------ Simulação (host) / interpolação (demais)
@@ -1389,7 +1393,9 @@ async fn main() {
                 (_, Some(b)) if b.driving => car.yaw,
                 _ => fw.x.atan2(fw.z),
             };
-            net.send(json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch}).to_string());
+            let mut pm = json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch});
+            steve.fill_p(&mut pm, ch, player.sel);
+            net.send(pm.to_string());
             if is_host {
                 let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
                 s["n"] = npcs.snapshot();
@@ -1553,6 +1559,7 @@ async fn main() {
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
         eco.draw_world(&mut opaque, &mut labels, eye, time);
+        steve.draw_world(&mut opaque, time, eye, fw, ch == 0, player.sel, remotes.iter().map(|(id, r)| (*id, r.pos, r.yaw, r.ch)), &atlas.avg);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
         draw_mesh(&Mesh {
@@ -1579,6 +1586,7 @@ async fn main() {
         if let Some((p, _, _)) = pick {
             draw_cube_wires(p.as_vec3() + Vec3::splat(0.5), Vec3::splat(1.004), Color::new(0.0, 0.0, 0.0, 0.8));
         }
+        steve.draw_crack();
 
         fx.draw_transparent(&mut trans, time);
         trans.flush(&atlas.tex);
@@ -1785,26 +1793,9 @@ async fn main() {
             }
         }
 
-        // Hotbar
-        let hx = sw * 0.5 - slot * 4.5;
-        let hy = sh - slot - 14.0;
-        for (k, &b) in HOTBAR.iter().enumerate().filter(|_| ch == 0) {
-            let x = hx + k as f32 * slot;
-            draw_rectangle(x, hy, slot, slot, Color::new(0.0, 0.0, 0.0, 0.5));
-            let t = face_tile(b, 0);
-            draw_texture_ex(
-                &atlas.tex,
-                x + 6.0,
-                hy + 6.0,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(slot - 12.0, slot - 12.0)),
-                    source: Some(Rect::new(((t % atlas::COLS) * atlas::TILE) as f32, ((t / atlas::COLS) * atlas::TILE) as f32, atlas::TILE as f32, atlas::TILE as f32)),
-                    ..Default::default()
-                },
-            );
-            let border = if k == player.sel { WHITE } else { Color::new(0.3, 0.3, 0.3, 1.0) };
-            draw_rectangle_lines(x, hy, slot, slot, if k == player.sel { 4.0 } else { 2.0 }, border);
+        // Hotbar, vida e carga do arco do Steve
+        if ch == 0 {
+            steve.draw_hud(&atlas, player.sel, sw, sh, slot, mobile);
         }
 
         draw_text(&format!("URNA-MINE-VERINE  |  {} FPS  |  disparos da urna: {}", get_fps(), urna.shots), 12.0, sh - 80.0, 20.0, WHITE);
@@ -1830,11 +1821,17 @@ async fn main() {
                     "CARRO: W acelera | S re/freio | A/D vira | ESPACO freio de mao (drift)",
                     "C troca personagem | T chat | H ajuda",
                 ],
-                _ => [
-                    "WASD andar | ESPACO pular | SHIFT correr | F voar (CTRL desce)",
-                    "MOUSE olhar | ESQ quebrar/socar | DIR colocar | 1-9/RODA bloco",
+                _ if steve.creative => [
+                    "CRIATIVO: WASD andar | ESPACO pular | SHIFT correr | F voar (CTRL desce)",
+                    "ESQ quebra na hora/soca | DIR poe | 1-9/RODA hotbar | E ou I inventario (todos os blocos)",
                     "K chama Wolverine | R reseta mundo | M muta | TAB solta mouse | H ajuda",
                     "Y troca o video do telao | T ou ENTER chat | C PERSONAGENS",
+                ],
+                _ => [
+                    "SURVIVAL: WASD andar | ESPACO pular | SHIFT correr | sem voo, queda machuca",
+                    "ESQ segura = minera (ferramenta certa e mais rapida) / bate | DIR poe bloco",
+                    "ARCO: segura DIR e solta | ISQUEIRO: DIR na TNT (4s) ou poe fogo | 1-9/RODA | E/I inventario",
+                    "Y telao | T chat | C PERSONAGENS | K Wolverine | R reseta | H ajuda",
                 ],
             };
             for (i, l) in lines.iter().enumerate() {
@@ -1864,21 +1861,29 @@ async fn main() {
                 draw_circle_lines(c.x, c.y, *r, 2.0, Color::new(1.0, 1.0, 1.0, 0.55));
                 text_centered(label, c.x, c.y + 6.0, (*r * 0.5).max(13.0), WHITE, false);
             }
-        } else if !grabbed && !chars_open {
+        } else if !grabbed && !chars_open && !steve.inv_open {
             text_centered("CLIQUE PRA ENTRAR NA VILA", sw * 0.5, sh * 0.5 + 60.0, 36.0, WHITE, true);
+        }
+        if ch == 0 {
+            steve.draw_overlay(&atlas, player.sel, sw, sh, mobile);
         }
         if chars_open {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
             text_centered("ESCOLHE O PERSONAGEM", sw * 0.5, sh * 0.5 - (sh * 0.36).min(200.0) * 0.5 - 24.0, 34.0, WHITE, true);
             for (i, r) in char_cards(sw, sh).iter().enumerate() {
-                let sel = i as u8 == [0, 1, 2, 2, 3][ch as usize];
+                let sel = i == [steve.creative as usize, 2, 3, 3, 4][ch as usize];
                 draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.1, 0.1, 0.15, 0.9));
                 draw_rectangle_lines(r.x, r.y, r.w, r.h, if sel { 4.0 } else { 2.0 }, if sel { Color::new(1.0, 0.85, 0.3, 1.0) } else { GRAY });
-                text_centered(&format!("{}", i + 1), r.x + r.w * 0.5, r.y + r.h * 0.3, 44.0, Color::new(1.0, 0.85, 0.3, 1.0), false);
-                text_centered(CHARS[i].0, r.x + r.w * 0.5, r.y + r.h * 0.58, 30.0, WHITE, true);
-                text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.8, (r.w / 16.0).min(16.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
+                text_centered(&format!("{}", i + 1), r.x + r.w * 0.5, r.y + r.h * 0.25, (r.w * 0.3).min(44.0), Color::new(1.0, 0.85, 0.3, 1.0), false);
+                let name_size = (r.w / 7.0).clamp(12.0, 26.0);
+                for (k, word) in CHARS[i].0.split(' ').enumerate() {
+                    text_centered(word, r.x + r.w * 0.5, r.y + r.h * 0.5 + k as f32 * (name_size + 4.0), name_size, WHITE, true);
+                }
+                if r.w > 120.0 {
+                    text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.86, (r.w / 14.0).min(15.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
+                }
             }
-            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-4 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
+            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-5 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
         }
 
         next_frame().await;

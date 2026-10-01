@@ -4,10 +4,14 @@ import { DurableObject } from "cloudflare:workers";
 import { Economy } from "./economy.js";
 import { Brain } from "./brain.js";
 import { Lab } from "./lab.js";
+import { Mods, docs } from "./mods.js";
 
 export default {
     async fetch(req, env) {
         const url = new URL(req.url);
+        const doc = docs(url);
+        if (doc) return doc;
+        if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname === "/ws") {
             if (req.headers.get("Upgrade") !== "websocket") return new Response("use websocket", { status: 426 });
             return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
@@ -113,6 +117,7 @@ export class Room extends DurableObject {
         this.brain = new Brain(env, ctx.storage);
         this.eco = new Economy(this, sanitize, SYSTEM);
         this.lab = new Lab(this);
+        this.mods = new Mods(this);
         // Obras da IA ("w" k:"ai") sobrevivem ao DO dormir: viram o comeco do log quando ele acorda.
         this.aiLog = [];
         this.aiSave = null;
@@ -185,7 +190,8 @@ export class Room extends DurableObject {
         this.pushWorld({ t: "w", k: "ai", id: 0, n: job.name, cmd: job.text, say: String(out.say || "").slice(0, 160), ops: ops.filter((o) => o.op !== "tv") });
     }
 
-    async fetch() {
+    async fetch(req) {
+        if (new URL(req.url).pathname.startsWith("/api/mods")) return this.mods.http(req);
         const [client, server] = Object.values(new WebSocketPair());
         server.accept();
         const id = this.next++;
@@ -219,6 +225,7 @@ export class Room extends DurableObject {
             this.broadcast({ t: "join", id, n: c.name }, id);
             this.eco.join(c);
             this.lab.join(c);
+            this.mods.join(c);
             return;
         }
         m.id = id;
@@ -235,6 +242,9 @@ export class Room extends DurableObject {
                 m.m = String(m.m || "").slice(0, 200);
                 this.broadcast(m);
                 if (m.m.startsWith("/") && !this.lab.command(id, c, m.m.slice(1).trim()) && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
+                break;
+            case "mk":
+                this.mods.onKill(c, m);
                 break;
             case "tv":
                 this.tv = String(m.u || "").slice(0, 500);

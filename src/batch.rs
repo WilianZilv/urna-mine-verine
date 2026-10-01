@@ -72,6 +72,18 @@ impl Batch {
         }
     }
 
+    /// Desenha de novo sem esvaziar (vista dos portais reaproveita a cena).
+    pub fn redraw(&self, tex: &Texture2D) {
+        let gl = unsafe { get_internal_gl() }.quad_gl;
+        gl.texture(Some(tex));
+        gl.draw_mode(DrawMode::Triangles);
+        for (v, i) in self.done.iter().map(|(v, i)| (v.as_slice(), i.as_slice())).chain(std::iter::once((self.v.as_slice(), self.i.as_slice()))) {
+            if !i.is_empty() {
+                gl.geometry(v, i);
+            }
+        }
+    }
+
     pub fn flush(&mut self, tex: &Texture2D) {
         if !self.v.is_empty() {
             self.done.push((std::mem::take(&mut self.v), std::mem::take(&mut self.i)));

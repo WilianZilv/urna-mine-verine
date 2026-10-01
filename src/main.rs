@@ -20,6 +20,7 @@ mod npc;
 #[cfg_attr(target_arch = "wasm32", path = "net_web.rs")]
 mod net;
 mod player;
+mod portal;
 mod ragdoll;
 mod skate;
 mod steve;
@@ -206,6 +207,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
         4 => ["PULA", "SE JOGA", "-", "-"],
         2 => ["PULA", "ATIRA", "ARMA", "CARRO"],
         3 => ["FREIO", "-", "-", "SAIR"],
+        5 => ["PULA", "AZUL", "LARANJA", "CUBO"],
         _ => ["PULA", "BATE", "POE", "VOA"],
     };
     [
@@ -220,20 +222,21 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     ]
 }
 
-const CHARS: [(&str, &str); 5] = [
+const CHARS: [(&str, &str); 6] = [
     ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT"),
     ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano"),
     ("SKATISTA", "SKATE 3: flick-it, grind, manual"),
     ("BANDIDO", "GTA 3: arsenal completo + carro"),
     ("NIKO", "GTA 4: ragdoll fisico ativo"),
+    ("ARMA DE PORTAL", "portais azul/laranja + cubo"),
 ];
 
-fn char_cards(sw: f32, sh: f32) -> [Rect; 5] {
-    let gap = 10.0;
-    let w = ((sw - gap * 6.0) / 5.0).min(210.0);
+fn char_cards(sw: f32, sh: f32) -> [Rect; CHARS.len()] {
+    let (gap, n) = (10.0, CHARS.len() as f32);
+    let w = ((sw - gap * (n + 1.0)) / n).min(210.0);
     let h = (sh * 0.36).min(200.0);
-    let x0 = sw * 0.5 - (w * 5.0 + gap * 4.0) * 0.5;
-    [0, 1, 2, 3, 4].map(|i| Rect::new(x0 + i as f32 * (w + gap), sh * 0.5 - h * 0.5, w, h))
+    let x0 = sw * 0.5 - (w * n + gap * (n - 1.0)) * 0.5;
+    std::array::from_fn(|i| Rect::new(x0 + i as f32 * (w + gap), sh * 0.5 - h * 0.5, w, h))
 }
 
 /// Lê texto digitado (nome / chat). Retorna true no Enter.
@@ -423,6 +426,7 @@ async fn main() {
     let (mut villagers, mut fighters) = spawn_actors();
     let mut npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
     let mut voador = voador::Voador::new();
+    let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
     let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
     let mut urna = Urna::new();
@@ -501,9 +505,12 @@ async fn main() {
                     }
                     world = World::generate();
                     let mut scratch = Fx::default();
+                    portals.clear();
                     for w in m["log"].as_array().into_iter().flatten() {
                         apply_world(&mut world, w, &mut scratch, &atlas.avg);
+                        portals.on_world(w);
                     }
+                    portals.joined(|o| o == my_id || remotes.contains_key(&o));
                     steve.scan(&world);
                     chunks = build_all(&mut world, &atlas.tex);
                     if let Some(u) = m["tv"].as_str().filter(|u| *u != tv_src) {
@@ -526,6 +533,7 @@ async fn main() {
                     remotes.insert(id, Remote { name: n, pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(id), ch: 0 });
                 }
                 "leave" => {
+                    portals.remove_owner(id);
                     if let Some(r) = remotes.remove(&id) {
                         chat.push((format!("* {} saiu", r.name), get_time()));
                     }
@@ -540,6 +548,7 @@ async fn main() {
                         r.yaw = mp::f(&m["y"]);
                         r.ch = m["c"].as_u64().unwrap_or(0) as u8;
                     }
+                    portals.on_p(id, &m);
                     if let Some((dmg, dir)) = steve.on_p(id, &m, my_id) {
                         player.knock += dir * 6.0 + up * 3.0;
                         if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
@@ -558,6 +567,7 @@ async fn main() {
                 }
                 "w" => match {
                     steve.before_world(&world, &m, is_host, my_id);
+                    portals.on_world(&m);
                     apply_world(&mut world, &m, &mut fx, &atlas.avg)
                 } {
                     Some((plan, shot)) => {
@@ -729,6 +739,7 @@ async fn main() {
             (Some(_), _) => 1,
             (_, Some(b)) => 2 + b.driving as u8,
             _ if niko.is_some() => 4,
+            _ if portals.active => 5,
             _ => 0,
         };
         let mut buttons = touch_buttons(sw, sh, ch);
@@ -766,6 +777,7 @@ async fn main() {
                         held.insert(t.id, b);
                         match (b, ch) {
                             (0, 1) => sk_ollie = true,
+                            (1..=3, 5) => portals.tap(b),
                             (1, 0) => tap_hit = true,
                             (2, 0) => tap_place = true,
                             (2, 2) => cycle_weapon = 1,
@@ -932,6 +944,7 @@ async fn main() {
                 player.pos = car.pos + vec3(0.0, 2.0, 0.0);
             }
             niko = None;
+            portals.active = c == 5;
             player.vel = Vec3::ZERO;
             player.fly = false;
             let fw = player.forward();
@@ -939,6 +952,7 @@ async fn main() {
                 2 => skater = Some(skate::Skater::new(player.pos, fw.x.atan2(fw.z))),
                 3 => bandido = Some(gta::Bandido::new(fw.x.atan2(fw.z))),
                 4 => niko = Some(ragdoll::Ragdoll::new(player.pos, fw.x.atan2(fw.z))),
+                5 => {}
                 _ => steve.set_mode(c == 1, &mut player),
             }
             banner = Some((format!("PERSONAGEM: {}", CHARS[c].0), 2.0));
@@ -1021,7 +1035,7 @@ async fn main() {
             player.pos = car.pos;
             player.knock = Vec3::ZERO;
         } else if niko.as_ref().is_none_or(|n| n.controlled()) {
-            player.can_fly = bandido.is_none() && niko.is_none() && steve.creative;
+            player.can_fly = bandido.is_none() && niko.is_none() && steve.creative && !portals.active;
             let (before, vy) = (player.pos, player.vel.y);
             if let Some(n) = niko.as_mut() {
                 let imp = std::mem::take(&mut player.knock);
@@ -1030,6 +1044,7 @@ async fn main() {
                     play_at(&audio, &sfx.punch, player.pos, player.pos, 0.8, muted, false);
                 }
             }
+            portals.pre_move(&world, &mut player, dt, active && niko.as_ref().is_none_or(|n| n.controlled()));
             player.update(&world, dt, active && niko.as_ref().is_none_or(|n| n.controlled()));
             let d = vec2(player.pos.x - before.x, player.pos.z - before.z).length();
             moving = d > 0.001;
@@ -1247,6 +1262,11 @@ async fn main() {
         for v in steve.outbox.drain(..) {
             send(v, &mut loopback);
         }
+        portals.update(&world, &player, eye, fw, grabbed && !just_grabbed && active, active, my_id, is_host, &mut villagers, &mut fx, dt);
+        for v in portals.outbox.drain(..) {
+            send(v, &mut loopback);
+        }
+        portals.sounds(&audio, eye, muted);
 
         // ------------------------------------------------ Simulação (host) / interpolação (demais)
         let evento = relogio.evento();
@@ -1337,7 +1357,7 @@ async fn main() {
         for r in remotes.values_mut() {
             let moved = r.pos.distance(r.target);
             r.walk += moved * 3.0;
-            r.pos = if moved > 8.0 { r.target } else { r.pos.lerp(r.target, (dt * 12.0).min(1.0)) };
+            r.pos = if moved > 8.0 || portals.jumped(r.pos, r.target) { r.target } else { r.pos.lerp(r.target, (dt * 12.0).min(1.0)) };
         }
 
         // Fogos na abertura das urnas (ou quando pedem pra IA)
@@ -1406,6 +1426,7 @@ async fn main() {
             };
             let mut pm = json!({"t": "p", "p": mp::v3(player.pos), "y": yaw, "c": ch});
             steve.fill_p(&mut pm, ch, player.sel);
+            portals.fill_p(&mut pm);
             net.send(pm.to_string());
             if is_host {
                 let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
@@ -1573,6 +1594,8 @@ async fn main() {
         eco.draw_world(&mut opaque, &mut labels, eye, time);
         steve.draw_world(&mut opaque, time, eye, fw, ch == 0, player.sel, remotes.iter().map(|(id, r)| (*id, r.pos, r.yaw, r.ch)), &atlas.avg);
         fx.draw_opaque(&mut opaque);
+        let body = matches!(ch, 0 | 5).then(|| (player.pos, fw.x.atan2(fw.z), remote_look(my_id), gta_walk, moving));
+        portals.render(&mut opaque, &chunks, &atlas.tex, &cam, sky, body, mobile);
         opaque.flush(&atlas.tex);
         draw_mesh(&Mesh {
             vertices: vec![
@@ -1809,6 +1832,7 @@ async fn main() {
         if ch == 0 {
             steve.draw_hud(&atlas, player.sel, sw, sh, slot, mobile);
         }
+        portals.hud(sw, sh);
 
         draw_text(&format!("URNA-MINE-VERINE  |  {} FPS  |  disparos da urna: {}", get_fps(), urna.shots), 12.0, sh - 80.0, 20.0, WHITE);
         let now_playing = if telao.live { format!("TELAO: {}", telao.title) } else { "house sintetizado 124 BPM (telao carregando...)".to_string() };
@@ -1820,6 +1844,12 @@ async fn main() {
                     "MOUSE flick (rapido = pop alto): baixo>cima OLLIE | baixo>cima-esq/dir KICK/HEEL | baixo>lado SHOVE-IT",
                     "baixo>lado>cima 360 SHOVE | baixo>lado>diag VARIAL | esq>baixo>cima-dir 360 FLIP | inverta = NOLLIE",
                     "Q/E GRAB (+mouse escolhe) | SHIFT MANUAL (W/S equilibra) | cai alinhado na quina = GRIND, de lado = BOARDSLIDE",
+                ],
+                5 => [
+                    "ARMA DE PORTAL: WASD anda | ESPACO pula | ESQ portal AZUL | DIR portal LARANJA",
+                    "portal so em face plana 1x2 (parede, chao, teto) | velocidade entra = velocidade sai",
+                    "Q cria cubo companheiro | E pega/solta | todo portal de todo jogador funciona pra todos",
+                    "C troca personagem | T chat | M muta | H ajuda",
                 ],
                 4 => [
                     "NIKO: WASD anda | MOUSE olha | ESPACO pula | SHIFT corre",
@@ -1883,7 +1913,7 @@ async fn main() {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
             text_centered("ESCOLHE O PERSONAGEM", sw * 0.5, sh * 0.5 - (sh * 0.36).min(200.0) * 0.5 - 24.0, 34.0, WHITE, true);
             for (i, r) in char_cards(sw, sh).iter().enumerate() {
-                let sel = i == [steve.creative as usize, 2, 3, 3, 4][ch as usize];
+                let sel = i == [steve.creative as usize, 2, 3, 3, 4, 5][ch as usize];
                 draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.1, 0.1, 0.15, 0.9));
                 draw_rectangle_lines(r.x, r.y, r.w, r.h, if sel { 4.0 } else { 2.0 }, if sel { Color::new(1.0, 0.85, 0.3, 1.0) } else { GRAY });
                 text_centered(&format!("{}", i + 1), r.x + r.w * 0.5, r.y + r.h * 0.25, (r.w * 0.3).min(44.0), Color::new(1.0, 0.85, 0.3, 1.0), false);
@@ -1895,7 +1925,7 @@ async fn main() {
                     text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.86, (r.w / 14.0).min(15.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
                 }
             }
-            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-5 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
+            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-6 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
         }
 
         next_frame().await;

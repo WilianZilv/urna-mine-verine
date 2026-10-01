@@ -87,6 +87,15 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | 3 | Skatista (estilo Skate 3) | flick-it no mouse/arrasto (velocidade do flick = altura do pop): baixo→cima ollie, baixo→diagonal kickflip/heelflip, baixo→lado shove-it, baixo→lado→cima 360 shove-it, baixo→lado→diagonal varial, esq→baixo→cima-dir 360 flip/laser, invertido = nollie; `W` rema, `S` freia/powerslide, `A/D` carve (no ar gira, no grind equilibra), `Q/E` grab (mouse escolhe indy/melon/nose/tail/stalefish), `Shift` manual/nose manual com equilíbrio, grind 50-50/5-0/nosegrind/boardslide em muro ou quina; fakie, aterrissagem limpa/sketchy/bail, câmera baixa estilo Skate 3 |
 | 4 | Bandido (estilo GTA 3) | terceira pessoa, 12 armas (punho, taco, pistola, uzi, escopeta, AK-47, M16, sniper com zoom, lança-foguete, lança-chamas, granada, molotov); sedã da 1ª missão perto da torre (`F` entra/sai, `Espaço` freio de mão, atropela) |
 | 5 | Niko (estilo GTA 4) | ragdoll físico ativo próprio: explosão/queda/`G` faz cambalear com passos de equilíbrio e braços em moinho, cair protegendo com as mãos e levantar sozinho |
+| 6 | Arma de portal (inspirada em Portal) | primeira pessoa, não quebra bloco; `Esq` portal azul, `Dir` laranja (celular: `AZUL`/`LARANJA`); só em face plana 1x2 (parede, chão, teto), o novo substitui o antigo da mesma cor; cada portal mostra a vista do par; jogador, cubos, partículas e villagers arremessados atravessam com momento preservado; `Q` cria cubo companheiro, `E` (`CUBO`) pega/solta |
+
+**Portais (`src/portal.rs`):** cada jogador tem seu par (os meus azul/laranja, os dos outros em outras
+cores) e todo portal do mapa funciona pra qualquer um. A vista é renderizada de uma câmera virtual
+atravessando o par num render target de baixa resolução, com near plane oblíquo no portal de saída,
+e amostrada na posição de tela (vira janela); só os 2 mais próximos visíveis (1 no celular) ganham
+vista, o resto e os portais dentro da vista mostram redemoinho. Colocação vai pelo log de mundo
+(`"w"` `k:"portal"`), então quem entra depois vê; portais de quem saiu somem. Limites: recursão 1
+nível, partículas transparentes/rótulos não aparecem na vista.
 
 **Steve:** `1`-`9`/roda escolhem o slot; `E` ou `I` abre o inventário (criativo: grade com todos os
 blocos, clica pra pôr no slot; survival: clica em dois slots pra trocar). Arco: segura `Dir` e solta

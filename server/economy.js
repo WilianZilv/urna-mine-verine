@@ -40,11 +40,11 @@ const txt = (s, n) => String(s ?? "").replace(/[\u0000-\u001f<>]/g, "").slice(0,
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 // Nada de dinheiro real, cripto, chave/senha ou link em texto publico (outdoor da IA, anuncio, voto, pensamento).
 const BANNED = /(r\$|reais|real money|dinheiro (de verdade|real)|\bpix\b|cripto|crypto|bitcoin|\bbtc\b|\beth\b|usdt|\bnft|api.?key|chave|senha|password|token|cartao|paypal|patreon|apoia.?se|doacao real|https?:|www\.|\.(com|net|org|br|io)\b|@)/;
-const safe = (s) => !BANNED.test(norm(s));
+export const safe = (s) => !BANNED.test(norm(s));
 
 // Areas onde a IA nao constroi sozinha: praca, clube, lab, caminhos, casas, torre, placar, outdoors.
 const PROTECTED = [
-    [6, 38, 46, 82], [92, 114, 50, 78], [36, 52, 61, 66], [76, 100, 61, 66], [61, 66, 20, 52], [61, 66, 76, 108],
+    [6, 38, 46, 82], [92, 114, 50, 78], [93, 113, 29, 49], [36, 52, 61, 66], [76, 100, 61, 66], [61, 66, 20, 52], [61, 66, 76, 108],
     [24, 104, 33, 38], [36, 44, 42, 50], [44, 52, 52, 60], [44, 52, 68, 76], [76, 84, 50, 58], [52, 60, 76, 84],
     ...[[50, 30], [70, 30], [50, 90], [70, 90], [84, 44], [84, 78], [38, 28], [38, 92]].map(([x, z]) => [x - 1, x + 7, z - 1, z + 7]),
 ];

@@ -14,6 +14,8 @@ pub const URNA: u8 = 4;
 pub const EU: u8 = 5;
 pub const GUARD: u8 = 6;
 pub const VOADOR: u8 = 7;
+/// Entidades de mods (lista dinâmica, uma vida por instância, na ordem de `mods::Mods`).
+pub const MODS: u8 = 8;
 
 #[derive(Clone, Copy)]
 pub struct Vida {
@@ -59,7 +61,7 @@ impl Vida {
 }
 
 pub struct Npcs {
-    pub groups: [Vec<Vida>; 8],
+    pub groups: [Vec<Vida>; 9],
 }
 
 pub struct Death {
@@ -79,7 +81,16 @@ impl Npcs {
                 vec![Vida::new(500.0, 40.0)],
                 vec![Vida::new(400.0, 45.0)],
                 vec![Vida::new(900.0, 60.0)],
+                Vec::new(),
             ],
+        }
+    }
+
+    /// (hp máximo, segundos pra renascer) de cada entidade de mod; recria a lista se mudou.
+    pub fn sync_mods(&mut self, spec: &[(f32, f32)]) {
+        let l = &mut self.groups[MODS as usize];
+        if l.len() != spec.len() || l.iter().zip(spec).any(|(v, s)| v.max != s.0 || v.respawn != s.1) {
+            *l = spec.iter().map(|&(hp, r)| Vida::new(hp, r)).collect();
         }
     }
 

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://urna-mine-verine.wilianzilv.workers.dev/modding.json",
+  "manifest": {
+    "id": "king-kong",
+    "name": "King Kong",
+    "version": "1.0.0",
+    "author": "urna-mine-verine",
+    "description": "Gorila gigante da Ilha da Caveira. Bate no peito, ruge, pula e esmaga quem chega perto. Derruba moedas ficticias.",
+    "license": "CC0-1.0"
+  },
+  "model": {
+    "parts": [
+      {
+        "name": "body",
+        "pivot": [0, 1.6, 0],
+        "boxes": [
+          { "pos": [0, 2.3, 0], "size": [2.2, 1.6, 1.4], "color": "#2b1d14" },
+          { "pos": [0, 3.25, 0.05], "size": [2.7, 1.2, 1.55], "color": "#2b1d14" },
+          { "pos": [0, 2.75, 0.72], "size": [1.5, 1.1, 0.12], "color": "#5a4a42" },
+          { "pos": [0, 3.85, -0.1], "size": [1.6, 0.4, 1.2], "color": "#1a110b" }
+        ]
+      },
+      {
+        "name": "head",
+        "parent": "body",
+        "pivot": [0, 3.9, 0.2],
+        "boxes": [
+          { "pos": [0, 4.35, 0.25], "size": [1.2, 1.1, 1.1], "color": "#2b1d14" },
+          { "pos": [0, 4.2, 0.82], "size": [0.95, 0.8, 0.1], "color": "#5a4a42" },
+          { "pos": [0, 4.58, 0.88], "size": [1.05, 0.2, 0.18], "color": "#1a110b" },
+          { "pos": [-0.23, 4.42, 0.89], "size": [0.16, 0.12, 0.05], "color": "#ff2a00", "glow": true },
+          { "pos": [0.23, 4.42, 0.89], "size": [0.16, 0.12, 0.05], "color": "#ff2a00", "glow": true },
+          { "pos": [0, 4.25, 0.9], "size": [0.35, 0.18, 0.12], "color": "#3a2e28" },
+          { "pos": [0, 3.98, 0.88], "size": [0.6, 0.22, 0.2], "color": "#1a110b" }
+        ]
+      },
+      {
+        "name": "arm_l",
+        "parent": "body",
+        "pivot": [-1.45, 3.5, 0],
+        "boxes": [
+          { "pos": [-1.65, 2.85, 0], "size": [0.8, 1.6, 0.8], "color": "#2b1d14" },
+          { "pos": [-1.75, 1.65, 0.1], "size": [0.85, 1.2, 0.85], "color": "#241810" },
+          { "pos": [-1.75, 0.8, 0.15], "size": [0.95, 0.6, 0.95], "color": "#5a4a42" }
+        ]
+      },
+      {
+        "name": "arm_r",
+        "parent": "body",
+        "pivot": [1.45, 3.5, 0],
+        "boxes": [
+          { "pos": [1.65, 2.85, 0], "size": [0.8, 1.6, 0.8], "color": "#2b1d14" },
+          { "pos": [1.75, 1.65, 0.1], "size": [0.85, 1.2, 0.85], "color": "#241810" },
+          { "pos": [1.75, 0.8, 0.15], "size": [0.95, 0.6, 0.95], "color": "#5a4a42" }
+        ]
+      },
+      {
+        "name": "leg_l",
+        "pivot": [-0.65, 1.6, 0],
+        "boxes": [
+          { "pos": [-0.65, 1.1, 0], "size": [0.8, 1.0, 0.8], "color": "#2b1d14" },
+          { "pos": [-0.65, 0.35, 0.1], "size": [0.9, 0.7, 1.05], "color": "#3a2e28" }
+        ]
+      },
+      {
+        "name": "leg_r",
+        "pivot": [0.65, 1.6, 0],
+        "boxes": [
+          { "pos": [0.65, 1.1, 0], "size": [0.8, 1.0, 0.8], "color": "#2b1d14" },
+          { "pos": [0.65, 0.35, 0.1], "size": [0.9, 0.7, 1.05], "color": "#3a2e28" }
+        ]
+      }
+    ]
+  },
+  "animations": {
+    "idle": {
+      "duration": 2.4,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "body": { "offset": [0, 0, 0] }, "arm_l": { "rot": [-4, 0, 0] }, "arm_r": { "rot": [-4, 0, 0] } } },
+        { "t": 1.2, "parts": { "body": { "offset": [0, 0.08, 0] }, "arm_l": { "rot": [4, 0, -4] }, "arm_r": { "rot": [4, 0, 4] }, "head": { "rot": [0, 15, 0] } } },
+        { "t": 2.4, "parts": { "body": { "offset": [0, 0, 0] }, "arm_l": { "rot": [-4, 0, 0] }, "arm_r": { "rot": [-4, 0, 0] } } }
+      ]
+    },
+    "walk": {
+      "duration": 1.0,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "leg_l": { "rot": [28, 0, 0] }, "leg_r": { "rot": [-28, 0, 0] }, "arm_l": { "rot": [-25, 0, 0] }, "arm_r": { "rot": [25, 0, 0] }, "body": { "rot": [6, 6, 0] } } },
+        { "t": 0.5, "parts": { "leg_l": { "rot": [-28, 0, 0] }, "leg_r": { "rot": [28, 0, 0] }, "arm_l": { "rot": [25, 0, 0] }, "arm_r": { "rot": [-25, 0, 0] }, "body": { "rot": [6, -6, 0], "offset": [0, 0.12, 0] } } },
+        { "t": 1.0, "parts": { "leg_l": { "rot": [28, 0, 0] }, "leg_r": { "rot": [-28, 0, 0] }, "arm_l": { "rot": [-25, 0, 0] }, "arm_r": { "rot": [25, 0, 0] }, "body": { "rot": [6, 6, 0] } } }
+      ]
+    },
+    "attack": {
+      "duration": 0.9,
+      "loop": false,
+      "keyframes": [
+        { "t": 0, "parts": {} },
+        { "t": 0.35, "parts": { "arm_l": { "rot": [-160, 0, 0] }, "arm_r": { "rot": [-160, 0, 0] }, "body": { "rot": [-12, 0, 0] }, "head": { "rot": [-15, 0, 0] } } },
+        { "t": 0.55, "parts": { "arm_l": { "rot": [-35, 0, 0] }, "arm_r": { "rot": [-35, 0, 0] }, "body": { "rot": [25, 0, 0], "offset": [0, -0.3, 0.3] } } },
+        { "t": 0.9, "parts": {} }
+      ]
+    },
+    "roar": {
+      "duration": 1.6,
+      "loop": false,
+      "keyframes": [
+        { "t": 0, "parts": {} },
+        { "t": 0.2, "parts": { "arm_l": { "rot": [-95, 0, 25] }, "arm_r": { "rot": [-60, 0, -25] }, "head": { "rot": [-25, 0, 0] } } },
+        { "t": 0.4, "parts": { "arm_l": { "rot": [-60, 0, 25] }, "arm_r": { "rot": [-95, 0, -25] }, "head": { "rot": [-25, 0, 0] } } },
+        { "t": 0.6, "parts": { "arm_l": { "rot": [-95, 0, 25] }, "arm_r": { "rot": [-60, 0, -25] }, "head": { "rot": [-30, 0, 0] } } },
+        { "t": 0.8, "parts": { "arm_l": { "rot": [-60, 0, 25] }, "arm_r": { "rot": [-95, 0, -25] }, "head": { "rot": [-30, 0, 0] } } },
+        { "t": 1.1, "parts": { "arm_l": { "rot": [-150, 0, 40] }, "arm_r": { "rot": [-150, 0, -40] }, "head": { "rot": [-35, 0, 0] }, "body": { "rot": [-10, 0, 0] } } },
+        { "t": 1.6, "parts": {} }
+      ]
+    },
+    "death": {
+      "duration": 1.5,
+      "loop": false,
+      "keyframes": [
+        { "t": 0, "parts": {} },
+        { "t": 0.5, "parts": { "body": { "rot": [-30, 0, 10] }, "arm_l": { "rot": [-120, 0, 30] }, "arm_r": { "rot": [-120, 0, -30] } } },
+        { "t": 1.5, "parts": { "body": { "rot": [-85, 0, 0], "offset": [0, -1.4, -0.6] }, "arm_l": { "rot": [-170, 0, 60] }, "arm_r": { "rot": [-170, 0, -60] }, "leg_l": { "rot": [-30, 0, 0] }, "leg_r": { "rot": [-20, 0, 0] } } }
+      ]
+    }
+  },
+  "behavior": {
+    "stats": { "hp": 2500, "speed": 3.2, "scale": 2.0 },
+    "primitives": [
+      { "type": "wander", "radius": 7, "pause": 2 },
+      { "type": "follow_player", "range": 18, "stop": 3 },
+      { "type": "attack_melee", "damage": 25, "range": 3.8, "cooldown": 2 },
+      { "type": "jump", "every": 9, "height": 2.5 },
+      { "type": "roar", "every": 14, "shake": 0.6 },
+      { "type": "say", "every": 11, "phrases": ["UUUH UUUH AAAH!", "CADE A MOCINHA?", "ESSA VILA E MEU PREDIO AGORA", "BANANA OU URNA? BANANA.", "SOU O VERDADEIRO MITO DA ILHA"] },
+      { "type": "spawn_particles", "every": 0.7, "count": 4, "color": "#7a5a3a", "speed": 1.5, "size": 0.12 },
+      { "type": "drop_coins", "amount": 60 }
+    ],
+    "spawn": { "where": "zone", "max_instances": 1, "respawn": 45 }
+  },
+  "sounds": {
+    "roar": { "wave": "saw", "freq": 110, "freq_end": 50, "duration": 1.4, "volume": 0.9, "vibrato": 7, "noise": 0.35 },
+    "attack": { "wave": "square", "freq": 80, "freq_end": 35, "duration": 0.35, "volume": 0.8, "noise": 0.5 },
+    "hurt": { "wave": "saw", "freq": 220, "freq_end": 140, "duration": 0.25, "volume": 0.6 },
+    "death": { "wave": "saw", "freq": 95, "freq_end": 30, "duration": 1.8, "volume": 0.9, "vibrato": 4, "noise": 0.4 }
+  },
+  "items": [
+    { "id": "banana", "name": "Banana do Kong", "color": "yellow", "pattern": "solid" }
+  ],
+  "blocks": [
+    { "id": "jungle-moss", "name": "Musgo da Ilha", "color": "green", "color2": "lime", "pattern": "checker" }
+  ]
+}

@@ -252,3 +252,34 @@ https://urna-mine-verine.wilianzilv.workers.dev/universe.txt
   POST /api/universe/grant                   {token, coins|item, n, reason, key}  (60 coins/day/player/portal, idempotent)
   POST /api/universe/spend                   only via UrnaPortal.spend() (confirm dialog owned by the Urna page)
   GET|PUT /api/portals/:id/items             item allowlist (owner token; items must be your active kind "item" mods)
+
+## Presenca sem codigo / auto mode (players exist together in ANY portal)
+
+1) Zero integration (nothing to do): the Urna page owns the frame around your sandboxed iframe, so it joins the
+   portal's presence room itself (same session token, ?via=overlay) and draws, ON TOP of your game, everyone from
+   the Urna who is in the same game: avatar busts (from their passport skin), name, live status, "X jogadores aqui",
+   reactions (wave, laugh, love, fire, clap, wow, dance, GG) that fly across the screen and quick chat bubbles.
+   Pointer events pass through to your game everywhere except those small cards/buttons. Players can hide it (-).
+   Works even if your published build has no Urna code at all.
+
+2) Auto mode (one tag, no other code): put this in <head>, BEFORE your game scripts:
+
+  <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js" data-auto></script>
+
+   The SDK connects, joins presence and, if the page uses three.js, finds your renderer/scene/active camera by itself
+   (window.__THREE_DEVTOOLS__ "observe" hook + a wrapped renderer.render) and injects the other players' 3D avatars
+   (passport skin or a blocky fallback in their color) with name tags into your scene. Each player appears where
+   THEIR camera is (world coords, avatar eyes at the camera; 1 unit = 1 block/meter). Reactions/chat from the
+   overlay show above their heads. Canvas/2D/Godot/Unity games: nothing is injected, the overlay above covers them.
+   Never throws, never blocks; feature-detected; standalone (outside the Urna) it does nothing.
+   Optional explicit API (better positions):
+     UrnaPortal.auto.attach({ THREE, renderer, scene, camera, eye: 1.6, avatar: (player, pkg, THREE) => ({ group, height, update(dt, st) }) })
+     UrnaPortal.auto.pose({ x, y, z, yaw, speed, air })   // every frame: your player's BODY pose instead of the camera
+     UrnaPortal.auto.avatars                               // Map sid -> { root (THREE.Group), av, s }
+     UrnaPortal.presence.emote("wave") | .say("bora!") | .on("fx" | "say", (m) => ...)
+   Opt-out: data-auto="off", window.URNA_AUTO = false, <meta name="urna-auto" content="off">, or UrnaPortal.auto.disable()
+   (the Urna overlay stays; it is part of the Urna page, not your game).
+   Presence state keys used by auto mode: _p = [x, y, z, yaw], _k = "cam" | "body", _v = speed, _j = in air. Your own
+   keys can live next to them (UrnaPortal.presence.update merges; the full state is resent on every reconnect).
+   Showcase: the demo island (https://urna-hub-demo.wilianzilv.workers.dev/) uses data-auto + attach + pose; tiny tests:
+   /auto-3d (three.js with only the tag) and /sem-sdk (2D, no Urna code) on the same origin.

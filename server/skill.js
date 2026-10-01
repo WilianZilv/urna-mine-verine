@@ -74,7 +74,7 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
 - ${SITE}/hub.txt — Game Hub runbook: find/build/deploy the game, SDK, register, verify, activate, troubleshooting
 - ${SITE}/hub.json — portal manifest schema
 - ${SITE}/hub — Hub docs as HTML; working demo game: ${SITE}/hub/demo
-- ${SITE}/sdk/urna-portal.js — browser SDK for games (connect/session, events, exit; avatar/passport/presence/grant/spend)
+- ${SITE}/sdk/urna-portal.js — browser SDK for games (connect/session, events, exit; avatar/passport/presence/grant/spend); add data-auto to the tag and other Urna players show up in a three.js game with zero code (any portal already gets a presence overlay from the Urna page; see "Presenca sem codigo" in /hub.txt)
 - ${SITE}/sdk/urna-avatar-three.js and ${SITE}/sdk/urna-avatar-canvas2d.js — render a player's avatar mod in three.js / 2D canvas
 - ${SITE}/sdk/urna-hub.mjs — Node helper CLI: prepare/publish/unpublish a portal
 - ${SITE}/api/passport?token=<session token> — player passport for games: avatar package, fictional wallet, items

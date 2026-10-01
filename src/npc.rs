@@ -17,6 +17,7 @@ pub const VOADOR: u8 = 7;
 /// Entidades de mods (lista dinâmica, uma vida por instância, na ordem de `mods::Mods`).
 pub const MODS: u8 = 8;
 pub const KAIJU: u8 = 9;
+pub const ZEPPELIN: u8 = 10;
 
 #[derive(Clone, Copy)]
 pub struct Vida {
@@ -62,7 +63,7 @@ impl Vida {
 }
 
 pub struct Npcs {
-    pub groups: [Vec<Vida>; 10],
+    pub groups: [Vec<Vida>; 11],
 }
 
 pub struct Death {
@@ -84,6 +85,7 @@ impl Npcs {
                 vec![Vida::new(900.0, 60.0)],
                 Vec::new(),
                 vec![Vida::new(1500.0, 90.0)],
+                vec![Vida::new(3000.0, 180.0)],
             ],
         }
     }
@@ -118,6 +120,10 @@ impl Npcs {
 
     pub fn kaiju(&self) -> &Vida {
         &self.groups[KAIJU as usize][0]
+    }
+
+    pub fn zeppelin(&self) -> &Vida {
+        &self.groups[ZEPPELIN as usize][0]
     }
 
     pub fn guard(&self) -> &Vida {

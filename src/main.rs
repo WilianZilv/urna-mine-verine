@@ -36,6 +36,7 @@ mod telao;
 mod urna;
 mod voador;
 mod kaiju;
+mod zeppelin;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod world;
@@ -443,6 +444,7 @@ async fn main() {
     let mut npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
     let mut voador = voador::Voador::new();
     let mut kaiju = kaiju::Kaiju::new(audio.rate);
+    let mut zeppelin = zeppelin::Zeppelin::new(audio.rate);
     let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
     let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
@@ -605,6 +607,8 @@ async fn main() {
                             play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
                         } else if m["by"] == kaiju::BY {
                             kaiju.on_shot(&plan, &mut fx);
+                        } else if m["by"] == zeppelin::BY {
+                            zeppelin.on_shot(&plan, &mut fx);
                         }
                         match shot {
                             Shot::Deflected(p) => {
@@ -624,7 +628,7 @@ async fn main() {
                                     for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time) {
                                         let reach = r * 1.8 + rad * 0.5;
                                         let d = c.distance(p);
-                                        if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player && g != npc::KAIJU) || (g == npc::KAIJU && m["by"] == kaiju::BY) {
+                                        if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player && g != npc::KAIJU) || (g == npc::KAIJU && m["by"] == kaiju::BY) || (g == npc::ZEPPELIN && m["by"] == zeppelin::BY) {
                                             continue;
                                         }
                                         let k = 1.0 - d / reach;
@@ -1318,6 +1322,7 @@ async fn main() {
                         npc::EU => 2000,
                         npc::VOADOR => 2500,
                         npc::KAIJU => 4000,
+                        npc::ZEPPELIN => 6000,
                         npc::GUARD => 1000,
                         npc::FIGHTER => 500,
                         _ => 100,
@@ -1444,6 +1449,11 @@ async fn main() {
                 v["by"] = json!(kaiju::BY);
                 send(v, &mut loopback);
             }
+            for plan in zeppelin.think(&world, dt, time, &npcs, &targets, &mut events) {
+                let mut v = mp::shot(&plan);
+                v["by"] = json!(zeppelin::BY);
+                send(v, &mut loopback);
+            }
         } else {
             let k = (dt * 12.0).min(1.0);
             for (f, &p) in fighters.iter_mut().zip(&fpos) {
@@ -1465,6 +1475,7 @@ async fn main() {
         for (c, p, v) in kaiju.sfx.drain(..) {
             play_at(&audio, &c, p, eye, v, muted, in_club);
         }
+        zeppelin.tick(&world, &audio, dt, time, npcs.zeppelin(), eye, muted, in_club, &mut fx);
         for r in remotes.values_mut() {
             let moved = r.pos.distance(r.target);
             r.walk += moved * 3.0;
@@ -1705,6 +1716,7 @@ async fn main() {
         extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()), eu_dead);
         voador.draw(&mut opaque, &mut trans, &world, time, dt, &mut labels, npcs.voador());
         kaiju.draw(&mut opaque, &mut trans, &world, &mut labels, time, npcs.kaiju());
+        zeppelin.draw(&mut opaque, &mut trans, &world, &mut labels, time, eye, npcs.zeppelin());
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
@@ -1807,7 +1819,7 @@ async fn main() {
         }
         // Barras de chefão: urna (e eu, se apanhar)
         let mut boss_y = 70.0;
-        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false), ("BOLSONARO VOADOR", npcs.voador(), voador::pos(time).distance(eye) < 60.0), ("GODZILHA", npcs.kaiju(), kaiju.root.distance(eye) < 80.0)] {
+        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false), ("BOLSONARO VOADOR", npcs.voador(), voador::pos(time).distance(eye) < 60.0), ("GODZILHA", npcs.kaiju(), kaiju.root.distance(eye) < 80.0), ("URNA AIRSHIP", npcs.zeppelin(), zeppelin::pos(time).distance(eye) < 75.0)] {
             if !(near || d.hp < d.max) {
                 continue;
             }
@@ -2110,6 +2122,7 @@ fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::G
     }
     t.extend(mods.targets(npcs));
     t.extend(kaiju.targets(npcs));
+    t.extend(zeppelin::targets(time, npcs));
     t
 }
 
@@ -2137,6 +2150,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::GUARD => ("SINAPSE-9 DESLIGOU!", ORANGE),
         npc::MODS => ("MOD ABATIDO!", ORANGE),
         npc::KAIJU => ("GODZILHA ABATIDO!!!", ORANGE),
+        npc::ZEPPELIN => ("ZEPELIM ABATIDO!!!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
     events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });

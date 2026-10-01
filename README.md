@@ -263,6 +263,8 @@ Wolverine é diferente.
   (placas acendem do rabo pra cabeça) que quebra bloco (`shot` com `by: 9`). Caça a urna (ela revida),
   às vezes jogadores/NPCs/voador; não entra no escudo do clube nem no domo do lab. 1500 HP, volta em 90s (+$4000).
 
+- **URNA AIRSHIP** (`src/zeppelin.rs`): zepelim rígido de 72 blocos em volta lenta no céu (relógio compartilhado), bombardeia em fileira, metralha quem voa perto (`by: 10`, escudos seguram); 3000 HP, pega fogo por seções, cai e explode, volta em 3 min (+$6000).
+
 ---
 
 ## Sistema de combate

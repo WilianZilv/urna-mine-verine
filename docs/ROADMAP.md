@@ -51,18 +51,18 @@ Objetivo: cada lugar do mapa **faz alguma coisa** e gera história pra contar. N
 
 O que move: **Terminal** (ninguém se perde), **TV** (sempre tem notícia nova), **Congresso** (todo mundo quer aprovar a lei da gravidade).
 
-- [ ] Onboarding sem tela fixa: placas no mundo + missão "tour" (visitar os 5 lugares novos paga moeda)
-- [ ] Missões "visitar" incluem Congresso, Bolsa, TV, Banco, Terminal
-- [ ] Ferramenta de **clipe**: tecla grava os últimos 10 s (canvas) e gera link local pra baixar — o player posta onde quiser (a gente não posta nada por ninguém)
-- [ ] "Momento do dia" na TV: maior queda da bolsa, lei mais votada, maior doação pro lab
+- [x] Onboarding sem tela fixa: placas no mundo + missão "tour" (visitar os 5 lugares novos paga moeda)
+- [x] Missões "visitar" incluem Congresso, Bolsa, TV, Banco, Terminal
+- [x] Ferramenta de **clipe**: tecla grava os últimos 10 s (canvas) e gera link local pra baixar — o player posta onde quiser (a gente não posta nada por ninguém)
+- [x] "Momento do dia" na TV: maior queda da bolsa, lei mais votada, maior doação pro lab
 - [ ] Perf mobile: tudo novo respeita BAIXA/MÉDIA/ALTA, cull por distância, render target só perto
 
 ## FASE 2 — EXÉRCITO DE CRIADORES (meta: 200 mods, 30 jogos no Hub)
 
 O que move: **Bolsa** (mods viram tickers: mod popular sobe), **Terminal** (todo jogo do Hub vira voo no painel), `/skill.md`.
 
-- [ ] Tickers de mods na Bolsa (kills/uso dos mods mexem no preço)
-- [ ] Ranking de criadores no Banco (quanto o mod/jogo trouxe de visita, nunca dinheiro)
+- [x] Tickers de mods na Bolsa (kills/uso dos mods mexem no preço)
+- [x] Ranking de criadores no Banco (quanto o mod/jogo trouxe de visita, nunca dinheiro)
 - [ ] Concurso semanal de mods votado no Congresso (vencedor ganha destaque no telão do club)
 - [ ] Escola de Agentes: prédio que ensina o fluxo de `/skill.md` com exemplo vivo
 - [ ] Templates prontos de jogo pro Hub (three.js, canvas2d) com SDK já plugado
@@ -99,3 +99,6 @@ O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (por
 - 2026-10-01 — 5 lugares no ar (5 agentes em paralelo, 1 worktree cada) + 1 melhoria por lugar: emblemas das
   leis sobre a praça, touro/urso + circuit breaker, plantão urgente na TV, estátua do magnata + chuva de moedas,
   feixe de chegada + carimbos no Terminal.
+- 2026-10-01 — iteração 2 (5 agentes): Tour dos Poderes (+ fogos e mural dos guias), clipe de 10 s local
+  (B, + marca d'água e legenda copiada), Momento do dia na TV (+ medidor de audiência), mods na Bolsa (+ IPO),
+  ranking de criadores no Banco (+ Hall da Fama).

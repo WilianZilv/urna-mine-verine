@@ -47,6 +47,8 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
   BOLSA (east; fictional stocks: /bolsa, /investir T n, /vender T n, /carteira). South: TV URNA NEWS (/tv,
   /noticia, /manchete texto n), BANCO CENTRAL (/poupar n, /sacar n, /ranking), TERMINAL (/destinos, /viajar <dest>).
   All coins are fictional; every place has an in-world panel, chat commands work from anywhere.
+  New here? /tour (visit the 5 places, light beacons guide you, pays fictional coins). Extras: /momento (TV),
+  /bolsa mods (mod stocks), /criadores (creator impact ranking). B saves the last 10 s as a local video clip.
 
 ## Shared rules (all paths)
 - Creator token: get it once (POST /api/mods/register {"name":...}; shown ONCE). Save it to

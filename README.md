@@ -239,6 +239,10 @@ Cinco prédios funcionais, cada um com painel/telão no mundo (render target, na
   (`/poupar n`, `/sacar n|tudo`, `/ranking`), caixas eletrônicos e **estátua dourada do magnata** da vila.
 - **Terminal Interdimensional** `(184..220, 266..294)`: painel de partidas com destinos da vila + portais do Hub;
   portões teleportam, `/viajar destino` (5). Todo mundo vê o feixe de chegada; passaporte com carimbos.
+- **Tour dos Poderes** (`/tour`): 15 min pra carimbar os 5 lugares seguindo feixes de luz; paga 40 do cofre
+  (1x/dia), fogos no Terminal e mural dos guias.
+- Extras: `/momento` (melhores do dia + **AUDIÊNCIA** ao vivo na TV), `/bolsa mods` (mods viram ações, com IPO),
+  `/criadores` (ranking de impacto dos criadores + Hall da Fama dentro do banco — impacto, nunca dinheiro).
 
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).

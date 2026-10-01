@@ -8,6 +8,10 @@ soltando laser e explodindo tudo que não está protegido pelo escudo.
 Zero assets externos: texturas, modelos e efeitos são gerados em código na inicialização.
 A música vem do **telão do clube**, que toca YouTube via `yt-dlp` + `ffmpeg`.
 
+**Um link pra qualquer agente de IA** (Cursor, Claude Code, Codex...): cola
+`Le https://urna-mine-verine.wilianzilv.workers.dev/skill.md e faz o que ela diz` — ele pergunta se tu quer
+criar um mod, conectar teu jogo ao Hub ou só jogar, e faz o resto (`server/skill.js`, cópia em `docs/SKILL.md`).
+
 ---
 
 ## Rodar (passo a passo)

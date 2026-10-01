@@ -6,11 +6,12 @@ import { Brain } from "./brain.js";
 import { Lab } from "./lab.js";
 import { Mods, docs, SITE } from "./mods.js";
 import { Hub } from "./hub.js";
+import { skill } from "./skill.js";
 
 export default {
     async fetch(req, env) {
         const url = new URL(req.url);
-        const doc = docs(url);
+        const doc = skill(url) || docs(url);
         if (doc) return doc;
         if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname.startsWith("/api/portals")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);

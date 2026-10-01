@@ -278,7 +278,7 @@ impl Zeppelin {
 
         let id = *self.drone.get_or_insert_with(|| audio.play(&self.clips.drone, 0.0, true));
         let k = if alive { 1.0 } else { (1.0 - t / FALL).max(0.0) };
-        let vol = if muted || in_club { 0.0 } else { 0.22 * k / (1.0 + (d - 25.0).max(0.0) / 30.0) };
+        let vol = if muted || in_club { 0.0 } else { 0.18 * k * (1.0 - (d - 30.0).max(0.0) / 70.0).clamp(0.0, 1.0).powi(2) };
         audio.set_volume(id, vol);
         for (clip, p, base) in self.sfx.drain(..) {
             let v = (base / (1.0 + p.distance(eye) / 22.0)).clamp(0.0, 1.0);

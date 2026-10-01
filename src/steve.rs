@@ -647,15 +647,20 @@ impl Steve {
         // Item na mão direita dos outros Steves, preso no braço (mesmo ângulo do braço do draw_humanoid)
         for (id, pos, yaw, ch) in remotes {
             let Some(&it) = self.held.get(&id).filter(|_| ch == 0) else { continue };
-            let hand = root(pos, yaw, 0.0, 0.0) * Mat4::from_translation(vec3(-6.0 * U, 22.0 * U, 0.0)) * Mat4::from_rotation_x(REMOTE_ARM) * Mat4::from_translation(vec3(0.0, -8.5 * U, 0.0));
-            let m = if is_block(it) {
-                hand * Mat4::from_translation(vec3(0.0, -1.0 * U, 2.5 * U)) * Mat4::from_scale(Vec3::splat(0.25))
-            } else {
-                // Ferramenta: cabeça pra frente/cima; arco em pé com a flecha apontando pra frente
-                let turn = if it == BOW { Mat4::from_rotation_x(FRAC_PI_4) * Mat4::from_rotation_y(FRAC_PI_2) } else { Mat4::from_rotation_x(0.4) * Mat4::from_rotation_y(-FRAC_PI_2) };
-                hand * turn * Mat4::from_scale(Vec3::splat(0.7)) * Mat4::from_translation(-items::grip(it))
+            // Igual ao ItemInHandLayer do Minecraft: eixos do item (x = direita, y = frente, z = cima) no ombro
+            // girado do braço, 1 unidade = 16 px do Steve, depois o display "thirdperson_righthand" do item.
+            let shoulder = root(pos, yaw, 0.0, 0.0) * Mat4::from_translation(vec3(-6.0 * U, 22.0 * U, 0.0)) * Mat4::from_rotation_x(REMOTE_ARM);
+            let axes = Mat4::from_cols(Vec4::NEG_X, Vec4::Z, Vec4::Y, Vec4::W);
+            let base = shoulder * Mat4::from_scale(Vec3::splat(16.0 * U)) * axes * Mat4::from_translation(vec3(1.0, 2.0, -10.0) / 16.0);
+            let deg = f32::to_radians;
+            let (tr, rot, s) = match it {
+                _ if is_block(it) => (vec3(0.0, 2.5, 0.0), vec3(75.0, 45.0, 0.0), 0.375),
+                BOW => (vec3(-1.0, -2.0, 2.5), vec3(-80.0, 260.0, -40.0), 0.9),
+                ARROW | FLINT => (vec3(0.0, 3.0, 1.0), Vec3::ZERO, 0.55),
+                _ => (vec3(0.0, 4.0, 0.5), vec3(0.0, -90.0, 55.0), 0.85),
             };
-            items::draw_model(b, &mut self.tm, &m, it, 0);
+            let display = Mat4::from_translation(tr / 16.0) * Mat4::from_euler(EulerRot::XYZ, deg(rot.x), deg(rot.y), deg(rot.z)) * Mat4::from_scale(Vec3::splat(s));
+            items::draw_model(b, &mut self.tm, &(base * display), it, 0);
         }
     }
 
@@ -705,7 +710,7 @@ impl Steve {
             _ if is_block(it) => tm.block(&(m * ry(45.0) * Mat4::from_scale(Vec3::splat(0.4))), it as u8, WHITE),
             _ => {
                 let pull = if drawing { 1 + (self.charge * 2.99) as u8 } else { 0 };
-                let m = m * t(vec3(1.13, 3.2, 1.13) / 16.0) * ry(if it == BOW { -90.0 } else { 90.0 }) * rz(25.0) * Mat4::from_scale(Vec3::splat(0.68));
+                let m = m * t(vec3(1.13, 3.2, 1.13) / 16.0) * ry(-90.0) * rz(25.0) * Mat4::from_scale(Vec3::splat(0.68));
                 items::draw_model(&mut b, &mut tm, &m, it, pull);
             }
         }

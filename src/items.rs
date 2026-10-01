@@ -107,132 +107,133 @@ pub fn melee(it: Item) -> f32 {
 type Sprite = [[u8; 16]; 16];
 
 // Sprites 16x16 estilo Minecraft (cabo embaixo à esquerda, cabeça em cima à direita).
-// h/H cabo, l/m/o cabeça clara/média/contorno (cor por ferramenta), w/W madeira do arco, q corda,
-// f pena, d guarda da espada, k/K/x pederneira.
+// h/H cabo, L/l/m/o cabeça brilho/clara/média/contorno (cor por ferramenta), w/W/g madeira e empunhadura
+// do arco, q corda, f/F pena, d/D guarda e pomo da espada, k/K/x pederneira.
 const PICK_PX: [&str; 16] = [
     "................",
-    "................",
-    "................",
-    ".....oooooo.....",
-    "....ollllllo....",
-    ".....ooomlllo...",
-    "........Hhmllo..",
-    ".......Hh..omlo.",
-    "......Hh....olo.",
-    ".....Hh.....olo.",
-    "....Hh......olo.",
-    "...Hh........o..",
-    "..Hh............",
-    ".Hh.............",
-    "................",
-    "................",
+    "...oooooooooo...",
+    ".oolllllllllllo.",
+    "olmmmmmmmmmlllo.",
+    "omooooooooohllo.",
+    "oo........homlo.",
+    ".........hHomlo.",
+    "........hH.omlo.",
+    ".......hH..omlo.",
+    "......hH...omlo.",
+    ".....hH....omlo.",
+    "....hH.....omlo.",
+    "...hH......omlo.",
+    "..hH.......omo..",
+    ".hH.......omlo..",
+    "HH........ooo...",
 ];
 const AXE_PX: [&str; 16] = [
     "................",
-    "................",
-    "......oooo......",
-    ".....ollllo.Hh..",
-    ".....olllllHho..",
-    ".....ollllHho...",
-    ".....ollmHh.....",
-    "......ooHh......",
-    ".......Hh.......",
-    "......Hh........",
-    ".....Hh.........",
-    "....Hh..........",
-    "...Hh...........",
-    "..Hh............",
-    ".Hh.............",
-    "................",
+    "....oooo........",
+    "...oLlllo....H..",
+    "..oLllllmo..hH..",
+    "..oLlllmmmohH...",
+    "..oLllmmmmhH....",
+    "..oLllmmmhH.....",
+    "..oLlmmmhH......",
+    "..oLlmmhH.......",
+    "...ooohH........",
+    ".....hH.........",
+    "....hH..........",
+    "...hH...........",
+    "..hH............",
+    ".hH.............",
+    "HH..............",
 ];
 const SHOVEL_PX: [&str; 16] = [
-    "................",
-    "................",
-    "................",
-    "...........ooo..",
-    "..........ollmo.",
-    ".........olllmo.",
+    "...........oo...",
+    "..........ollo..",
     ".........ollmmo.",
-    "........Hhommo..",
-    ".......Hh.oo....",
-    "......Hh........",
-    ".....Hh.........",
-    "....Hh..........",
-    "...Hh...........",
-    "..Hh............",
-    ".Hh.............",
-    "................",
+    "........ollmmmo.",
+    "........olmmmo..",
+    ".........ommo...",
+    ".........hoo....",
+    "........hH......",
+    ".......hH.......",
+    "......hH........",
+    ".....hH.........",
+    "....hH..........",
+    "...hH...........",
+    "..hH............",
+    ".hH.............",
+    "HH..............",
 ];
 const SWORD_PX: [&str; 16] = [
-    "................",
     ".............ooo",
-    "............olmo",
+    "............olLo",
     "...........olmo.",
     "..........olmo..",
     ".........olmo...",
     "........olmo....",
     ".......olmo.....",
-    "...d..olmo......",
-    "....dolmo.......",
-    ".....dmo........",
-    "....h.d.........",
-    "...hh..d........",
-    "..hh............",
-    ".dd.............",
-    "................",
+    ".Dd...olmo......",
+    "..Dd.olmo.......",
+    "...Ddlmo........",
+    "....Dd..........",
+    "....hDd.........",
+    "...hH.Dd........",
+    "..hH...Dd.......",
+    "dD..............",
+    "Dd..............",
 ];
+/// Só a madeira: a corda (e a flecha encaixada) entra em `sprite`.
 const BOW_PX: [&str; 16] = [
     "................",
-    "...wwwwww.......",
-    "..W......ww.....",
-    "...........W....",
-    "............W...",
-    ".............w..",
-    ".............w..",
-    "..............w.",
-    "..............w.",
-    "..............w.",
-    "..............w.",
-    "..............w.",
-    "..............w.",
-    ".............W..",
+    "........wwwWWW..",
+    "......wwWW......",
+    ".....gWW........",
+    "....gW..........",
+    "...gW...........",
+    "..wW............",
+    "..wW............",
+    ".wW.............",
+    ".wW.............",
+    ".w..............",
+    ".W..............",
+    ".W..............",
+    ".W..............",
     "................",
     "................",
 ];
 const ARROW_PX: [&str; 16] = [
     "................",
     "................",
-    "...........lll..",
-    "............ol..",
-    "...........h.l..",
-    "..........h.....",
-    ".........h......",
-    "........h.......",
-    ".......h........",
-    "......h.........",
-    ".....h..........",
-    "..f.h...........",
-    ".f.h............",
-    "..hf............",
-    ".h.f............",
+    "..........oolL..",
+    "...........mll..",
+    "...........hmlo.",
+    "..........hH.mo.",
+    ".........hH.....",
+    "........hH......",
+    ".......hH.......",
+    "......hH........",
+    ".....hH.........",
+    "..f.hH..........",
+    ".fFhH...........",
+    "..hF............",
+    ".hHf............",
     "................",
 ];
 const FLINT_PX: [&str; 16] = [
     "................",
-    "................",
-    "...llll.........",
-    "..lmmmml........",
-    ".lm....ml.......",
+    "...oooo.........",
+    "..ollllo........",
+    ".olmoomlo.......",
+    ".lmo..oml.......",
     ".lo....ol.......",
     ".lo....ol.......",
-    "..oo..oo........",
-    "...o..o..kkk....",
-    "........kxkKk...",
-    "........kxKKKk..",
-    ".......kkKKKKk..",
-    "........kKKKk...",
-    ".........kKk....",
-    "................",
+    ".mo...oom.......",
+    "..mo..om..kkk...",
+    "..........kxxKk.",
+    ".........kxxKKKk",
+    ".........kxKKKKk",
+    "........kKKKKKk.",
+    ".........kKKKk..",
+    "..........kkk...",
     "................",
 ];
 
@@ -250,19 +251,22 @@ fn head_color(it: Item) -> Color {
 }
 
 fn color(it: Item, c: u8) -> Color {
-    let head = |f: f32| {
-        let h = head_color(it);
-        rgb(h.r * f, h.g * f, h.b * f)
-    };
+    let h = head_color(it);
+    let head = |f: f32| rgb(h.r * f, h.g * f, h.b * f);
     match c {
+        b'L' => rgb(h.r * 0.4 + 0.6, h.g * 0.4 + 0.6, h.b * 0.4 + 0.6),
         b'l' => head(1.0),
         b'm' => head(0.76),
-        b'o' => head(0.48),
+        b'o' => head(0.42),
         b'h' | b'w' => rgb(0.6, 0.42, 0.22),
-        b'H' | b'W' => rgb(0.38, 0.25, 0.12),
+        b'H' => rgb(0.35, 0.24, 0.11),
+        b'W' => rgb(0.38, 0.25, 0.12),
+        b'g' => rgb(0.27, 0.18, 0.09),
         b'q' => rgb(0.86, 0.86, 0.84),
         b'f' => rgb(0.96, 0.96, 0.96),
+        b'F' => rgb(0.67, 0.67, 0.67),
         b'd' => rgb(0.3, 0.22, 0.14),
+        b'D' => rgb(0.18, 0.13, 0.08),
         b'k' => rgb(0.3, 0.3, 0.32),
         b'K' => rgb(0.17, 0.17, 0.19),
         b'x' => rgb(0.52, 0.52, 0.55),
@@ -281,7 +285,7 @@ fn line(s: &mut Sprite, a: IVec2, b: IVec2, ch: u8) {
     }
 }
 
-/// Pixel-art do item. `pull` 1..=3: arco puxado (corda em V e flecha encaixada).
+/// Pixel-art do item. `pull` 1..=3: arco puxado (corda em V e flecha encaixada apontando pra cima/esquerda).
 fn sprite(it: Item, pull: u8) -> Option<Sprite> {
     let rows = match it {
         PICK => &PICK_PX,
@@ -300,32 +304,22 @@ fn sprite(it: Item, pull: u8) -> Option<Sprite> {
         }
     }
     if it == BOW {
-        let (a, b) = (ivec2(3, 3), ivec2(12, 12));
+        let (a, b) = (ivec2(12, 1), ivec2(1, 12));
         if pull == 0 {
             line(&mut s, a, b, b'q');
         } else {
-            let p = pull.min(3) as i32;
-            let nock = ivec2(7 - p, 8 + p);
-            line(&mut s, a, nock, b'q');
-            line(&mut s, nock, b, b'q');
-            for k in 0..9 {
-                let (x, y) = ((nock.x + k) as usize, (nock.y - k) as usize);
-                if x < 16 && y < 16 {
-                    s[y][x] = match k {
-                        0 => b'f',
-                        7 => b'o',
-                        8 => b'l',
-                        _ => b'h',
-                    };
-                }
+            let n = 6 + pull.min(3) as usize;
+            line(&mut s, a, ivec2(n as i32, n as i32), b'q');
+            line(&mut s, ivec2(n as i32, n as i32), b, b'q');
+            for k in 0..n {
+                s[n - k][n - k] = if k == 0 { b'f' } else { b'h' };
             }
-            for (x, y) in [(nock.x - 1, nock.y), (nock.x, nock.y + 1)] {
-                s[y as usize][x as usize] = b'f';
-            }
-        }
-        // Espelha: arco em cima à esquerda, corda na diagonal e flecha apontando pra cima/esquerda (como no Minecraft)
-        for row in s.iter_mut() {
-            row.reverse();
+            s[n][n + 1] = b'f';
+            s[n + 1][n] = b'f';
+            s[1][1] = b'l';
+            s[2][2] = b'm';
+            s[1][2] = b'o';
+            s[2][1] = b'o';
         }
     }
     Some(s)
@@ -355,29 +349,24 @@ pub fn draw_icon(atlas: &Atlas, it: Item, x: f32, y: f32, s: f32) {
     let d = p * 16.0;
     let (ox, oy) = ((x + (s - d) * 0.5).round(), (y + (s - d) * 0.5).round());
     if is_block(it) {
-        let t = face_tile(it as u8, 0);
-        draw_texture_ex(
-            &atlas.tex,
-            ox,
-            oy,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(vec2(d, d)),
-                source: Some(atlas::px_rect(t)),
-                ..Default::default()
-            },
-        );
+        // Cubo isométrico como no inventário do Minecraft: topo claro, lado esquerdo médio, direito escuro
+        let (w, cx) = (d * 0.9, ox + d * 0.5);
+        let (e, q, sh) = (w * 0.5, w * 0.25, w * 0.58);
+        let top = oy + (d - (2.0 * q + sh)) * 0.5;
+        let (t, l, r, c) = (vec2(cx, top), vec2(cx - e, top + q), vec2(cx + e, top + q), vec2(cx, top + 2.0 * q));
+        let down = vec2(0.0, sh);
+        let mut vertices = Vec::with_capacity(12);
+        for (face, quad, shade) in [(2, [t, r, c, l], 1.0), (4, [l, c, c + down, l + down], 0.8), (0, [c, r, r + down, c + down], 0.6)] {
+            let (u0, v0, u1, v1) = atlas::uv(face_tile(it as u8, face));
+            let col = Color::new(shade, shade, shade, 1.0);
+            for (p, (u, v)) in quad.iter().zip([(u0, v0), (u1, v0), (u1, v1), (u0, v1)]) {
+                vertices.push(Vertex::new(p.x, p.y, 0.0, u, v, col));
+            }
+        }
+        let indices = (0..3u16).flat_map(|f| [0, 1, 2, 0, 2, 3].map(|k| f * 4 + k)).collect();
+        draw_mesh(&Mesh { vertices, indices, texture: Some(atlas.tex.clone()) });
     } else if let Some(sp) = sprite(it, 0) {
         runs(&sp, |r, c, n, ch| draw_rectangle(ox + c as f32 * p, oy + r as f32 * p, n as f32 * p, p, color(it, ch)));
-    }
-}
-
-/// Ponto do sprite onde a mão segura (unidades do modelo).
-pub fn grip(it: Item) -> Vec3 {
-    match it {
-        BOW => vec3(-0.22, 0.28, 0.0),
-        PICK | AXE | SHOVEL | SWORD => vec3(-0.22, -0.22, 0.0),
-        _ => Vec3::ZERO,
     }
 }
 

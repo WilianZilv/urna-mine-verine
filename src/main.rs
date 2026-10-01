@@ -1502,6 +1502,7 @@ async fn main() {
             }
             None => sky,
         };
+        lab_info.render(time, eye, npcs.guard());
         clear_background(sky);
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
         let cam = Camera3D {
@@ -1667,7 +1668,7 @@ async fn main() {
         let shimmer = 0.03 * (time * 2.0).sin();
         draw_sphere(sc, SHIELD_R, None, Color::new(0.45, 0.75 + 0.2 * sf, 1.0, 0.09 + shimmer + 0.25 * sf));
         draw_sphere_wires(sc, SHIELD_R + 0.05, None, Color::new(0.6, 0.9, 1.0, 0.12 + 0.4 * sf));
-        lab::draw_dome(time, npcs.guard().flash);
+        lab_info.draw_dome(time, npcs.guard().flash, eye);
 
         // ------------------------------------------------ Render 2D
         set_default_camera();

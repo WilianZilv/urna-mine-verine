@@ -262,7 +262,7 @@ impl Lab {
                 let h = 0.2 + 0.5 * ((time * 1.5 + l as f32 * 1.3 + k as f32).sin() * 0.5 + 0.5);
                 trans.glow(&m, vec3(-0.9 + l as f32 * 0.45, -0.75 + h * 0.5, 0.05), vec3(0.3, h, 0.02), Color::new(1.0, 0.5, 0.8, 0.7));
             }
-            if pos.distance(eye) < 40.0 {
+            if pos.distance(eye) < 40.0 && eye.x > crate::lab::PANEL_X {
                 labels.push(Label { pos: pos + vec3(0.0, 1.2, 0.0), text: LEITURAS[(k + (time / 7.0) as usize) % LEITURAS.len()].into(), size: 16.0, color: rgb(0.5, 1.0, 1.0) });
             }
         }
@@ -283,11 +283,13 @@ impl Lab {
             }
             let (p, yaw, moving) = Self::robot_at(i, time);
             draw_robot(b, p, yaw, time, i, moving, bc);
-            if p.distance(eye) < 30.0 {
+            if p.distance(eye) < 30.0 && eye.x > crate::lab::PANEL_X {
                 labels.push(Label { pos: p + vec3(0.0, 3.0, 0.0), text: format!("ROBO-CIENTISTA {}", i + 1), size: 14.0, color: rgb(0.8, 0.85, 0.9) });
             }
         }
-        labels.push(Label { pos: c + vec3(0.0, 10.0, 0.0), text: "LABORATORIO: ESTUDO DO CEREBRO HUMANO".into(), size: 28.0, color: rgb(0.5, 1.0, 1.0) });
+        if eye.x > crate::lab::PANEL_X {
+            labels.push(Label { pos: c + vec3(0.0, 10.0, 0.0), text: "LABORATORIO: ESTUDO DO CEREBRO HUMANO".into(), size: 28.0, color: rgb(0.5, 1.0, 1.0) });
+        }
     }
 }
 

@@ -12,8 +12,11 @@ use macroquad::prelude::*;
 use serde_json::Value;
 use std::f32::consts::FRAC_PI_2;
 
+#[path = "lab_panel.rs"]
+mod panel;
+
 pub const DOME_R: f32 = 16.0;
-const PANEL_X: f32 = 86.0;
+pub const PANEL_X: f32 = 86.0;
 const PANEL_Z: f32 = 64.5;
 
 pub fn dome_center() -> Vec3 {
@@ -49,30 +52,21 @@ pub struct LabInfo {
     recv: f64,
     top: Vec<Finding>,
     got: bool,
+    bars: Vec<(String, f32)>,
+    per_cycle: Vec<f32>,
+    fund_hist: Vec<f32>,
+    day: f32,
+    day_max: f32,
+    // Animação: valores mostrados correm atrás dos reais; card novo desliza; borda pisca em dado novo.
+    shown: [f32; 5],
+    bars_shown: Vec<f32>,
+    card_t: f32,
+    flash: f32,
+    rt: Option<RenderTarget>,
 }
 
 fn s(v: &Value) -> String {
     v.as_str().unwrap_or("").to_string()
-}
-
-/// Quebra em até `max` linhas de ~`w` letras (com "..." se sobrar).
-fn wrap(t: &str, w: usize, max: usize) -> Vec<String> {
-    let mut lines: Vec<String> = vec![String::new()];
-    for word in t.split_whitespace() {
-        if !lines.last().unwrap().is_empty() && lines.last().unwrap().chars().count() + word.chars().count() > w {
-            if lines.len() == max {
-                lines.last_mut().unwrap().push_str("...");
-                return lines;
-            }
-            lines.push(String::new());
-        }
-        let cur = lines.last_mut().unwrap();
-        if !cur.is_empty() {
-            cur.push(' ');
-        }
-        cur.push_str(word);
-    }
-    lines
 }
 
 fn dur(sec: f64) -> String {
@@ -85,12 +79,42 @@ fn dur(sec: f64) -> String {
 
 impl LabInfo {
     pub fn new() -> Self {
-        LabInfo { papers: 0, count: 0, topics: 0, fund: 0, cycles: 0, queue: 0, running: false, ago: -1.0, next: 0.0, recv: 0.0, top: Vec::new(), got: false }
+        LabInfo {
+            papers: 0,
+            count: 0,
+            topics: 0,
+            fund: 0,
+            cycles: 0,
+            queue: 0,
+            running: false,
+            ago: -1.0,
+            next: 0.0,
+            recv: 0.0,
+            top: Vec::new(),
+            got: false,
+            bars: Vec::new(),
+            per_cycle: Vec::new(),
+            fund_hist: Vec::new(),
+            day: 0.0,
+            day_max: 40.0,
+            shown: [0.0; 5],
+            bars_shown: Vec::new(),
+            card_t: 1.0,
+            flash: 0.0,
+            rt: None,
+        }
     }
 
     /// Mensagem {t:"lab"} do servidor (snapshot completo, vem no join e a cada mudança).
     pub fn on_msg(&mut self, m: &Value) {
         let n = |k: &str| m[k].as_i64().unwrap_or(0);
+        let old = (self.papers, self.fund, self.cycles, self.top.first().map(|f| f.title.clone()));
+        let nums = |k: &str| m[k].as_array().into_iter().flatten().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect::<Vec<_>>();
+        self.bars = m["bars"].as_array().into_iter().flatten().map(|b| (s(&b[0]), b[1].as_f64().unwrap_or(0.0) as f32)).collect();
+        self.per_cycle = nums("pc");
+        self.fund_hist = nums("fh");
+        self.day = m["day"].as_f64().unwrap_or(0.0) as f32;
+        self.day_max = m["dmax"].as_f64().unwrap_or(40.0).max(1.0) as f32;
         (self.papers, self.count, self.topics, self.fund, self.cycles, self.queue) = (n("papers"), n("n"), n("topics"), n("fund"), n("cycles"), n("q"));
         self.running = m["run"].as_bool().unwrap_or(false);
         self.ago = m["ago"].as_f64().unwrap_or(-1.0);
@@ -103,21 +127,29 @@ impl LabInfo {
             .flatten()
             .map(|x| Finding { title: s(&x["pt"]), text: s(&x["f"]), src: format!("{} ({}) - tema: {} - {}", s(&x["j"]), s(&x["y"]), s(&x["topic"]), s(&x["u"]).replace("https://", "")) })
             .collect();
+        let new_card = old.3.is_some() && old.3 != self.top.first().map(|f| f.title.clone());
+        if new_card {
+            self.card_t = 0.0;
+        }
+        if new_card || (self.got && (old.0, old.1, old.2) != (self.papers, self.fund, self.cycles)) {
+            self.flash = 1.0;
+        }
     }
-}
 
-/// Cúpula de energia (modo imediato, depois do batch transparente, igual ao escudo do club).
-pub fn draw_dome(time: f32, hit: f32) {
-    let c = dome_center();
-    let k = 0.03 * (time * 1.7).sin();
-    draw_sphere(c, DOME_R, None, Color::new(0.3, 1.0, 0.7, 0.07 + k + 0.2 * hit));
-    draw_sphere_wires(c, DOME_R + 0.05, None, Color::new(0.4, 1.0, 0.8, 0.1 + 0.3 * hit));
+    /// Cúpula de energia + tela do painel (modo imediato, depois do batch transparente, igual ao escudo do club).
+    pub fn draw_dome(&self, time: f32, hit: f32, eye: Vec3) {
+        let c = dome_center();
+        let k = 0.03 * (time * 1.7).sin();
+        draw_sphere(c, DOME_R, None, Color::new(0.3, 1.0, 0.7, 0.07 + k + 0.2 * hit));
+        draw_sphere_wires(c, DOME_R + 0.05, None, Color::new(0.4, 1.0, 0.8, 0.1 + 0.3 * hit));
+        self.draw_screen(time, eye);
+    }
 }
 
 /// Guardiã (androide cientista de jaleco, cérebro num domo de vidro na cabeça) + painel da entrada.
 pub fn draw(b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3, info: &LabInfo, life: Option<&Vida>) {
     draw_guard(b, trans, labels, time, eye, life);
-    draw_panel(b, trans, labels, time, eye, info, life);
+    panel::draw_frame(b, trans, time, info.flash);
 }
 
 fn draw_guard(b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3, life: Option<&Vida>) {
@@ -190,63 +222,10 @@ fn draw_guard(b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f
     beam(trans, hand, top, 0.35 + 0.25 * k, Color::new(0.3, 1.0, 0.8, 0.35));
     beam(trans, hand, top, 0.1, Color::new(1.0, 1.0, 1.0, 0.8));
     trans.glow(&Mat4::from_translation(top), Vec3::ZERO, Vec3::splat(1.2 + k), Color::new(0.3, 1.0, 0.8, 0.5));
-    if p.distance(eye) < 40.0 {
+    if p.distance(eye) < 14.0 {
         const FALAS: [&str; 5] = ["SO LEIO ARTIGO PUBLICADO. NAO INVENTO.", "URNA NAO ENTRA NA CUPULA", "CORRELACAO NAO E CAUSALIDADE", "ESTUDO EM RATO NAO E CURA", "/lab PRO ULTIMO ACHADO"];
         labels.push(Label { pos: p + vec3(0.0, 4.6, 0.0), text: format!("\"{}\"", FALAS[(time / 6.0) as usize % FALAS.len()]), size: 18.0, color: rgb(0.6, 1.0, 0.9) });
         labels.push(Label { pos: p + vec3(0.0, 4.1, 0.0), text: "DRA. SINAPSE-9, GUARDIA DO LAB".into(), size: 18.0, color: rgb(0.95, 0.95, 1.0) });
     }
 }
 
-fn draw_panel(b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3, info: &LabInfo, life: Option<&Vida>) {
-    let (w, h, y0) = (15.0f32, 16.0f32, G as f32 + 11.5);
-    let m = Mat4::from_translation(vec3(PANEL_X, y0, PANEL_Z)) * Mat4::from_rotation_y(-FRAC_PI_2);
-    let id = Mat4::IDENTITY;
-    // Projetores no chão dos dois lados do caminho
-    for side in [-1.0f32, 1.0] {
-        let base = vec3(PANEL_X, G as f32, PANEL_Z + side * (w * 0.5 + 0.3));
-        b.cube(&id, base + vec3(0.0, 0.4, 0.0), vec3(1.0, 0.8, 1.0), rgb(0.25, 0.27, 0.3));
-        b.glow(&id, base + vec3(0.0, 0.85, 0.0), vec3(0.7, 0.1, 0.7), rgb(0.3, 0.95, 1.0));
-        trans.glow(&id, base + vec3(0.0, (y0 - G as f32 + h * 0.5) * 0.5, 0.0), vec3(0.15, y0 - G as f32 + h * 0.5, 0.15), Color::new(0.3, 0.9, 1.0, 0.25));
-    }
-    let k = 0.75 + 0.25 * (time * 2.0).sin();
-    trans.glow(&m, Vec3::ZERO, vec3(w, h, 0.05), Color::new(0.15, 0.75, 1.0, 0.13));
-    for (c, s) in [(vec3(0.0, h * 0.5, 0.0), vec3(w + 0.3, 0.15, 0.1)), (vec3(0.0, -h * 0.5, 0.0), vec3(w + 0.3, 0.15, 0.1)), (vec3(w * 0.5, 0.0, 0.0), vec3(0.15, h, 0.1)), (vec3(-w * 0.5, 0.0, 0.0), vec3(0.15, h, 0.1))] {
-        trans.glow(&m, c, s, Color::new(0.4, 1.0, 1.0, 0.7 * k));
-    }
-    for l in 0..3 {
-        let y = ((time * 0.15 + l as f32 / 3.0).fract() - 0.5) * h;
-        trans.glow(&m, vec3(0.0, y, 0.04), vec3(w - 0.2, 0.06, 0.02), Color::new(0.6, 1.0, 1.0, 0.35));
-    }
-    if eye.x > PANEL_X || eye.distance(vec3(PANEL_X, y0, PANEL_Z)) > 40.0 {
-        return;
-    }
-    let cyan = Color::new(0.55, 1.0, 1.0, 1.0);
-    let mut put = |y: f32, text: String, size: f32, color: Color| labels.push(Label { pos: m.transform_point3(vec3(0.0, y, 0.1)), text, size, color });
-    put(7.3, "LAB DE PESQUISA DO CEREBRO (ARTIGOS REAIS)".into(), 26.0, cyan);
-    let ago = if info.ago < 0.0 { "nunca".into() } else { format!("ha {}", dur(info.ago + get_time() - info.recv)) };
-    let next = if info.running { "LENDO ARTIGOS AGORA...".into() } else { format!("proximo ciclo {}", dur((info.next - (get_time() - info.recv)).max(0.0))) };
-    let stats = if info.got { format!("artigos lidos {}  |  achados {}  |  temas {}  |  ciclos {}  |  fila {}", info.papers, info.count, info.topics, info.cycles, info.queue) } else { "conectando ao servidor...".into() };
-    put(6.4, stats, 18.0, WHITE);
-    put(5.7, format!("fundo do lab: {} moedas ficticias  |  atualizado {ago}  |  {next}", info.fund), 18.0, Color::new(1.0, 0.85, 0.3, 1.0));
-    let guard = match life {
-        Some(v) if !v.alive() => format!("GUARDIA SINAPSE-9: REINICIANDO EM {:.0}s (CUPULA SEGUE LIGADA)", v.down.max(0.0)),
-        Some(v) => format!("GUARDIA SINAPSE-9: {:.0}/{:.0} HP", v.hp, v.max),
-        None => String::new(),
-    };
-    put(5.0, guard, 16.0, rgb(0.6, 1.0, 0.8));
-    for (i, f) in info.top.iter().enumerate() {
-        let y = 3.9 - i as f32 * 2.9;
-        put(y, wrap(&f.title, 70, 1).concat(), 18.0, rgb(1.0, 0.75, 0.9));
-        let body = if f.text.is_empty() { vec!["(sem resumo da IA agora: so titulo e revista)".to_string()] } else { wrap(&f.text, 95, 3) };
-        for (j, l) in body.into_iter().enumerate() {
-            put(y - 0.6 - j as f32 * 0.55, l, 15.0, WHITE);
-        }
-        put(y - 2.3, wrap(&f.src, 120, 1).concat(), 13.0, Color::new(0.6, 0.8, 0.9, 1.0));
-    }
-    if info.top.is_empty() && info.got {
-        put(2.5, "primeiro ciclo de leitura em andamento...".into(), 18.0, WHITE);
-    }
-    put(-5.3, "/lab  /pesquisa tema  /doarlab n   -   a IA so resume artigos publicados, nao faz experimento. moedas sao ficticias".into(), 14.0, Color::new(0.8, 0.85, 0.9, 1.0));
-    put(-6.2, "DOE DIRETO PRA QUEM PESQUISA (fora do jogo):".into(), 18.0, Color::new(1.0, 0.85, 0.3, 1.0));
-    put(-7.0, "bbrfoundation.org/donate   |   idor.org".into(), 20.0, cyan);
-}

@@ -35,11 +35,18 @@ Responda SO JSON: {"titulo":"titulo traduzido curto (ate 90 letras)","achado":"1
 
 const norm = (s) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 const amount = (v) => (/^\d{1,7}$/.test(String(v ?? "")) ? parseInt(v, 10) : NaN);
-const clean = (s, n) => String(s ?? "").replace(/<[^>]*>/g, " ").replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
+// O modelo pequeno as vezes devolve UTF-8 lido como latin-1 ("memÃ³ria"): desfaz trecho a trecho.
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+const demoji = (s) => s.replace(/[\u00c2-\u00f4][\u0080-\u00bf]+/g, (m) => {
+    try { return utf8.decode(Uint8Array.from(m, (ch) => ch.charCodeAt(0))); } catch (e) { return m; }
+});
+const clean = (s, n) => demoji(String(s ?? "")).replace(/<[^>]*>/g, " ").replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
 
 function fresh() {
-    return { f: [], seen: [], papers: 0, cycles: 0, topics: {}, fund: 0, q: [], last: 0, next: 0, day: { d: "", n: 0 }, rot: 0 };
+    // ft: achados por tema | pc: artigos por ciclo | fh: saldo do fundo ao longo do tempo (series dos graficos)
+    return { f: [], seen: [], papers: 0, cycles: 0, topics: {}, fund: 0, q: [], last: 0, next: 0, day: { d: "", n: 0 }, rot: 0, ft: {}, pc: [], fh: [] };
 }
+const HIST = 24;
 
 export class Lab {
     constructor(room) {
@@ -51,7 +58,15 @@ export class Lab {
         room.ctx.blockConcurrencyWhile(async () => {
             const s = await room.ctx.storage.get("lab");
             if (s) this.s = { ...fresh(), ...s };
+            for (const x of this.s.f) for (const k of ["pt", "f", "ti"]) x[k] = demoji(String(x[k] ?? ""));
+            if (!Object.keys(this.s.ft).length) for (const x of this.s.f) this.s.ft[x.topic] = (this.s.ft[x.topic] || 0) + 1;
+            if (!this.s.fh.length) this.s.fh.push(this.s.fund);
         });
+    }
+
+    fundPoint() {
+        this.s.fh.push(this.s.fund);
+        if (this.s.fh.length > HIST) this.s.fh.splice(0, this.s.fh.length - HIST);
     }
 
     save() {
@@ -75,6 +90,11 @@ export class Lab {
             next: Math.max(0, Math.round((this.s.next - now) / 1000)),
             q: this.s.q.length,
             run: this.running,
+            bars: Object.entries(this.s.ft).sort((a, b) => b[1] - a[1]).slice(0, 6),
+            pc: this.s.pc,
+            fh: this.s.fh,
+            day: this.s.day.d === new Date(now).toISOString().slice(0, 10) ? this.s.day.n : 0,
+            dmax: DAY_MAX,
             top: this.s.f.slice(-3).reverse().map((x) => ({ pt: x.pt || x.ti, f: x.f, j: x.j, y: x.y, u: x.u, topic: x.topic })),
         };
     }
@@ -92,6 +112,14 @@ export class Lab {
     kick() {
         if (this.s.f.length || this.running || Date.now() - this.tried < 120000) return;
         this.cycle();
+    }
+
+    /// Antecipa o alarme do DO (compartilhado com a economia) se o proximo ciclo ficou mais cedo.
+    async wake() {
+        const st = this.room.ctx.storage;
+        const at = Math.max(this.s.next, Date.now() + 5000);
+        const cur = await st.getAlarm();
+        if (cur == null || cur > at) await st.setAlarm(at);
     }
 
     async alarm() {
@@ -125,8 +153,10 @@ export class Lab {
                 w.c -= ASK;
                 this.s.fund += ASK;
                 this.s.q.push({ pt: tema, by: c.name });
+                this.fundPoint();
                 const now = Date.now();
                 this.s.next = Math.min(this.s.next, Math.max(now, this.s.last + GAP_MS));
+                this.wake();
                 eco.entry(c.name, `pediu pesquisa no lab: ${tema}`, ASK, "vai pro fundo do lab (moeda ficticia)");
                 eco.sendMe(c.name);
                 this.priv(c, `tema na fila #${this.s.q.length}. proximo ciclo em ~${Math.max(1, Math.ceil((this.s.next - now) / 60000))} min`);
@@ -140,6 +170,7 @@ export class Lab {
                 if (!(n >= 1) || n > w.c) return this.priv(c, `uso: /doarlab n (tens ${w.c}). moeda ficticia; doacao real: bbrfoundation.org/donate ou idor.org`), true;
                 w.c -= n;
                 this.s.fund += n;
+                this.fundPoint();
                 eco.entry(c.name, "doou pro fundo do lab", n, "moeda ficticia: mais fundo = mais ciclos/temas por dia");
                 eco.sendMe(c.name);
                 this.save();
@@ -238,6 +269,7 @@ export class Lab {
                         t: Date.now(),
                     });
                     this.s.papers += 1;
+                    this.s.ft[t.pt] = (this.s.ft[t.pt] || 0) + 1;
                     found += 1;
                 }
                 this.s.topics[t.pt] = (this.s.topics[t.pt] || 0) + 1;
@@ -246,8 +278,10 @@ export class Lab {
             if (this.s.f.length > KEEP) this.s.f.splice(0, this.s.f.length - KEEP);
             this.s.cycles += 1;
             this.s.day.n += 1;
+            this.s.pc = [...this.s.pc, found].slice(-HIST);
         } finally {
             this.running = false;
+            this.fundPoint();
             this.s.last = Date.now();
             this.s.next = this.s.last + (this.s.fund >= COST ? FAST_MS : SLOW_MS);
             if (this.s.q.length) this.s.next = this.s.last + GAP_MS;

@@ -150,19 +150,19 @@ fn project_any(vp: &Mat4, p: Vec3) -> Option<Vec2> {
     Some(vec2((n.x + 1.0) * 0.5 * screen_width(), (1.0 - n.y) * 0.5 * screen_height()))
 }
 
+/// Tamanhos contínuos rasterizam glifos novos no atlas da fonte (reenvia a textura inteira):
+/// rasteriza em poucos tamanhos fixos e escala.
 fn text_centered(s: &str, x: f32, y: f32, size: f32, color: Color, bg: bool) {
-    let dim = measure_text(s, None, size as u16, 1.0);
+    let base = [12u16, 16, 20, 24, 32, 48, 64].into_iter().find(|b| *b as f32 >= size * 0.97).unwrap_or(64);
+    let scale = size / base as f32;
+    let dim = measure_text(s, None, base, scale);
     if bg {
         draw_rectangle(x - dim.width * 0.5 - 4.0, y - dim.height - 4.0, dim.width + 8.0, dim.height + 8.0, Color::new(0.0, 0.0, 0.0, 0.45));
     }
-    draw_text(s, x - dim.width * 0.5 + 2.0, y + 2.0, size, Color::new(0.0, 0.0, 0.0, color.a * 0.7));
-    draw_text(s, x - dim.width * 0.5, y, size, color);
-}
-
-fn build_all(world: &mut World, tex: &Texture2D) -> Vec<Vec<Mesh>> {
-    let m = (0..CX * CZ).map(|k| world.build_chunk(k % CX, k / CX, tex)).collect();
-    world.dirty.fill(false);
-    m
+    prof::add(&prof::TEXTS, 1);
+    let p = |color| TextParams { font_size: base, font_scale: scale, color, ..Default::default() };
+    draw_text_ex(s, x - dim.width * 0.5 + 2.0, y + 2.0, p(Color::new(0.0, 0.0, 0.0, color.a * 0.7)));
+    draw_text_ex(s, x - dim.width * 0.5, y, p(color));
 }
 
 /// Mesma semente em todos os clientes: dançarinos e lutadores nascem iguais.

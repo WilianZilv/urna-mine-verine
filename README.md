@@ -79,6 +79,7 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | `T` / `Enter` | chat (Enter envia, Esc cancela) |
 | `R` | resetar mundo (regenera vila, NPCs) |
 | `M` | mutar |
+| `B` / botão `CLIPE` | clipe: baixa os últimos ~10s em vídeo (mp4/webm, só local; qualidade BAIXA/celular fraco grava os próximos 10s); marca d'água no canto e legenda com link copiada pro clipboard |
 | `H` | mostrar/esconder ajuda |
 | `Tab` / `Esc` | soltar mouse |
 

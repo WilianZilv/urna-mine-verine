@@ -97,6 +97,24 @@ furiosa, teleportar jogador, chamar Wolverine, trocar o telão. A fala da IA apa
 escudo. Ex.: `/constroi uma piramide de neon na praca`, `/ceu roxo e fogos`, `/explode a casa do lado da torre`.
 Precisa da chave: `npx wrangler secret put OPENAI_API_KEY` (modelo opcional: `OPENAI_MODEL`).
 
+### Economia da vila (moedas FICTÍCIAS)
+
+**As moedas são de brinquedo: sem dinheiro real, sem cripto, sem doação real, sem valor fora do jogo.**
+Estado fica no Durable Object (`server/economy.js`): cofre da IA, carteira por nome de jogador
+(conta nova ganha 100 — única emissão de moeda), loja, missões, 4 outdoors e um **ledger público**
+(últimas 200 entradas: quem, o quê, quanto e o porquê da IA). Carteira é por nome, sem senha.
+
+- `/saldo`, `/banco` (ajuda), `/doar n` (pro cofre), `/pagar nome n` (conta com 10+ min), `/loja`,
+  `/comprar item` (fogos, ceu, faixa, estatua, raiva, wolverine), `/missao` (quebrar/construir
+  blocos, acertar NPCs ou visitar um lugar; paga do cofre), `/anuncio texto n` (outdoor perto da praça;
+  a IA aprova/recusa). Outros `/` continuam indo pro agente IA.
+- A cada ~4 min com gente online, a IA revisa a cidade: ajusta preços, posta o porquê no ledger e
+  pode bancar fogos/céu/construção com o cofre (sempre sobra 300).
+- A IA só sugere números e textos; o servidor limita tudo (preço ±50% por revisão, recompensa
+  proporcional e ≤ 10% do cofre, nunca move carteira sem comando do dono). Sem `OPENAI_API_KEY`
+  usa preços/missões por regra fixa.
+- No jogo: saldo e missão no topo, `L` (celular: `BANCO`) abre o ledger, movimentos aparecem no chat.
+
 **Celular** (abre o link no navegador, deita o celular): metade esquerda = joystick, arrastar na
 direita = olhar, botões `PULA` / `BATE` / `POE` / `VOA`, `CHAT` e `TELAO` no canto, toque na
 hotbar escolhe bloco. Entra em tela cheia no primeiro toque.

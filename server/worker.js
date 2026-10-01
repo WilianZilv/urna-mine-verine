@@ -1,6 +1,7 @@
 // Servidor multiplayer: Cloudflare Worker (serve web/) + Durable Object "Room" (WebSocket relay).
 // Primeiro jogador vira host (simula lutadores/urna); eventos de mundo ficam num log pra quem entra depois.
 import { DurableObject } from "cloudflare:workers";
+import { Economy } from "./economy.js";
 
 export default {
     async fetch(req, env) {
@@ -107,6 +108,11 @@ export class Room extends DurableObject {
         this.tv = null;
         this.queue = [];
         this.busy = false;
+        this.eco = new Economy(this, sanitize);
+    }
+
+    alarm() {
+        return this.eco.alarm();
     }
 
     sys(text) {
@@ -198,6 +204,7 @@ export class Room extends DurableObject {
             const players = [...this.clients].map(([i, x]) => [i, x.name]);
             this.send(c, { t: "welcome", id, host: this.host, log: this.log, tv: this.tv, players });
             this.broadcast({ t: "join", id, n: c.name }, id);
+            this.eco.join(c);
             return;
         }
         m.id = id;
@@ -205,6 +212,7 @@ export class Room extends DurableObject {
             case "p":
                 c.pos = m.p;
                 this.broadcast(m, id);
+                this.eco.onPos(c);
                 break;
             case "s":
                 if (id === this.host) this.broadcast(m, id);
@@ -212,7 +220,7 @@ export class Room extends DurableObject {
             case "chat":
                 m.m = String(m.m || "").slice(0, 200);
                 this.broadcast(m);
-                if (m.m.startsWith("/")) this.enqueue(id, c, m.m.slice(1).trim());
+                if (m.m.startsWith("/") && !this.eco.command(id, c, m.m.slice(1).trim())) this.enqueue(id, c, m.m.slice(1).trim());
                 break;
             case "tv":
                 this.tv = String(m.u || "").slice(0, 500);
@@ -221,9 +229,11 @@ export class Room extends DurableObject {
             case "a": {
                 const h = this.clients.get(this.host);
                 if (h) this.send(h, m);
+                this.eco.onHit(c, m);
                 break;
             }
             case "w":
+                this.eco.onWorld(c, m);
                 if (m.k === "reset") this.log = [];
                 else {
                     this.log.push(m);

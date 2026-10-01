@@ -7,6 +7,7 @@ mod atlas;
 mod audio;
 mod batch;
 mod club;
+mod economy;
 mod eleicao;
 mod extras;
 mod gta;
@@ -191,7 +192,7 @@ fn tapped() -> bool {
 
 /// Botões do celular: (centro, raio, rótulo).
 /// Botões do celular; rótulos mudam com o personagem (0 Steve, 1 skatista, 2 bandido, 3 dirigindo).
-fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 7] {
+fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     let r = (sw.min(sh) * 0.085).max(26.0);
     let (x, y) = (sw - r * 1.4, sh - r * 1.4);
     let l = match ch {
@@ -209,6 +210,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 7] {
         (vec2(r * 0.9 + 8.0, sh * 0.3), r * 0.7, "CHAT"),
         (vec2(r * 2.6 + 8.0, sh * 0.3), r * 0.7, "TELAO"),
         (vec2(r * 4.3 + 8.0, sh * 0.3), r * 0.7, "PERS"),
+        (vec2(r * 6.0 + 8.0, sh * 0.3), r * 0.7, "BANCO"),
     ]
 }
 
@@ -388,6 +390,7 @@ async fn main() {
     let mut ai_fireworks = 0.0f32;
     let mut ai_rage = 0.0f32;
     let mut ai_sky: Option<(Color, f32)> = None;
+    let mut eco = economy::Economy::new();
 
     // Rede
     let mut net = net::Net::connect(url.as_deref().unwrap_or(""));
@@ -647,6 +650,7 @@ async fn main() {
                     time_offset = if (target - time_offset).abs() > 1.0 { target } else { time_offset + (target - time_offset) * 0.1 };
                     mp::apply_snapshot(&m, &mut urna, &mut fighters, &mut villagers, &mut fpos, &mut vpos, &mut events);
                 }
+                "eco" => eco.on_msg(&m, &mut chat),
                 _ => {}
             }
         }
@@ -695,6 +699,7 @@ async fn main() {
                                 player.vel.y = 0.0;
                             }
                             (6, _) => chars_open = true,
+                            (7, _) => eco.show = !eco.show,
                             (1, 4) => niko_dive = true,
                             (4, _) => {
                                 if let Some(m) = ask_text("Mensagem pro chat:") {
@@ -1338,6 +1343,7 @@ async fn main() {
         urna.draw(&mut opaque, &mut trans, time);
         extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()));
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye);
+        eco.draw_world(&mut opaque, &mut labels, eye, time);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
         draw_mesh(&Mesh {
@@ -1456,6 +1462,7 @@ async fn main() {
                 draw_text(nm, sw - d.width - 12.0, 106.0 + i as f32 * 20.0, 18.0, WHITE);
             }
         }
+        eco.hud(dt, sw, sh, typing.is_none() && !chars_open);
 
         // Chat
         let now = get_time();

@@ -1,4 +1,4 @@
-//! Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal). Cada um é um módulo com prédio
+//! Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal, Escola). Cada um é um módulo com prédio
 //! (voxel, na geração do mundo), painel holográfico/telão no mundo (render target, nunca HUD) e estado
 //! que vem do servidor em {t:"pl", k:<lugar>} (server/places.js). O main só fala com `Places`.
 
@@ -12,6 +12,7 @@ use serde_json::Value;
 pub mod banco;
 pub mod bolsa;
 pub mod congresso;
+pub mod escola;
 pub mod terminal;
 pub mod tour;
 pub mod tv;
@@ -56,19 +57,20 @@ pub struct Places {
     pub banco: banco::Banco,
     pub terminal: terminal::Terminal,
     pub tour: tour::Tour,
+    pub escola: escola::Escola,
 }
 
 impl Places {
     pub fn new() -> Self {
-        Places { congresso: congresso::Congresso::new(), bolsa: bolsa::Bolsa::new(), tv: tv::Tv::new(), banco: banco::Banco::new(), terminal: terminal::Terminal::new(), tour: tour::Tour::new() }
+        Places { congresso: congresso::Congresso::new(), bolsa: bolsa::Bolsa::new(), tv: tv::Tv::new(), banco: banco::Banco::new(), terminal: terminal::Terminal::new(), tour: tour::Tour::new(), escola: escola::Escola::new() }
     }
 
-    fn all(&mut self) -> [&mut dyn Place; 6] {
-        [&mut self.congresso, &mut self.bolsa, &mut self.tv, &mut self.banco, &mut self.terminal, &mut self.tour]
+    fn all(&mut self) -> [&mut dyn Place; 7] {
+        [&mut self.congresso, &mut self.bolsa, &mut self.tv, &mut self.banco, &mut self.terminal, &mut self.tour, &mut self.escola]
     }
 
-    fn each(&self) -> [&dyn Place; 6] {
-        [&self.congresso, &self.bolsa, &self.tv, &self.banco, &self.terminal, &self.tour]
+    fn each(&self) -> [&dyn Place; 7] {
+        [&self.congresso, &self.bolsa, &self.tv, &self.banco, &self.terminal, &self.tour, &self.escola]
     }
 
     pub fn on_msg(&mut self, m: &Value) {
@@ -78,6 +80,7 @@ impl Places {
             "bolsa" => &mut self.bolsa,
             "tv" => &mut self.tv,
             "banco" => &mut self.banco,
+            "escola" => &mut self.escola,
             "term" | "go" => &mut self.terminal,
             "tour" => {
                 self.tour.on_msg(m);
@@ -135,6 +138,7 @@ pub fn build(w: &mut World) {
     tv::build(w);
     banco::build(w);
     terminal::build(w);
+    escola::build(w);
 }
 
 // ---------------------------------------------------------------- ajudas compartilhadas

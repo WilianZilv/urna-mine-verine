@@ -13,9 +13,11 @@ import { world } from "./embed.js";
 import { WORLD, WORLD_VERSION, PLACES, onLandmarkBox, shielded } from "./layout.js";
 
 export default {
-    async fetch(req, env) {
+    async fetch(req, env, ctx) {
         const url = new URL(req.url);
-        const doc = skill(url) || docs(url);
+        const sk = skill(url);
+        if (sk && req.method === "GET") ctx.waitUntil(env.ROOM.get(env.ROOM.idFromName("vila")).fetch(new Request(`${url.origin}/api/escola/hit`, { method: "POST" })).catch(() => { }));
+        const doc = sk || docs(url);
         if (doc) return doc;
         if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname.startsWith("/api/portals") || url.pathname === "/api/passport" || url.pathname.startsWith("/api/universe") || url.pathname === "/api/world") return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
@@ -225,6 +227,7 @@ export class Room extends DurableObject {
     async fetch(req) {
         const path = new URL(req.url).pathname;
         if (path === "/api/world") return world(this, req);
+        if (path === "/api/escola/hit" && req.method === "POST") return Response.json({ ok: true, reads: this.places.escola.hit() });
         if (path.startsWith("/api/mods")) return this.mods.http(req);
         const uni = await this.uni.route(req);
         if (uni) return uni;

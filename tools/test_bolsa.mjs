@@ -15,7 +15,7 @@ const eco = {
     sendMe() { },
 };
 const room = { eco, clients: new Map(), broadcast: (m) => sent.push(m), send: (c, m) => sent.push(m) };
-const pl = { room, save() { }, priv: (c, from, m) => chat.push(`${from}: ${m}`) };
+const pl = { room, save() { }, priv: (c, from, m) => chat.push(`${from}: ${m}`), say: (from, m) => chat.push(`ALL ${from}: ${m}`) };
 const b = new Bolsa(pl, {});
 const ana = { name: "Ana", pos: [60, 20, 160] };
 room.clients.set(1, ana);
@@ -97,6 +97,57 @@ for (let i = 0; i < 50; i++) {
 assert.equal(total(), t1);
 assert.ok(Object.values(b.s.p).every((p) => p >= 5 && p <= 1000));
 assert.ok(Object.values(b.s.h).every((h) => h.length <= 48));
+// humor do mercado: indice = media das variacoes; tombo >= 8% num tick dispara o circuit breaker
+Math.random = () => 0.25;
+assert.equal(snap.mood, 0);
+assert.equal(snap.alert, "");
+assert.equal(typeof snap.ix, "number");
+const yell = () => chat.filter((l) => l.startsWith("ALL BOLSA")).length;
+b.imp.LULA.hit = -0.06;
+b.imp.LULA.trade = -0.05;
+b.tick(Date.now(), true);
+let s2 = sent.at(-1);
+assert.equal(s2.mood, -1);
+assert.match(s2.alert, /CIRCUIT BREAKER: LULA -1\d\.\d%/);
+assert.equal(yell(), 1);
+assert.match(chat.filter((l) => l.startsWith("ALL")).at(-1), /CIRCUIT BREAKER/);
+assert.equal(s2.ix, b.index());
+const fresh = new Bolsa({ ...pl, room: { eco: { s: { tr: 1000 } }, clients: new Map(), broadcast() { } }, say() { } }, {});
+assert.equal(fresh.index(), 0);
+fresh.imp.LULA.hit = -0.06;
+fresh.tick(Date.now(), true);
+assert.ok(fresh.index() < 0, "tombo puxa o indice pra baixo");
+// cofre gordo puxa COFRE devagar (drift limitado), sem alarme falso
+fresh.pl.room.eco.s.tr = 50000;
+fresh.alert.until = 0;
+fresh.tick(Date.now(), true);
+assert.ok(fresh.s.p.COFRE > 100 && fresh.s.p.COFRE < 104);
+assert.equal(fresh.snapshot().mood, 0);
+// rali logo depois: painel troca pra +1, mas o chat respeita o rate limit
+b.imp.HOUSE.trade = 0.05; // club cheio (+5%) + compra (+5%)
+for (let i = 2; i <= 5; i++) room.clients.set(i, { name: `dj${i}`, pos: ana.pos });
+b.tick(Date.now(), true);
+for (let i = 2; i <= 5; i++) room.clients.delete(i);
+s2 = sent.at(-1);
+assert.equal(s2.mood, 1);
+assert.match(s2.alert, /DISPAROU: HOUSE \+\d+\.\d%/);
+assert.equal(yell(), 1, "rate limit no chat");
+// alerta expira
+b.alert.until = Date.now() - 1;
+assert.equal(b.snapshot().mood, 0);
+b.said = 0;
+b.imp.RENA.hit = -0.06;
+b.imp.RENA.trade = -0.05;
+b.tick(Date.now(), true);
+assert.equal(yell(), 2);
+// tick calmo nao dispara
+b.alert.until = 0;
+b.s.p.COFRE = eco.s.tr / 10;
+b.tick(Date.now(), true);
+assert.equal(sent.at(-1).mood, 0);
+Math.random = rnd;
+console.log(chat.filter((l) => l.startsWith("ALL")).join("\n"));
+
 say("carteira");
 console.log(chat.slice(-4).join("\n"));
 console.log(snap.hot);

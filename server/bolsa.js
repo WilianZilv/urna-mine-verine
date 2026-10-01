@@ -21,6 +21,9 @@ const AGO = 30; // ticks de 20 s = 10 min
 const MAX = 500;
 const RESERVE = 300;
 const WHY = "bolsa ficticia: paga o cofre da IA";
+const BREAK = 0.08; // variacao num tick que dispara o alerta
+const ALERT_MS = 60 * 1000;
+const SAY_MS = 2 * 60 * 1000;
 const TIPS = [
     "analista: compra na alta e vende na baixa, confia",
     "analista: e oportunidade ou cilada? nem ele sabe",
@@ -49,6 +52,8 @@ export class Bolsa {
         }
         this.imp = Object.fromEntries(TK.map((t) => [t.s, { hit: 0, trade: 0 }]));
         this.last = "";
+        this.alert = { mood: 0, text: "", until: 0 };
+        this.said = 0;
     }
 
     get eco() {
@@ -67,6 +72,11 @@ export class Bolsa {
         return Math.round((this.s.p[S] / ref - 1) * 1000) / 10;
     }
 
+    /// Indice da vila: media das variacoes de 10 min (%).
+    index() {
+        return Math.round((TK.reduce((a, t) => a + this.delta(t.s), 0) / TK.length) * 10) / 10;
+    }
+
     hot() {
         const best = TK.map((t) => [t, this.delta(t.s)]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
         const [t, d] = best;
@@ -82,7 +92,8 @@ export class Bolsa {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 5);
         const tk = TK.map((t) => ({ s: t.s, n: t.n, p: this.s.p[t.s], d: this.delta(t.s), h: this.s.h[t.s], w: this.s.why[t.s] }));
-        return { t: "pl", k: "bolsa", tk, top, hot: this.hot() };
+        const a = Date.now() < this.alert.until ? this.alert : { mood: 0, text: "" };
+        return { t: "pl", k: "bolsa", tk, top, hot: this.hot(), ix: this.index(), mood: a.mood, alert: a.text };
     }
 
     push() {
@@ -111,6 +122,7 @@ export class Bolsa {
             return p && p[0] >= CLUB.x0 && p[0] <= CLUB.x1 && p[2] >= CLUB.z0 && p[2] <= CLUB.z1;
         }).length;
         const tr = this.eco?.s?.tr ?? BASE * 10;
+        let big = null;
         for (const t of TK) {
             const S = t.s;
             const p = this.s.p[S];
@@ -119,7 +131,7 @@ export class Bolsa {
             const imp = this.imp[S];
             // contribuicoes em log-preco (cada uma com o seu "porque")
             const c = {
-                drift: -(cofre ? 0.1 : 0.01) * Math.log(p / mean),
+                drift: Math.max(-0.03, Math.min(0.03, -(cofre ? 0.1 : 0.01) * Math.log(p / mean))),
                 noise: 0.006 * gauss(),
                 hit: Math.log(1 + imp.hit),
                 trade: Math.log(1 + imp.trade),
@@ -141,9 +153,24 @@ export class Bolsa {
             if (h.length > HIST) h.splice(0, h.length - HIST);
             imp.hit = 0;
             imp.trade = 0;
+            const mv = np / p - 1;
+            if (Math.abs(mv) >= BREAK && (!big || Math.abs(mv) > Math.abs(big.mv))) big = { t, mv };
         }
+        if (big) this.breaker(now, big.t, big.mv);
         this.pl.save("bolsa", this.s);
         this.push();
+    }
+
+    /// Movimento >= 8% num tick: alerta no painel por 1 min e grito no chat (no maximo 1 a cada 2 min).
+    breaker(now, t, mv) {
+        const d = Math.round(mv * 1000) / 10;
+        const text = mv < 0
+            ? `CIRCUIT BREAKER: ${t.s} ${d}% (${this.s.why[t.s]}). pregao em panico, alguem chama o Banco`
+            : `DISPAROU: ${t.s} +${d}% (${this.s.why[t.s]}). euforia total, tio do zap ja ta vendendo curso`;
+        this.alert = { mood: mv < 0 ? -1 : 1, text, until: now + ALERT_MS };
+        if (now - this.said < SAY_MS) return;
+        this.said = now;
+        this.pl.say("BOLSA", text);
     }
 
     command(id, c, head, args) {

@@ -231,7 +231,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 8] {
     let r = (sw.min(sh) * 0.085).max(26.0);
     let (x, y) = (sw - r * 1.4, sh - r * 1.4);
     let l = match ch {
-        1 => ["OLLIE", "GRAB", "MANUAL", "-"],
+        1 => ["OLLIE", "GRAB F", "MANUAL", "GRAB T"],
         4 => ["PULA", "SE JOGA", "-", "-"],
         2 => ["PULA", "ATIRA", "ARMA", "CARRO"],
         3 => ["FREIO", "-", "-", "SAIR"],
@@ -430,7 +430,8 @@ async fn main() {
     let mut skate_touch: Option<Vec2> = None;
     // Personagens
     let mut chars_open = false;
-    let mut skater: Option<skate::Skater> = None;
+    let mut sk_test = skate::Test::from_env();
+    let mut skater: Option<skate::Skater> = sk_test.as_ref().map(|t| t.spawn());
     let mut bandido: Option<gta::Bandido> = None;
     let mut car = gta::Car::new(&world);
     let mut niko: Option<ragdoll::Ragdoll> = None;
@@ -483,7 +484,7 @@ async fn main() {
 
     let mut grabbed = false;
     let mut last_mouse: Vec2 = mouse_position().into();
-    let mut show_help = !mobile;
+    let mut show_help = !mobile && sk_test.is_none();
     let mut muted = false;
     let mut banner: Option<(String, f32)> = Some(("BEM-VINDO A VILA. O HOUSE TA TOCANDO.".into(), 4.0));
     let mut wolverine_called = false;
@@ -1128,11 +1129,18 @@ async fn main() {
                 steer,
                 mouse: if active && grabbed && !just_grabbed { md } else { Vec2::ZERO },
                 touch: skate_touch,
-                grab: key(KeyCode::Q) || key(KeyCode::E) || btn(1),
+                grab_front: key(KeyCode::Q) || (active && grabbed && is_mouse_button_down(MouseButton::Left)) || btn(1),
+                grab_back: key(KeyCode::E) || (active && grabbed && is_mouse_button_down(MouseButton::Right)) || btn(3),
                 manual: key(KeyCode::LeftShift) || btn(2),
                 ollie: sk_ollie || (active && is_key_pressed(KeyCode::Space)),
             };
-            sk.update(&world, dt, &inp);
+            match sk_test.as_mut() {
+                Some(t) => {
+                    let inp = t.input(sk);
+                    sk.update(&world, t.dt(), &inp);
+                }
+                None => sk.update(&world, dt, &inp),
+            }
             if player.knock.length() > 3.0 {
                 sk.bail_now("EXPLOSAO");
             }
@@ -1695,7 +1703,7 @@ async fn main() {
                 Some(b) if b.weapon == 7 => 18f32,
                 Some(b) if b.weapon == 8 => 45f32,
                 Some(_) => 58f32,
-                None => 70f32,
+                None => skater.as_ref().map_or(70f32, |s| s.fov()),
             }
             .to_radians(),
             ..Default::default()
@@ -1820,6 +1828,7 @@ async fn main() {
         if !driving && car.pos.distance(eye) < 30.0 {
             labels.push(Label { pos: car.pos + up * 2.4, text: if ch == 2 { "SEDA DA 1a MISSAO - F PRA ENTRAR".into() } else { "SEDA DA 1a MISSAO (VIRA BANDIDO NO C)".into() }, size: 18.0, color: Color::new(1.0, 0.85, 0.3, 1.0) });
         }
+        skate::draw_park(&mut opaque, eye);
         if let Some(sk) = &skater {
             sk.draw(&mut opaque, rgb(0.45, 0.47, 0.5), time);
         }
@@ -2072,10 +2081,10 @@ async fn main() {
         if show_help {
             let lines = match ch {
                 1 => [
-                    "SKATE: W rema (segura = remada continua) | S freia/POWERSLIDE | A/D carve, no ar gira, no grind equilibra",
-                    "MOUSE flick (rapido = pop alto): baixo>cima OLLIE | baixo>cima-esq/dir KICK/HEEL | baixo>lado SHOVE-IT",
-                    "baixo>lado>cima 360 SHOVE | baixo>lado>diag VARIAL | esq>baixo>cima-dir 360 FLIP | inverta = NOLLIE",
-                    "Q/E GRAB (+mouse escolhe) | SHIFT MANUAL (W/S equilibra) | cai alinhado na quina = GRIND, de lado = BOARDSLIDE",
+                    "SKATE: W rema (toca no ritmo) / bombeia na rampa | S freia, POWERSLIDE, logo apos pousar = REVERT | A/D carve, no ar gira",
+                    "MOUSE flick (rapido = pop alto): baixo>cima OLLIE | baixo>cima-esq/dir KICK/HEEL | baixo>lado SHOVE | no ar: flick = LATE FLIP",
+                    "baixo>lado>cima 360 SHOVE | baixo>lado>diag VARIAL | esq>baixo>cima-dir 360 FLIP | inverta = NOLLIE | sobe o QP = VERT AIR",
+                    "Q/BOTAO ESQ grab mao da frente, E/BOTAO DIR mao de tras (+mouse escolhe) | SHIFT MANUAL / STALL na coping | quina = GRIND",
                 ],
                 5 => [
                     "ARMA DE PORTAL: WASD anda | ESPACO pula | ESQ portal AZUL | DIR portal LARANJA",
@@ -2135,7 +2144,7 @@ async fn main() {
                 draw_circle_lines(c.x, c.y, *r, 2.0, Color::new(1.0, 1.0, 1.0, 0.55));
                 text_centered(label, c.x, c.y + 6.0, (*r * 0.5).max(13.0), WHITE, false);
             }
-        } else if !grabbed && !chars_open && !steve.inv_open {
+        } else if !grabbed && !chars_open && !steve.inv_open && sk_test.is_none() {
             text_centered("CLIQUE PRA ENTRAR NA VILA", sw * 0.5, sh * 0.5 + 60.0, 36.0, WHITE, true);
         }
         if ch == 0 {
@@ -2173,6 +2182,11 @@ async fn main() {
         prof.draw(&quality.label());
         prof.mark(prof::UI);
 
+        if let (Some(t), Some(sk)) = (sk_test.as_mut(), skater.as_mut()) {
+            if t.after_frame(sk) {
+                std::process::exit(0);
+            }
+        }
         next_frame().await;
     }
 }

@@ -527,7 +527,9 @@ impl World {
         }
     }
 
-    /// Pista de skate: piso de pedra, quarter pipes em escada no norte/sul, caixote, ledges e corrimões.
+    /// Pista de skate: piso de pedra, quarter pipes lisos norte/sul com deck, funbox com kickers,
+    /// bank a leste, ledge e corrimão. As transições são superfícies analíticas (crate::skate):
+    /// aqui só entra o volume de blocos inteiros por baixo delas e os decks.
     fn build_skate(&mut self) {
         let g = G;
         let (x0, z0, x1, z1) = layout::SKATE;
@@ -535,19 +537,18 @@ impl World {
             for x in x0..=x1 {
                 self.put(x, g - 1, z, STONE);
                 self.fill(x, g, z, x, g + 6, z, AIR);
+                let k = crate::skate::park_fill(x, z);
+                if k > 0 {
+                    self.fill(x, g, z, x, g + k - 1, z, STONE);
+                }
             }
         }
-        for k in 0..3 {
-            self.fill(x0, g, z0 + k, x1, g + 2 - k, z0 + k, STONE);
-            self.fill(x0, g, z1 - k, x1, g + 2 - k, z1 - k, STONE);
-        }
-        let (mx, mz) = ((x0 + x1) / 2, (z0 + z1) / 2);
-        self.fill(mx - 6, g, mz - 4, mx + 6, g, mz + 4, PLANKS);
-        self.fill(mx - 3, g + 1, mz - 2, mx + 3, g + 1, mz + 2, PLANKS);
-        self.fill(x0 + 6, g, z0 + 7, x0 + 18, g, z0 + 7, COBBLE);
-        self.fill(x1 - 18, g, z1 - 7, x1 - 6, g, z1 - 7, COBBLE);
-        self.fill(x1 - 18, g, z0 + 10, x1 - 4, g, z0 + 10, BLACK);
-        self.fill(x0 + 4, g, z1 - 11, x0 + 16, g, z1 - 11, BLACK);
+        self.fill(x0 + 1, g, z0, x1 - 1, g + 2, z0 + 1, STONE);
+        self.fill(x0 + 1, g, z1 - 1, x1 - 1, g + 2, z1, STONE);
+        self.fill(x1, g, z0 + 7, x1, g + 1, z0 + 29, STONE);
+        self.fill(x0 + 6, g, z0 + 13, x0 + 17, g, z0 + 21, PLANKS);
+        self.fill(x0 + 30, g, z0 + 10, x0 + 30, g, z0 + 26, COBBLE);
+        self.fill(x0 + 37, g, z0 + 10, x0 + 37, g, z0 + 26, BLACK);
     }
 
     /// Gera meshes de um chunk (face culling + ambient occlusion por vértice).

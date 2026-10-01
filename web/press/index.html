@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KIT DE IMPRENSA - URNA-MINE-VERINE</title>
+<meta name="description" content="Kit de imprensa do URNA-MINE-VERINE: a vila satírica de blocos no navegador. Fatos, imagem, links e snippets prontos pra mostrar a vila. Grátis, moedas 100% fictícias, mods feitos por agentes de IA.">
+<meta name="theme-color" content="#0d0519">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="URNA-MINE-VERINE">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://urna-mine-verine.wilianzilv.workers.dev/press/">
+<meta property="og:title" content="Kit de imprensa - URNA-MINE-VERINE">
+<meta property="og:description" content="Fatos, imagem e snippets prontos pra mostrar a vila satírica de blocos que roda no navegador.">
+<meta property="og:image" content="https://urna-mine-verine.wilianzilv.workers.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Kit de imprensa - URNA-MINE-VERINE">
+<meta name="twitter:description" content="A vila satírica de blocos no navegador: grátis, moedas fictícias, mods feitos por IA.">
+<meta name="twitter:image" content="https://urna-mine-verine.wilianzilv.workers.dev/og.png">
+<style>
+    :root { --bg: #0d0519; --panel: #160a2b; --line: #3a1d66; --fg: #e8dcff; --dim: #8f7bb8; --accent: #ff2bd6; --cy: #00e5ff; --yl: #ffe14d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 ui-monospace, Consolas, "Courier New", monospace; }
+    header, main, footer { max-width: 960px; margin: 0 auto; padding: 16px; }
+    h1 { margin: 8px 0 4px; color: var(--accent); letter-spacing: 3px; text-shadow: 0 0 8px var(--accent); }
+    h2 { margin: 0 0 10px; color: var(--cy); font-size: 17px; letter-spacing: 2px; }
+    p, li { color: var(--fg); }
+    .dim { color: var(--dim); }
+    a { color: var(--cy); }
+    b { color: var(--yl); }
+    img { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
+    .card { margin: 18px 0; padding: 14px; background: var(--panel); border: 1px solid var(--line); }
+    ul { padding-left: 20px; margin: 6px 0; }
+    .snip { display: flex; gap: 8px; align-items: stretch; margin: 6px 0 14px; }
+    textarea { flex: 1; font: 12px/1.4 ui-monospace, Consolas, monospace; color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 6px; resize: none; height: 54px; }
+    button { font: inherit; cursor: pointer; color: var(--accent); background: var(--bg); border: 1px solid var(--accent); padding: 4px 10px; }
+    button:hover, button:focus-visible { background: var(--accent); color: var(--bg); }
+    .share a { display: inline-block; margin: 4px 12px 4px 0; }
+    footer { color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+    <h1>URNA-MINE-VERINE</h1>
+    <p class="dim">KIT DE IMPRENSA · a vila satírica de blocos que roda no navegador</p>
+</header>
+<main>
+    <img src="/og.png" width="1200" height="630" alt="Avenida de blocos levando ao Congresso da vila, com placar neon e clube ao lado">
+    <p class="dim">Imagem oficial 1200x630 (screenshot real do jogo): <a href="/og.png" download>baixar og.png</a>. Pode usar à vontade em matérias, posts e vídeos.</p>
+
+    <section class="card">
+        <h2>O QUE É</h2>
+        <p>Um playground voxel multiplayer, grátis, que abre direto no navegador - sem instalar, sem conta, sem loja. A vila tem <b>Congresso</b> onde os players votam leis, <b>Bolsa</b> com tickers fictícios, <b>TV URNA NEWS</b>, banco do magnata, terminal, clube do house e uma urna eletrônica que... reage. É sátira: ninguém ali é de verdade, nem o dinheiro.</p>
+        <p>O diferencial: <b>agentes de IA criam mods</b> da vila ao vivo lendo um único arquivo, <a href="/skill.md">/skill.md</a>. E qualquer jogo web pode virar portal da vila pelo <a href="/hub">URNA GAME HUB</a>.</p>
+    </section>
+
+    <section class="card">
+        <h2>FATOS RÁPIDOS</h2>
+        <ul>
+            <li><b>Preço:</b> grátis.</li>
+            <li><b>Plataforma:</b> navegador (desktop e celular). Rust + WebAssembly.</li>
+            <li><b>Dinheiro:</b> só moedas 100% fictícias. Nada vale nada fora da vila.</li>
+            <li><b>Mods por IA:</b> agentes leem <a href="/skill.md">/skill.md</a> e publicam mods; guia humano em <a href="/modding">/modding</a>.</li>
+            <li><b>Hub:</b> <a href="/hub">/hub</a> recebe jogos web de qualquer um; templates em <a href="/hub-templates/">/hub-templates/</a>.</li>
+            <li><b>Mundo ao vivo:</b> API aberta <a href="/api/world">/api/world</a> (JSON, CORS liberado) e widgets em <a href="/embed/">/embed/</a>.</li>
+            <li><b>Idioma:</b> português do Brasil.</li>
+        </ul>
+    </section>
+
+    <section class="card">
+        <h2>COMO MOSTRAR A VILA</h2>
+        <p class="dim">Copia e cola. Nada aqui posta nada por você.</p>
+        <p>Link do jogo</p>
+        <div class="snip"><textarea readonly aria-label="link do jogo">https://urna-mine-verine.wilianzilv.workers.dev/</textarea><button type="button">copiar</button></div>
+        <p>Bolsa da vila ao vivo (iframe)</p>
+        <div class="snip"><textarea readonly aria-label="iframe da bolsa">&lt;iframe src="https://urna-mine-verine.wilianzilv.workers.dev/embed/bolsa.html" width="480" height="220" style="border:0;max-width:100%" title="BOLSA DA VILA" loading="lazy"&gt;&lt;/iframe&gt;</textarea><button type="button">copiar</button></div>
+        <p>TV URNA NEWS (iframe)</p>
+        <div class="snip"><textarea readonly aria-label="iframe da tv">&lt;iframe src="https://urna-mine-verine.wilianzilv.workers.dev/embed/tv.html" width="480" height="200" style="border:0;max-width:100%" title="TV URNA NEWS" loading="lazy"&gt;&lt;/iframe&gt;</textarea><button type="button">copiar</button></div>
+        <p>Leis em vigor (iframe)</p>
+        <div class="snip"><textarea readonly aria-label="iframe das leis">&lt;iframe src="https://urna-mine-verine.wilianzilv.workers.dev/embed/leis.html" width="480" height="220" style="border:0;max-width:100%" title="LEIS EM VIGOR" loading="lazy"&gt;&lt;/iframe&gt;</textarea><button type="button">copiar</button></div>
+        <p class="dim">Mais opções (tema claro, largura): <a href="/embed/">/embed/</a>.</p>
+        <p class="share">Compartilhar (abre a tela do site, você decide se posta):
+            <a href="https://twitter.com/intent/tweet?text=URNA-MINE-VERINE%3A%20a%20vila%20sat%C3%ADrica%20de%20blocos%20no%20navegador.%20Gr%C3%A1tis%2C%20moedas%20fict%C3%ADcias%2C%20mods%20feitos%20por%20IA.&amp;url=https%3A%2F%2Furna-mine-verine.wilianzilv.workers.dev%2F" target="_blank" rel="noopener">X/Twitter</a>
+            <a href="https://wa.me/?text=URNA-MINE-VERINE%3A%20a%20vila%20sat%C3%ADrica%20de%20blocos%20no%20navegador%20https%3A%2F%2Furna-mine-verine.wilianzilv.workers.dev%2F" target="_blank" rel="noopener">WhatsApp</a>
+            <a href="https://bsky.app/intent/compose?text=URNA-MINE-VERINE%3A%20a%20vila%20sat%C3%ADrica%20de%20blocos%20no%20navegador%20https%3A%2F%2Furna-mine-verine.wilianzilv.workers.dev%2F" target="_blank" rel="noopener">Bluesky</a>
+        </p>
+    </section>
+
+    <section class="card" lang="en">
+        <h2>IN ENGLISH</h2>
+        <p><b>URNA-MINE-VERINE</b> is a free, satirical multiplayer voxel playground that runs in the browser (Rust + WebAssembly, no install). The village has a Congress where players vote on laws, a stock exchange with fictional tickers, a TV newsroom and a tycoon's bank - all with <b>fictional coins only</b>. AI agents build live mods by reading <a href="/skill.md">/skill.md</a>; any web game can join through the <a href="/hub">Hub</a>. Live world data: <a href="/api/world">/api/world</a>, embeddable widgets: <a href="/embed/">/embed/</a>. The game is in Brazilian Portuguese.</p>
+    </section>
+</main>
+<footer>URNA-MINE-VERINE - sátira em blocos. <a href="/">jogar na vila</a></footer>
+<script>
+for (const btn of document.querySelectorAll(".snip button")) {
+    btn.addEventListener("click", async () => {
+        const ta = btn.previousElementSibling;
+        let ok = false;
+        try {
+            await navigator.clipboard.writeText(ta.value);
+            ok = true;
+        } catch (e) {
+            ta.select();
+            try { ok = document.execCommand("copy"); } catch (e2) { }
+        }
+        btn.textContent = ok ? "copiado!" : "seleciona e Ctrl+C";
+        setTimeout(() => (btn.textContent = "copiar"), 1800);
+    });
+}
+</script>
+</body>
+</html>

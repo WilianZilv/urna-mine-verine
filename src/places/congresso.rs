@@ -11,7 +11,7 @@ use crate::player::Player;
 use crate::world::{AIR, BLACK, COBBLE, G, GLASS, GRASS, STONE, WOOL, World};
 use macroquad::prelude::*;
 use serde_json::{Value, json};
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 /// (id, nome, efeito, cor) na mesma ordem do servidor.
 const LAWS: [(&str, &str, &str, Color); 5] = [
@@ -30,6 +30,15 @@ const PZ: f32 = 98.5;
 const PW: f32 = 20.0;
 const PH: f32 = 10.0;
 const PY: f32 = G as f32 + 8.5;
+/// Emblema voxel de cada lei (mesma ordem de LAWS) flutuando sobre a praça: lua, raio, bandeira branca,
+/// globo de espelhos, etiqueta de preço.
+const ICONS: [&[&str]; 5] = [
+    &["..####.", ".###...", "###....", "###....", "###....", ".###...", "..####."],
+    &["....##.", "...##..", "..##...", ".#####.", "...##..", "..##...", ".##...."],
+    &["#......", "#####..", "######.", "#####..", "#......", "#......", "#......"],
+    &["..###..", ".#####.", "#######", "#######", "#######", ".#####.", "..###.."],
+    &["..#####", ".######", "###.###", "#######", ".######", "..#####"],
+];
 
 fn geo() -> Geo {
     Geo { c: vec3(PX, PY, PZ), n: Vec3::X, w: PW, h: PH }
@@ -38,6 +47,12 @@ fn geo() -> Geo {
 fn center() -> Vec3 {
     let r = crate::layout::CONGRESSO;
     vec3((r.0 + r.2) as f32 * 0.5, G as f32, (r.1 + r.3) as f32 * 0.5)
+}
+
+/// Pseudo-aleatório [0,1) determinístico (partícula k, semente s).
+fn rnd(k: u32, s: u32) -> f32 {
+    let h = (k.wrapping_mul(2654435761) ^ s.wrapping_mul(0x9E37_79B9)).wrapping_mul(0x85EB_CA6B);
+    (h >> 8) as f32 / 16_777_216.0
 }
 
 fn mmss(s: f32) -> String {
@@ -67,11 +82,16 @@ pub struct Congresso {
     sent: Option<usize>,
     cool: f32,
     screen: Screen,
+    /// get_time() em que cada lei entrou em vigor (pulso do emblema).
+    pulse: [f64; 5],
+    /// Confete sobre o plenário quando uma lei passa.
+    burst: f64,
+    burst_col: Color,
 }
 
 impl Congresso {
     pub fn new() -> Self {
-        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new() }
+        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE }
     }
 
     /// (em vigor, recesso) restantes agora, descontando o tempo desde o snapshot.
@@ -150,6 +170,70 @@ impl Congresso {
         text_right("max 2 leis juntas  -  depois 10 min de recesso", TW - 40.0, 1000.0, 30.0, SOFT);
         holo_fx(time, self.flash());
     }
+
+    /// Emblema gigante girando sobre a praça pra cada lei em vigor (visível do mapa todo).
+    fn emblems(&self, b: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        if !(self.got && self.live) {
+            return;
+        }
+        let act: Vec<(usize, f32)> = (0..5).map(|i| (i, self.left(i).0)).filter(|x| x.1 > 0.0).collect();
+        let base = vec3(crate::layout::PLAZA.x, G as f32 + 38.0, crate::layout::PLAZA.y);
+        let ring = crate::quality::pick([0, 8, 14]);
+        for (j, &(i, on)) in act.iter().enumerate() {
+            let (_, n, _, col) = LAWS[i];
+            let k = (1.0 - (get_time() - self.pulse[i]) as f32 / 2.0).max(0.0);
+            let s = 1.0 + 0.5 * k * (k * 12.0).sin().abs();
+            let lit = |c: Color| Color::new(c.r + (1.0 - c.r) * k * 0.7, c.g + (1.0 - c.g) * k * 0.7, c.b + (1.0 - c.b) * k * 0.7, 1.0);
+            let c = base + vec3((j as f32 - (act.len() - 1) as f32 * 0.5) * 26.0, (time * 1.2 + i as f32).sin() * 0.8, 0.0);
+            let m = Mat4::from_translation(c) * Mat4::from_rotation_y(time * 0.7 + i as f32 * 1.3) * Mat4::from_scale(Vec3::splat(s));
+            let rows = ICONS[i];
+            let (w, h) = (rows[0].len() as f32, rows.len() as f32);
+            for (y, r) in rows.iter().enumerate() {
+                for (x, ch) in r.bytes().enumerate() {
+                    if ch != b'#' {
+                        continue;
+                    }
+                    let cc = match i {
+                        2 if x > 0 => WHITE,
+                        3 if (x + y + (time * 4.0) as usize) % 2 == 0 => WHITE,
+                        _ => col,
+                    };
+                    let p = vec3((x as f32 - (w - 1.0) * 0.5) * 2.0, ((h - 1.0) * 0.5 - y as f32) * 2.0, 0.0);
+                    b.glow(&m, p, vec3(1.85, 1.85, 1.2), lit(cc));
+                }
+            }
+            if i == 3 {
+                b.glow(&m, vec3(0.0, 10.0, 0.0), vec3(0.2, 6.0, 0.2), WHITE);
+            }
+            for r in 0..ring {
+                let a = r as f32 / ring as f32 * TAU + time * 1.5;
+                b.glow(&Mat4::IDENTITY, c + vec3(a.cos() * 10.5 * s, -8.5 + (a * 3.0 + time * 2.0).sin() * 0.4, a.sin() * 10.5 * s), Vec3::splat(0.9), lit(col));
+            }
+            let top = c + vec3(0.0, 10.5 + j as f32 * 4.0, 0.0);
+            let d = eye.distance(top);
+            if d < 200.0 {
+                // O main descarta rótulo além de 45/80 blocos (qualidade): puxa pro raio de visão, mesma posição na tela
+                let pos = eye + (top - eye) * (40.0 / d).min(1.0);
+                labels.push(Label { pos, text: format!("LEI EM VIGOR: {n} {}", mmss(on)), size: 30.0, color: col });
+            }
+        }
+    }
+
+    /// Confete/fogos sobre o plenário por alguns segundos depois que uma lei passa.
+    fn confetti(&self, b: &mut Batch, eye: Vec3) {
+        let t = (get_time() - self.burst) as f32;
+        let o = vec3(79.0, G as f32 + 9.0, 98.5);
+        if !(0.0..3.5).contains(&t) || eye.distance(o) > 220.0 {
+            return;
+        }
+        let size = 0.55 * (1.0 - t / 3.5);
+        for k in 0..crate::quality::pick([14u32, 28, 44]) {
+            let (a, up, sp) = (rnd(k, 1) * TAU, 0.3 + rnd(k, 2) * 0.9, 6.0 + rnd(k, 3) * 6.0);
+            let p = o + vec3(a.cos(), up, a.sin()) * sp * t - vec3(0.0, 3.0 * t * t, 0.0);
+            let col = if k % 3 == 0 { self.burst_col } else { LAWS[k as usize % 5].3 };
+            b.glow(&Mat4::IDENTITY, p, Vec3::splat(size), col);
+        }
+    }
 }
 
 impl Place for Congresso {
@@ -160,6 +244,10 @@ impl Place for Congresso {
             let on = l["on"].as_f64().unwrap_or(0.0) as f32;
             if on > 0.0 && self.st[i].on <= 0.0 && self.sent == Some(i) {
                 self.sent = None;
+            }
+            if on > 0.0 && self.got && self.left(i).0 <= 0.0 {
+                self.pulse[i] = get_time();
+                (self.burst, self.burst_col) = (get_time(), LAWS[i].3);
             }
             self.st[i] = Vote { v: l["v"].as_u64().unwrap_or(0) as u32, on, cd: l["cd"].as_f64().unwrap_or(0.0) as f32 };
         }
@@ -206,6 +294,8 @@ impl Place for Congresso {
     }
 
     fn draw(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        self.emblems(b, labels, time, eye);
+        self.confetti(b, eye);
         if eye.distance(center()) > 130.0 {
             return;
         }

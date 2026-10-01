@@ -444,7 +444,7 @@ export class Economy {
             `Estado: ${JSON.stringify(state)}. Decida:\n` +
             `1) prices (cada um entre metade e 1.5x do atual) e ad_price.\n` +
             `2) event (so com gente online): "nenhum", "fogos" (custa ${EVENTS.fogos}) ou "ceu" (${EVENTS.ceu}, com color [r,g,b] 0..1).\n` +
-            `3) build (opcional): obra pequena tua {"what":"nome","ops":[...]} max 8 ops, ate ${left} blocos, custa 20 + 1 por 100 blocos do cofre (sempre sobra ${RESERVE}). ` +
+            `3) build (opcional): obra pequena tua apoiada no chao (comeca em y=20, minimo 10 blocos) {"what":"nome","ops":[...]} max 8 ops, ate ${left} blocos, custa 20 + 1 por 100 blocos do cofre (sempre sobra ${RESERVE}). ` +
             `Chao plano y=20 dentro do raio 46 de (64,64). NAO construa: circulo raio 15 da praca, clube x6..38 z46..82, lab x92..114 z50..78, ` +
             `caminhos (z61..66, x61..66), casas, placar z33..38. Continue projetos da memoria ou o voto mais pedido. ` +
             `Op: {"op":"box","from":[x,y,z],"to":[x,y,z],"block":"tijolo","hollow":true} ou {"op":"sphere","center":[x,y,z],"radius":3,"block":"vidro","hollow":true}. ` +
@@ -500,9 +500,9 @@ export class Economy {
             }
         }
         if (!Array.isArray(raw) || !left) return;
-        const ops = this.sanitize(raw.filter((o) => o?.op === "box" || o?.op === "sphere").slice(0, 8)).filter((o) => o.k !== 0 && !blocked(...opBox(o)));
+        const ops = this.sanitize(raw.filter((o) => o?.op === "box" || o?.op === "sphere").slice(0, 8)).filter((o) => o.k !== 0 && opBox(o)[0][1] <= 26 && !blocked(...opBox(o)));
         const vol = Math.ceil(ops.reduce((s, o) => s + opVol(o), 0));
-        if (!ops.length || vol > left) return;
+        if (vol < 6 || vol > left) return;
         const cost = 20 + Math.ceil(vol / 100);
         if (this.s.tr - cost < RESERVE) return out && this.entry("IA", `queria construir ${what}, mas o cofre ta baixo`, 0, "doem moedas ficticias com /doar");
         this.s.tr -= cost;

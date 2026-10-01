@@ -23,7 +23,7 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
 pub const MAX_HP: f32 = 20.0;
 /// Valor de "by" no tiro da explosão de TNT.
-pub const BY: u64 = 3;
+pub const BY: u64 = 11;
 const FUSE: f32 = 4.0;
 const FIRE_LIFE: f32 = 6.0;
 const REACH: f32 = 4.5;

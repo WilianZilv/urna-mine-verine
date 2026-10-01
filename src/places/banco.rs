@@ -1,6 +1,7 @@
 //! Banco Central da Vila: ranking, ledger na fachada, caixa eletrônico e poupança fictícia (server/banco.js).
 //! Prédio clássico (pódio, colunata de "mármore", frontão) com telão dourado acima da porta; dentro, porta de
 //! cofre redonda com volante girando e 2 caixas eletrônicos (pisar 1 s no tapete pede o extrato ao servidor).
+//! Telão alterna mais ricos / criadores (impacto, nunca moeda); hall da fama dos criadores ao lado do cofre.
 
 use super::{Geo, Place, Screen, TH, TW, fill, hash_str, s, text_mid};
 use crate::batch::Batch;
@@ -22,14 +23,27 @@ const PADS: [(f32, f32); 2] = [(199.5, 226.5), (199.5, 248.5)];
 const VAULT: Vec3 = Vec3::new(212.9, FL + 4.5, 237.5);
 /// Estátua do magnata no alpendre, ao lado da porta (z 235..239 fica livre).
 const STATUE: Vec3 = Vec3::new(187.0, FL, 234.4);
+/// Hall da fama: placas na parede leste ao norte do cofre (prata, ouro, bronze vistas de quem olha pro leste).
+const HOF_X: f32 = 212.94;
+const HOF_Z: [f32; 3] = [228.2, 225.5, 230.9];
+const TROPHY: Vec3 = Vec3::new(211.0, FL, 228.2);
 
 const GOLD: Color = Color::new(1.0, 0.82, 0.3, 1.0);
 const DIMG: Color = Color::new(1.0, 0.82, 0.3, 0.35);
 const SOFT: Color = Color::new(0.95, 0.9, 0.78, 1.0);
+const MEDAL: [Color; 3] = [GOLD, Color::new(0.85, 0.88, 0.92, 1.0), Color::new(0.85, 0.55, 0.3, 1.0)];
+/// Segundos de cada página do painel do meio (ricos / criadores).
+const PAGE_S: f32 = 10.0;
+
+fn creators_page(time: f32) -> bool {
+    (time / PAGE_S) as i64 % 2 == 1
+}
 
 pub struct Banco {
     tr: i64,
     rich: Vec<(String, i64)>,
+    /// Criadores por impacto: (nome, impacto, mods, portais, visitas).
+    cri: Vec<(String, i64, i64, i64, i64)>,
     led: Vec<(String, String, i64)>,
     sv: i64,
     nsv: i64,
@@ -64,6 +78,7 @@ impl Banco {
         Banco {
             tr: 0,
             rich: vec![],
+            cri: vec![],
             led: vec![],
             sv: 0,
             nsv: 0,
@@ -111,23 +126,17 @@ impl Banco {
         draw_text(&format!("{}%/h pagos pelo cofre", self.rate), x0 + 30.0, 850.0, 50.0, GOLD);
         draw_text("(enquanto a IA tiver troco)", x0 + 30.0, 900.0, 32.0, DIMG);
 
-        // Ranking (patrimônio = carteira + poupança + ações)
+        // Painel do meio alterna: mais ricos (patrimônio) / criadores (impacto)
         let (x1, w1) = (670.0, 680.0);
-        panel(x1, 135.0, w1, 810.0, "RANKING DOS MAIS RICOS");
-        let max = self.rich.first().map_or(1, |r| r.1.max(1)) as f32;
-        let medal = [GOLD, Color::new(0.85, 0.88, 0.92, 1.0), Color::new(0.85, 0.55, 0.3, 1.0)];
-        for (i, (n, v)) in self.rich.iter().take(8).enumerate() {
-            let y = 200.0 + i as f32 * 92.0;
-            let col = *medal.get(i).unwrap_or(&SOFT);
-            draw_text(&format!("{}.", i + 1), x1 + 24.0, y + 50.0, 54.0, col);
-            draw_text(&fit(n, 340.0, 48.0), x1 + 100.0, y + 48.0, 48.0, WHITE);
-            text_right(&v.to_string(), x1 + w1 - 24.0, y + 48.0, 48.0, GOLD);
-            draw_rectangle(x1 + 100.0, y + 62.0, (w1 - 124.0) * (*v as f32 / max).clamp(0.0, 1.0), 10.0, Color::new(col.r, col.g, col.b, 0.5));
+        let cri = creators_page(time);
+        if cri {
+            self.paint_creators(x1, w1);
+        } else {
+            self.paint_rich(x1, w1);
         }
-        if self.rich.is_empty() {
-            draw_text("ninguem tem nada (ainda)", x1 + 30.0, 260.0, 40.0, SOFT);
+        for (k, on) in [!cri, cri].into_iter().enumerate() {
+            draw_circle(x1 + w1 - 56.0 + k as f32 * 28.0, 920.0, 9.0, if on { GOLD } else { DIMG });
         }
-        draw_text("carteira + poupanca + acoes", x1 + 24.0, 930.0, 28.0, DIMG);
 
         // Ledger público (mais novo em cima)
         let (x2, w2) = (1380.0, TW - 1420.0);
@@ -144,8 +153,46 @@ impl Banco {
             draw_text("nenhuma moeda se mexeu", x2 + 30.0, 260.0, 36.0, SOFT);
         }
 
-        text_mid("/poupar n   /sacar n   /ranking   -   pisa no caixa eletronico", TW * 0.5, 1002.0, 46.0, GOLD);
+        text_mid("/poupar n   /sacar n   /ranking   /criadores   -   pisa no caixa eletronico", TW * 0.5, 1002.0, 46.0, GOLD);
         gold_fx(time, flash);
+    }
+
+    /// Ranking por patrimônio (carteira + poupança + ações).
+    fn paint_rich(&self, x1: f32, w1: f32) {
+        panel(x1, 135.0, w1, 810.0, "RANKING DOS MAIS RICOS");
+        let max = self.rich.first().map_or(1, |r| r.1.max(1)) as f32;
+        for (i, (n, v)) in self.rich.iter().take(8).enumerate() {
+            let y = 200.0 + i as f32 * 92.0;
+            let col = *MEDAL.get(i).unwrap_or(&SOFT);
+            draw_text(&format!("{}.", i + 1), x1 + 24.0, y + 50.0, 54.0, col);
+            draw_text(&fit(n, 340.0, 48.0), x1 + 100.0, y + 48.0, 48.0, WHITE);
+            text_right(&v.to_string(), x1 + w1 - 24.0, y + 48.0, 48.0, GOLD);
+            draw_rectangle(x1 + 100.0, y + 62.0, (w1 - 124.0) * (*v as f32 / max).clamp(0.0, 1.0), 10.0, Color::new(col.r, col.g, col.b, 0.5));
+        }
+        if self.rich.is_empty() {
+            draw_text("ninguem tem nada (ainda)", x1 + 30.0, 260.0, 40.0, SOFT);
+        }
+        draw_text("carteira + poupanca + acoes", x1 + 24.0, 930.0, 28.0, DIMG);
+    }
+
+    /// Ranking de criadores: o que cada um trouxe pra vila, nunca moeda.
+    fn paint_creators(&self, x1: f32, w1: f32) {
+        panel(x1, 135.0, w1, 810.0, "CRIADORES - IMPACTO");
+        text_right("impacto, nao dinheiro", x1 + w1 - 24.0, 172.0, 30.0, Color::new(0.5, 1.0, 0.6, 1.0));
+        for (i, (n, v, mods, portals, visits)) in self.cri.iter().take(8).enumerate() {
+            let y = 200.0 + i as f32 * 92.0;
+            let col = *MEDAL.get(i).unwrap_or(&SOFT);
+            draw_text(&format!("{}.", i + 1), x1 + 24.0, y + 50.0, 54.0, col);
+            draw_text(&fit(n, 380.0, 46.0), x1 + 100.0, y + 44.0, 46.0, WHITE);
+            text_right(&v.to_string(), x1 + w1 - 24.0, y + 46.0, 48.0, Color::new(0.5, 1.0, 0.6, 1.0));
+            let pl = |n: i64, one: &str, many: &str| format!("{} {}", n, if n == 1 { one } else { many });
+            draw_text(&format!("{}  {}  {}", pl(*mods, "mod", "mods"), pl(*portals, "portal", "portais"), pl(*visits, "visita", "visitas")), x1 + 100.0, y + 78.0, 28.0, SOFT);
+        }
+        if self.cri.is_empty() {
+            draw_text("nenhum criador trouxe nada ainda", x1 + 30.0, 260.0, 40.0, SOFT);
+            draw_text("sobe um mod ou portal e vira lenda", x1 + 30.0, 310.0, 34.0, DIMG);
+        }
+        draw_text("mods + portais + visitas + presenca (pontos)", x1 + 24.0, 930.0, 28.0, DIMG);
     }
 
     fn vault(&self, b: &mut Batch, trans: &mut Batch, time: f32) {
@@ -241,6 +288,73 @@ impl Banco {
         }
     }
 
+    /// Hall da fama dos criadores: 3 placas emolduradas (top 3 por impacto) + troféu girando pro #1.
+    fn hall(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let id = Mat4::IDENTITY;
+        let k = 0.75 + 0.25 * (time * 2.0).sin();
+        let inside = (191.0..213.0).contains(&eye.x) && (224.0..251.0).contains(&eye.z) && eye.y < G as f32 + 18.0;
+        let near = |p: Vec3| inside && eye.distance(p) < 25.0;
+        for (i, &z) in HOF_Z.iter().enumerate() {
+            let col = MEDAL[i];
+            let (w, h, y) = if i == 0 { (2.4, 3.0, FL + 3.0) } else { (2.1, 2.6, FL + 2.7) };
+            let c = vec3(HOF_X, y, z);
+            let frame = rgb(col.r * 0.85, col.g * 0.85, col.b * 0.85);
+            for (o, sz) in [
+                (vec3(0.0, h * 0.5, 0.0), vec3(0.14, 0.2, w + 0.2)),
+                (vec3(0.0, -h * 0.5, 0.0), vec3(0.14, 0.2, w + 0.2)),
+                (vec3(0.0, 0.0, -w * 0.5), vec3(0.14, h, 0.2)),
+                (vec3(0.0, 0.0, w * 0.5), vec3(0.14, h, 0.2)),
+            ] {
+                b.cube(&id, c + o, sz, frame);
+            }
+            b.cube(&id, c + vec3(0.03, 0.0, 0.0), vec3(0.06, h - 0.1, w - 0.1), rgb(0.16, 0.1, 0.05));
+            let filled = self.cri.get(i);
+            let shine = if filled.is_some() { k } else { 0.35 };
+            b.glow(&id, c + vec3(-0.06, h * 0.5 - 0.45, 0.0), vec3(0.04, 0.42, 0.42), Color::new(col.r * shine, col.g * shine, col.b * shine, 1.0));
+            b.glow(&id, c + vec3(-0.08, h * 0.5 + 0.12, 0.0), vec3(0.04, 0.05, w + 0.1), Color::new(col.r * shine, col.g * shine, col.b * shine, 1.0));
+            if near(c) {
+                let (name, score) = match filled {
+                    Some((n, v, ..)) => (format!("#{} {}", i + 1, n), format!("impacto {}", v)),
+                    None => (format!("#{} VAGA", i + 1), "sobe um mod ou portal".into()),
+                };
+                labels.push(Label { pos: c + vec3(-0.2, 0.1, 0.0), text: name, size: if i == 0 { 22.0 } else { 17.0 }, color: col });
+                labels.push(Label { pos: c + vec3(-0.2, -0.6, 0.0), text: score, size: 16.0, color: SOFT });
+            }
+        }
+        let head = vec3(HOF_X - 0.2, FL + 5.3, HOF_Z[0]);
+        if near(head) {
+            labels.push(Label { pos: head, text: "HALL DA FAMA DOS CRIADORES".into(), size: 24.0, color: GOLD });
+            labels.push(Label { pos: head - vec3(0.0, 0.55, 0.0), text: "impacto, nao dinheiro - /criadores".into(), size: 15.0, color: Color::new(0.5, 1.0, 0.6, 1.0) });
+        }
+
+        // Pedestal com troféu do #1 (sem #1, só o pedestal)
+        b.cube(&id, TROPHY + vec3(0.0, 0.08, 0.0), vec3(1.1, 0.16, 1.1), rgb(0.55, 0.54, 0.52));
+        b.cube(&id, TROPHY + vec3(0.0, 0.6, 0.0), vec3(0.85, 0.9, 0.85), rgb(0.88, 0.86, 0.8));
+        b.glow(&id, TROPHY + vec3(0.0, 1.07, 0.0), vec3(0.95, 0.05, 0.95), Color::new(k, 0.8 * k, 0.28 * k, 1.0));
+        if self.cri.is_empty() {
+            return;
+        }
+        let m = Mat4::from_translation(TROPHY + vec3(0.0, 1.1, 0.0)) * Mat4::from_rotation_y(time * 0.9);
+        let (g1, g2) = (rgb(1.0, 0.8, 0.3), rgb(0.8, 0.58, 0.15));
+        for (c, s, col) in [
+            (vec3(0.0, 0.06, 0.0), vec3(0.5, 0.12, 0.5), g2),
+            (vec3(0.0, 0.2, 0.0), vec3(0.32, 0.16, 0.32), g1),
+            (vec3(0.0, 0.42, 0.0), vec3(0.1, 0.3, 0.1), g2),
+            (vec3(0.0, 0.62, 0.0), vec3(0.3, 0.1, 0.3), g1),
+            (vec3(0.0, 0.85, 0.0), vec3(0.5, 0.4, 0.5), g1),
+            (vec3(-0.32, 0.88, 0.0), vec3(0.08, 0.3, 0.08), g2),
+            (vec3(0.32, 0.88, 0.0), vec3(0.08, 0.3, 0.08), g2),
+            (vec3(-0.27, 1.02, 0.0), vec3(0.16, 0.06, 0.08), g2),
+            (vec3(0.27, 1.02, 0.0), vec3(0.16, 0.06, 0.08), g2),
+        ] {
+            b.cube(&m, c, s, col);
+        }
+        b.glow(&m, vec3(0.0, 1.06, 0.0), vec3(0.42, 0.04, 0.42), Color::new(k, 0.85 * k, 0.4 * k, 1.0));
+        if crate::quality::tier() != crate::quality::LOW {
+            trans.glow(&id, TROPHY + vec3(0.0, 1.8, 0.0), vec3(1.0, 1.4, 1.0), Color::new(1.0, 0.8, 0.3, 0.06 + 0.05 * k));
+        }
+    }
+
     fn spawn(&mut self) {
         let cap = crate::quality::pick([12, 24, 40]);
         for src in [1, 2, 0] {
@@ -288,6 +402,7 @@ impl Place for Banco {
         let (otr, osv) = (self.tr, self.sv);
         self.tr = i(&m["tr"]);
         self.rich = arr("rich").iter().map(|r| (s(&r[0]), i(&r[1]))).collect();
+        self.cri = arr("cri").iter().map(|r| (s(&r[0]), i(&r[1]), i(&r[2]), i(&r[3]), i(&r[4]))).collect();
         self.led = arr("led").iter().map(|r| (s(&r[0]), s(&r[1]), i(&r[2]))).collect();
         self.sv = i(&m["sv"]);
         self.nsv = i(&m["nsv"]);
@@ -339,7 +454,7 @@ impl Place for Banco {
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
-        let key = if eye.distance(GEO.c) < 110.0 { hash_str(&format!("{}|{:?}|{:?}|{}|{}|{}", self.shown_tr(), self.rich, self.led, self.sv, self.nsv, self.got)) } else { 0 };
+        let key = if eye.distance(GEO.c) < 110.0 { hash_str(&format!("{}|{:?}|{:?}|{:?}|{}|{}|{}|{}", self.shown_tr(), self.rich, self.cri, self.led, self.sv, self.nsv, self.got, creators_page(time))) } else { 0 };
         if self.scr.begin(time, eye, &GEO, key, crate::quality::tier() != crate::quality::LOW) {
             self.paint(time);
             self.scr.end();
@@ -384,6 +499,7 @@ impl Place for Banco {
             labels.push(Label { pos: VAULT + vec3(-0.8, 4.6, 0.0), text: format!("COFRE DA IA: {} moedas", self.shown_tr()), size: 24.0, color: GOLD });
         }
         self.statue(b, trans, labels, time, eye);
+        self.hall(b, trans, labels, time, eye);
         for c in &self.coins {
             let s = (2.5 - c.t).clamp(0.0, 0.4) / 0.4;
             let m = Mat4::from_translation(c.p) * Mat4::from_rotation_y(c.a);

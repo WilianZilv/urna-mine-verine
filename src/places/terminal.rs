@@ -37,6 +37,21 @@ const DESTS: [Dest; 8] = [
     d("tv", "TV URNA NEWS", (62.5, 262.5), FRAC_PI_2, (1.0, 0.25, 0.35)),
 ];
 
+/// Carimbos da vila (server/terminal.js VILLAGE): os 8 destinos + banco + o próprio terminal.
+const STAMPS: [(&str, Color); 10] = [
+    (DESTS[0].id, DESTS[0].col),
+    (DESTS[1].id, DESTS[1].col),
+    (DESTS[2].id, DESTS[2].col),
+    (DESTS[3].id, DESTS[3].col),
+    (DESTS[4].id, DESTS[4].col),
+    (DESTS[5].id, DESTS[5].col),
+    (DESTS[6].id, DESTS[6].col),
+    (DESTS[7].id, DESTS[7].col),
+    ("banco", Color::new(0.3, 1.0, 0.6, 1.0)),
+    ("terminal", Color::new(0.3, 1.0, 1.0, 1.0)),
+];
+const NS: usize = STAMPS.len();
+
 const HUB_GATE: usize = 4;
 /// Plano dos portões (encostados na parede sul, véu virado pro saguão).
 const GZ: f32 = 291.0;
@@ -92,8 +107,11 @@ pub struct Terminal {
     arrivals: Vec<Arrival>,
     /// Redemoinho de partida: (onde, idade).
     warps: Vec<(Vec3, f32)>,
-    /// Carimbos do passaporte: destinos visitados nesta sessão.
-    stamps: [bool; 8],
+    /// Carimbos da vila (ordem de STAMPS): do servidor quando online, senão só desta sessão.
+    stamps: [bool; NS],
+    /// Carimbos de portais do Hub ("hub:<id>") e se já veio a lista do servidor.
+    hubs: usize,
+    srv: bool,
     /// Tour dos Poderes (copiado de places::tour todo frame): (carimbos, minutos restantes).
     pub tour: Option<(usize, i32)>,
     /// Mural dos guias (quem completou o tour), mais novo primeiro.
@@ -102,7 +120,7 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; 8], tour: None, mural: Vec::new() }
+        Terminal { screen: Screen::new(), trips: [0; 8], total: 0, got: false, portals: Vec::new(), go: None, cool: 0.0, arrivals: Vec::new(), warps: Vec::new(), stamps: [false; NS], hubs: 0, srv: false, tour: None, mural: Vec::new() }
     }
 
     fn warp(&mut self, at: Vec3) {
@@ -123,7 +141,9 @@ impl Terminal {
 
     fn travel(&mut self, p: &mut Player, i: usize) {
         arrive(p, i);
-        self.stamps[i] = true;
+        if !self.srv {
+            self.stamps[i] = true;
+        }
         self.cool = 2.0;
     }
 
@@ -221,13 +241,14 @@ impl Terminal {
             draw_text("plugue o teu: /hub.txt", x1 + 30.0, 320.0, 34.0, DIM);
         }
         let n = self.stamps.iter().filter(|&&s| s).count();
-        draw_text(&format!("TEU PASSAPORTE: {n}/8 CARIMBOS"), x1 + 30.0, 862.0, 36.0, if n == 8 { GOLD } else { CYAN });
-        for (i, d) in DESTS.iter().enumerate() {
-            let x = x1 + w1 - 40.0 - (8 - i) as f32 * 40.0;
+        let hubs = if self.hubs > 0 { format!(" +{} PORTAIS", self.hubs) } else { String::new() };
+        draw_text(&format!("TEU PASSAPORTE: {n}/{NS}{hubs}"), x1 + 30.0, 862.0, 34.0, if n == NS { GOLD } else { CYAN });
+        for (i, s) in STAMPS.iter().enumerate() {
+            let x = x1 + w1 - 40.0 - (NS - i) as f32 * 32.0;
             if self.stamps[i] {
-                draw_rectangle(x, 834.0, 32.0, 32.0, d.col);
+                draw_rectangle(x, 838.0, 26.0, 26.0, s.1);
             } else {
-                draw_rectangle_lines(x, 834.0, 32.0, 32.0, 3.0, DIM);
+                draw_rectangle_lines(x, 838.0, 26.0, 26.0, 3.0, DIM);
             }
         }
         draw_text(&format!("embarque no portao GAME HUB ({:02})", HUB_GATE + 1), x1 + 30.0, 898.0, 30.0, GOLD);
@@ -256,6 +277,14 @@ impl Place for Terminal {
             if let Some(i) = DESTS.iter().position(|d| a["d"] == d.id) {
                 self.arrival(i, a["n"].as_str().unwrap_or(""));
             }
+            return;
+        }
+        if let Some(list) = m["stamps"].as_array() {
+            self.srv = true;
+            for (i, s) in STAMPS.iter().enumerate() {
+                self.stamps[i] = list.iter().any(|v| v == s.0);
+            }
+            self.hubs = list.iter().filter(|v| v.as_str().is_some_and(|s| s.starts_with("hub:"))).count();
             return;
         }
         for (i, d) in DESTS.iter().enumerate() {
@@ -290,6 +319,9 @@ impl Place for Terminal {
             self.travel(p, i);
             return;
         }
+        if !self.srv && p.pos.distance(CENTER) < 8.0 {
+            self.stamps[NS - 1] = true;
+        }
         if self.cool > 0.0 || p.pos.distance(CENTER) > 30.0 {
             return;
         }
@@ -311,7 +343,7 @@ impl Place for Terminal {
         if eye.distance(BOARD.c) > 110.0 {
             return;
         }
-        let mut key = format!("{}|{}|{:?}|{:?}|{:?}", self.got, self.total, self.trips, self.stamps, self.tour);
+        let mut key = format!("{}|{}|{:?}|{:?}|{}|{:?}", self.got, self.total, self.trips, self.stamps, self.hubs, self.tour);
         key += &self.mural.join(",");
         for p in &self.portals {
             key += &format!("|{}:{}:{}", p.name, p.by, p.n);

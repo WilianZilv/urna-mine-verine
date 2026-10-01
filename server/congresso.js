@@ -50,13 +50,13 @@ export const monthEnd = (t) => {
 // O ROADMAP VIRA LEI: itens abertos de docs/ROADMAP.md que a vila prioriza (ids estaveis: o voto guarda o id).
 export const ROADMAP = [
     { id: "perf", t: "PERF MOBILE 2", d: "vila lisinha ate no celular da tia" },
-    { id: "escola", t: "ESCOLA DE AGENTES", d: "predio que ensina IA a fazer mod" },
+    { id: "eleicao", t: "ELEICAO SIMULADA", d: "a vila inteira vota na urna, apuracao ao vivo na TV" },
     { id: "shards", t: "SHARDS: VARIAS VILAS", d: "varias vilas com o mesmo mapa e voo entre elas" },
     { id: "indie", t: "PARCERIAS COM DEVS INDIE", d: "jogo indie vira portao fixo no Terminal" },
-    { id: "aovivo", t: "EVENTOS AO VIVO NA TV", d: "eleicao simulada e final da arena na TV URNA NEWS" },
+    { id: "partidos", t: "PARTIDOS DA VILA", d: "times de jogadores com bandeira e sede" },
     { id: "irma", t: "CIDADE-IRMA EM INGLES", d: "cada pais faz a sua urna" },
     { id: "agentes", t: "AGENTES RESIDENTES", d: "IAs de terceiros morando na vila" },
-    { id: "carimbos", t: "CARIMBOS DOS JOGOS DO HUB", d: "passaporte carimba jogo do Hub tambem" },
+    { id: "mobile", t: "CONTROLES MOBILE 2", d: "joystick melhor e atalho pros lugares" },
 ];
 const RM_HIST = 12;
 const MOD_KINDS = ["npc", "avatar", "item"];

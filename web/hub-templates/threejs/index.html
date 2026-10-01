@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <title>Pula Urna - template three.js do URNA GAME HUB</title>
+    <style>
+        html, body { margin: 0; height: 100%; overflow: hidden; background: #8fc7ff; touch-action: none; user-select: none; font-family: system-ui, sans-serif; }
+        canvas { display: block; }
+        .hud { position: absolute; top: 10px; color: #fff; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,.5); pointer-events: none; }
+        #who { left: 14px; font-size: 15px; } #pts { left: 50%; transform: translateX(-50%); font-size: 28px; } #time { right: 14px; font-size: 22px; }
+        #help { position: absolute; bottom: 12px; width: 100%; text-align: center; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,.6); pointer-events: none; }
+        #end { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+            background: rgba(10, 20, 40, .65); color: #fff; font-size: 18px; text-align: center; }
+        #end h1 { margin: 0; font-size: 42px; color: #ffd23d; }
+        #end button { font: bold 18px system-ui, sans-serif; padding: 10px 22px; border: 0; border-radius: 10px; cursor: pointer; }
+        #again { background: #3dff8a; color: #0b2a17; }
+        #exit { background: #7a3cff; color: #fff; display: none; }
+    </style>
+    <!-- SDK do Urna ANTES do jogo. data-auto = outros jogadores do Urna aparecem na cena sozinhos. Troque data-portal-id. -->
+    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js" data-auto data-portal-id="pula-urna"></script>
+    <!-- three.js (MIT) direto da CDN; nada copiado pra ca -->
+    <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+</head>
+<body>
+    <div class="hud" id="who">convidado</div>
+    <div class="hud" id="pts">0</div>
+    <div class="hud" id="time">30s</div>
+    <div id="help">espaço / clique / toque = pular pra proxima plataforma</div>
+    <div id="end">
+        <h1>FIM DO MANDATO</h1>
+        <div id="result"></div>
+        <button id="again">JOGAR DE NOVO (espaço)</button>
+        <button id="exit">VOLTAR PRA VILA</button>
+    </div>
+    <script type="module">
+        // Pula Urna - template three.js do URNA GAME HUB (licenca MIT, tudo desenhado em codigo).
+        // 30 segundos: pule de plataforma em plataforma; as que balancam exigem timing.
+        import * as THREE from "three";
+
+        const PORTAL_ID = "pula-urna"; // igual ao data-portal-id acima e ao "id" do manifest
+        const ROUND = 30, GAP = 3.2, PW = 2.2, HOP = 0.5;
+        const U = window.UrnaPortal;
+        const $ = (id) => document.getElementById(id);
+
+        const game = window.game = { state: "play", score: 0, time: ROUND, name: "convidado", color: "#00e5ff", coins: null, connected: false, cur: 0, achievements: [] };
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+        document.body.prepend(renderer.domElement);
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x8fc7ff);
+        scene.fog = new THREE.Fog(0x8fc7ff, 18, 45);
+        const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 120);
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x446688, 1.6));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+        sun.position.set(4, 10, 6);
+        scene.add(sun);
+        const sea = new THREE.Mesh(new THREE.PlaneGeometry(400, 400).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x2a6fb0 }));
+        sea.position.y = -6;
+        scene.add(sea);
+        const fit = () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
+        addEventListener("resize", fit);
+        fit();
+        if (U && U.auto) U.auto.attach({ THREE, renderer, scene, camera });
+
+        // ------------------------------------------------------------ plataformas
+        const platGeo = new THREE.BoxGeometry(PW, 0.5, 2);
+        const platMats = [0x3dff8a, 0xffd23d, 0xff8a3d, 0xb48cff].map((c) => new THREE.MeshLambertMaterial({ color: c }));
+        let plats = [];
+        function makePlat(i) {
+            const mesh = new THREE.Mesh(platGeo, platMats[i % platMats.length]);
+            const p = { i, mesh, amp: i < 2 ? 0 : Math.min(3, 0.8 + i * 0.15), speed: 1 + Math.min(1.4, i * 0.06), phase: Math.random() * 6 };
+            mesh.position.set(0, 0, -i * GAP);
+            scene.add(mesh);
+            return p;
+        }
+        const platX = (p, t) => p.amp * Math.sin(t * p.speed + p.phase);
+        const plat = (i) => plats.find((p) => p.i === i);
+        function ensurePlats() {
+            const max = plats.length ? plats[plats.length - 1].i : -1;
+            for (let i = max + 1; i <= game.cur + 8; i++) plats.push(makePlat(i));
+            for (const p of plats) if (p.i < game.cur - 2) scene.remove(p.mesh);
+            plats = plats.filter((p) => p.i >= game.cur - 2);
+        }
+
+        // ------------------------------------------------------------ jogador: uma urna com pernas curtas
+        const player = new THREE.Group();
+        const M = (c) => new THREE.MeshLambertMaterial({ color: c });
+        const box = (w, h, d, m, x, y, z) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); player.add(b); return b; };
+        box(0.8, 0.8, 0.6, M(0x3a3f4b), 0, 0.55, 0);
+        box(0.84, 0.1, 0.64, M(0x555c6b), 0, 1.0, 0);
+        box(0.4, 0.04, 0.08, M(0x111111), 0, 1.06, 0);
+        box(0.36, 0.26, 0.02, M(0x9fd8c2), -0.15, 0.68, 0.31);
+        box(0.22, 0.1, 0.02, M(0x3dff8a), 0.22, 0.4, 0.31);
+        const stripe = box(0.82, 0.08, 0.62, M(game.color), 0, 0.2, 0);
+        box(0.14, 0.15, 0.14, M(0x222222), -0.22, 0.08, 0);
+        box(0.14, 0.15, 0.14, M(0x222222), 0.22, 0.08, 0);
+        scene.add(player);
+
+        // ------------------------------------------------------------ Urna: sessao, passaporte, eventos
+        // O servidor aceita 1 conquista a cada 10 s: fila espacada.
+        const achQueue = [];
+        let achLast = 0;
+        function achieve(text) {
+            if (game.achievements.includes(text)) return;
+            game.achievements.push(text);
+            achQueue.push(text);
+        }
+        async function refreshWallet() {
+            if (!U || !game.connected) return;
+            const p = await U.passport();
+            if (p && p.ok && p.wallet) game.coins = p.wallet.coins;
+            showWho();
+        }
+        function showWho() {
+            $("who").textContent = game.coins === null ? `${game.name}${game.connected ? "" : " (fora do Urna)"}` : `${game.name} - carteira: ${game.coins} moedas ficticias`;
+        }
+        if (U) U.connect({ portalId: PORTAL_ID }).then((s) => {
+            if (!s) return;
+            game.connected = true;
+            game.name = String(s.player.name || "jogador").slice(0, 24);
+            if (/^#[0-9a-f]{6}$/i.test(s.player.color || "")) { game.color = s.player.color; stripe.material.color.set(game.color); }
+            $("exit").style.display = "inline-block";
+            showWho();
+            refreshWallet();
+        });
+        $("exit").onclick = () => U && U.exit();
+        showWho();
+
+        // ------------------------------------------------------------ jogo
+        let hop = null, fall = null, off = 0, clock = 0;
+        function jump() {
+            if (game.state === "over") return restart();
+            if (hop || fall) return;
+            const p = plat(game.cur);
+            hop = { t: 0, x: platX(p, clock) + off, z0: p.mesh.position.z, z1: -(game.cur + 1) * GAP };
+        }
+        function land() {
+            const next = plat(game.cur + 1), nx = platX(next, clock);
+            if (Math.abs(hop.x - nx) < PW / 2 + 0.15) {
+                game.cur++;
+                off = hop.x - nx;
+                game.score++;
+                if (game.score === 5) achieve("5 plataformas");
+                if (game.score === 15) achieve("15 plataformas");
+                ensurePlats();
+            } else fall = { t: 0, x: hop.x, z: hop.z1 };
+            hop = null;
+        }
+        function restart() {
+            for (const p of plats) scene.remove(p.mesh);
+            plats = [];
+            Object.assign(game, { state: "play", score: 0, time: ROUND, cur: 0 });
+            hop = fall = null; off = 0;
+            ensurePlats();
+            $("end").style.display = "none";
+        }
+        function finish() {
+            game.state = "over";
+            if (U) U.event("score", game.score);
+            $("result").textContent = `${game.name}: ${game.score} plataformas` + (game.connected ? "" : " (convidado - jogue dentro do Urna pra valer moedas ficticias)");
+            $("end").style.display = "flex";
+            setTimeout(refreshWallet, 2000);
+        }
+        addEventListener("keydown", (e) => { if ([" ", "ArrowUp", "w", "W", "Enter"].includes(e.key)) { e.preventDefault(); if (!e.repeat) jump(); } });
+        renderer.domElement.addEventListener("pointerdown", jump);
+        $("again").onclick = restart;
+
+        ensurePlats();
+        const camPos = new THREE.Vector3(0, 4, 7), look = new THREE.Vector3();
+        let lastT = performance.now();
+        renderer.setAnimationLoop((now) => {
+            const dt = Math.min(0.05, (now - lastT) / 1000);
+            lastT = now;
+            clock += dt;
+            for (const p of plats) p.mesh.position.x = platX(p, clock);
+
+            if (game.state === "play") {
+                game.time -= dt;
+                if (game.time <= 0) { game.time = 0; finish(); }
+            }
+            let x, y, z, air = false;
+            const top = 0.25;
+            if (hop) {
+                hop.t += dt / HOP;
+                const k = Math.min(1, hop.t);
+                x = hop.x; z = hop.z0 + (hop.z1 - hop.z0) * k; y = top + Math.sin(k * Math.PI) * 1.6; air = true;
+                if (hop.t >= 1) land();
+            } else if (fall) {
+                fall.t += dt;
+                x = fall.x; z = fall.z; y = top - fall.t * fall.t * 9; air = true;
+                if (fall.t > 0.8) { fall = null; off = 0; }
+            } else {
+                const p = plat(game.cur);
+                x = platX(p, clock) + off; z = p.mesh.position.z; y = top;
+            }
+            player.position.set(x, y, z);
+            if (U && U.auto) U.auto.pose({ x, y, z, yaw: Math.PI, speed: hop ? GAP / HOP : 0, air });
+
+            camPos.lerp(new THREE.Vector3(x * 0.4, 4.2, z + 7), 1 - Math.exp(-6 * dt));
+            camera.position.copy(camPos);
+            look.set(x * 0.4, 0.5, z - 3);
+            camera.lookAt(look);
+
+            if (achQueue.length && Date.now() - achLast > 11000) { achLast = Date.now(); U && U.event("achievement", achQueue.shift()); }
+            $("pts").textContent = game.score;
+            $("time").textContent = `${Math.ceil(game.time)}s`;
+            renderer.render(scene, camera);
+        });
+    </script>
+</body>
+</html>

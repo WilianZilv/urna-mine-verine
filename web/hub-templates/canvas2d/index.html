@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <title>Cata Voto - template canvas 2D do URNA GAME HUB</title>
+    <style>
+        html, body { margin: 0; height: 100%; overflow: hidden; background: #140d24; touch-action: none; user-select: none; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #end { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+            background: rgba(10, 6, 20, .72); color: #fff; font: 18px system-ui, sans-serif; text-align: center; }
+        #end h1 { margin: 0; font-size: 42px; color: #ffd23d; }
+        #end button { font: bold 18px system-ui, sans-serif; padding: 10px 22px; border: 0; border-radius: 10px; cursor: pointer; }
+        #again { background: #3dff8a; color: #0b2a17; }
+        #exit { background: #7a3cff; color: #fff; display: none; }
+    </style>
+    <!-- SDK do Urna: nunca trava, fora do Urna vira modo convidado. Troque data-portal-id pelo id do teu portal. -->
+    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js" data-portal-id="cata-voto"></script>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <div id="end">
+        <h1>FIM DA APURAÇÃO</h1>
+        <div id="result"></div>
+        <button id="again">JOGAR DE NOVO (espaço)</button>
+        <button id="exit">VOLTAR PRA VILA</button>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>

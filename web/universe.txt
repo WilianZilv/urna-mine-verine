@@ -1,0 +1,109 @@
+# URNA UNIVERSE — avatar passport, shared presence, items & coins across games (UPP v1 extension)
+
+Site: https://urna-mine-verine.wilianzilv.workers.dev   (below: $SITE)
+Read first: $SITE/hub.txt (how to put a web game in the Game Hub). This file = what your game gets on top.
+Mods (avatars/items are mods): $SITE/modding.txt (kind "avatar" and kind "item").
+
+Everything is optional: a game that ignores this file still works. Coins are FICTIONAL (no real money, ever).
+
+## TL;DR for an agent wiring a game
+1. <script src="$SITE/sdk/urna-portal.js"></script>
+   const s = await UrnaPortal.connect({ portalId: "my-game" });   // null outside the Urna -> play as guest
+2. Avatar:  s.avatar is the player's skin package (or null). Render it:
+   - canvas/Phaser/Pixi: <script src="$SITE/sdk/urna-avatar-canvas2d.js"></script>
+       const av = UrnaAvatar2D.create(s.avatar, { view: "side", size: 96 });  av.draw(ctx, x, feetY, 64, { speed }, t, flipLeft);
+   - three.js:           <script src="$SITE/sdk/urna-avatar-three.js"></script>
+       const av = UrnaAvatarThree.build(s.avatar, THREE); scene.add(av.group); av.update(dt, { speed, air });
+   - anything else:      <script src="$SITE/sdk/urna-avatar-mesh.js"></script>  (flatten + pose, see "Other engines")
+3. Presence (see other Urna players inside your game):
+       const pr = UrnaPortal.presence; await pr.join();
+       pr.on("player", p => upsert(p.sid, p.name, p.avatar, p.s)); pr.on("leave", p => remove(p.sid));
+       every frame: pr.update({ x, y, anim: "run" });   // SDK sends at most ~10 Hz
+4. Reward:  await UrnaPortal.grant({ coins: 5, reason: "beat level 1", key: "lvl1-" + runId });
+5. Charge:  const r = await UrnaPortal.spend({ coins: 3, reason: "extra life", key: "life-" + n });  if (r.ok) lives++;
+Live demo using all of it: https://urna-hub-demo.wilianzilv.workers.dev/ (source: $SITE/hub/demo.html).
+
+## Session token & passport
+The session token (JWT HS256, ~10 min, from upp:session) now carries player.avatar = "modId@version" or null.
+GET $SITE/api/passport?token=<session token>      (CORS open, no auth besides the token)
+ -> { ok, protocol:"UPP/1", portal, player:{name,color,character,avatar}, avatar_ref, avatar:<full validated avatar
+      package JSON or null>, wallet:{coins}, inventory:[{id,name,n,color,color2,pattern}],
+      limits:{grant_coins_per_day, grant_coins_left_today, grant_items:[{id,name,daily_cap,left_today}], spend_coins_max}, exp }
+SDK: UrnaPortal.connect() already fetches it (s.avatar, s.passport); UrnaPortal.avatar(); await UrnaPortal.passport().
+Other players' avatars (refs from presence): GET $SITE/api/mods/<id>/versions/<version> (public, immutable, cache forever).
+
+## Avatar package (mod kind "avatar") — what you render
+- model.parts[]: {name, parent|null, pivot:[x,y,z], boxes:[{pos:[x,y,z], size:[w,h,d], color:"#rrggbb", glow?}]}
+  pos/pivot are ABSOLUTE model coords. 1 unit = 1 block (~1 m). Y up, faces +Z, feet at y=0, LEFT = +X.
+  Rig parts always present: head, body, arm_l, arm_r, leg_l, leg_r (optional extras: tail, wing_l, wing_r...).
+- animations{name:{duration, loop, keyframes:[{t, parts:{part:{rot:[x,y,z] DEGREES, offset:[x,y,z]}}}]}}
+  names: idle, walk, run, jump, attack, fly, death, emote1..emote4. Linear interpolation; missing part = rest.
+  Part transform = parent * T(pivot + offset) * Ry * Rx * Rz * T(-pivot)   (Euler order "YXZ").
+- avatar: {scale, height, emotes:[{anim, name}]}. Multiply the model by scale; height = final height in blocks
+  (server guarantees 1.2..2.4 tall, <= 1.6 wide). Pick: death > attack > emote > jump/fly > run (fast) > walk > idle.
+
+## Other engines (Godot, Unity, Babylon, PlayCanvas, Defold...)
+The package JSON IS the mesh description. urna-avatar-mesh.js gives you the math in 40 lines:
+  UrnaAvatarMesh.flatten(pkg) -> {scale, height, parts:[{name, parent, origin:[x,y,z] (pivot relative to parent's pivot),
+                                   boxes:[{center (relative to own pivot), size, color, glow}]}]}
+  UrnaAvatarMesh.pose(pkg, animName, t) -> {part:{rot:[x,y,z] radians, offset:[x,y,z]}}   UrnaAvatarMesh.pick(pkg, state)
+- Godot 4 (web export): JavaScriptBridge.eval("JSON.stringify(UrnaPortal.avatar())") -> JSON.parse_string -> one Node3D
+  per part (position = origin), MeshInstance3D(BoxMesh size, position = center) per box, StandardMaterial3D
+  albedo = color (glow: emission). Each frame: node.position = origin + offset; node.rotation = Vector3(rx, ry, rz) with
+  rotation_order = EULER_ORDER_YXZ. Root scale = scale. Port pose() (keyframe lerp) to GDScript or eval it in JS.
+- Unity (WebGL): jslib function returning UrnaPortal.avatar() as JSON string; GameObject per part, cube per box.
+  Unity is left-handed: negate Z of positions and negate X/Y rotation angles; Quaternion.Euler applies Z,X,Y order in
+  Unity — compose manually: q = AngleAxis(ry,up) * AngleAxis(rx,right) * AngleAxis(rz,forward).
+- 2D engines without canvas access: render once with urna-avatar-canvas2d.js .sheet("walk") and upload the PNG
+  (sheet.canvas.toDataURL()) as a sprite sheet.
+
+## Presence (shared multiplayer between Urna players in the same game)
+WebSocket: wss://urna-mine-verine.wilianzilv.workers.dev/api/portals/<portalId>/presence?token=<session token>
+Server -> you: {t:"welcome", you:{sid,name,color,character,avatar,s}, players:[...], limits:{rate_hz:12, state_bytes:512, max_players:32}}
+               {t:"join", player} | {t:"u", sid, s} | {t:"leave", sid} | {t:"pong", dropped}
+You -> server: {t:"u", s:{...state}} | {t:"ping"}
+- state: <= 16 keys [A-Za-z0-9_], values number | bool | string<=32 | [<=4 numbers]; JSON <= 512 bytes (else dropped).
+- <= 12 msgs/s per socket (token bucket; excess silently dropped), <= 32 players per portal, 1 socket per session
+  (a new one replaces the old). The server ONLY relays: it never interprets x/y — your game decides what they mean.
+- Players in presence count in "N jogando agora" on the arch in the village.
+SDK: UrnaPortal.presence.join() / update(s) / on("player"|"join"|"leave"|"welcome"|"close", cb) / leave() / players (Map sid->player)
+
+## Items & coins across games
+Transferable things = fictional coins + mods of kind "item" (see modding.txt). Your game REQUESTS, our server decides.
+
+### grant (game gives the player something)
+POST $SITE/api/universe/grant  {token, coins:N  |  item:"modId", n, reason:"text <= 80", key:"6-64 [A-Za-z0-9_.:-]"}
+- coins: 1..60, at most 60 per player per portal per day (paid from the village treasury; 503 if empty).
+- items: only ids on YOUR portal allowlist, n <= item.daily_cap per player per portal per day.
+- key = idempotency: the same key for the same player+portal is applied ONCE; repeats get 409 {"error":"duplicate", first}.
+  Use a deterministic key per reward (e.g. "lvl3-" + runId) so retries/double clicks never pay twice.
+- Ledger shows "veio do jogo <your game>: <reason>". Player sees items in the Steve inventory (E) in the village.
+Responses: 200 {ok:true, granted:{coins}|{item,n}, wallet|inventory, left_today}
+           409 duplicate | 429 budget (left) | 403 not_allowed | 422 invalid | 401 bad token | 410 portal offline | 503 treasury
+SDK: await UrnaPortal.grant({coins|item, n, reason, key}) -> same JSON (never throws).
+
+### item allowlist (portal owner, creator token)
+PUT $SITE/api/portals/<portalId>/items  -H "authorization: Bearer umv_..."  {"items":["voto-dourado"]}   (<= 8)
+-> {approved:[...], rejected:[{id, reason}]}. v1 moderation rule: approved only if the item mod is ACTIVE, kind
+"item" (text already moderated on upload) and owned by the SAME creator as the portal. GET (public) lists it.
+
+### spend (game takes coins/items from the player)
+SDK only: await UrnaPortal.spend({coins:N | item:"modId", n, reason, key}) ->
+  the Urna page (NOT your iframe) shows "CONFIRMAR GASTO" with the amount and reason; the player clicks SIM/NAO.
+  Resolves {ok:true, spent, wallet|inventory} or {ok:false, error:"declined"|"insufficient"|"timeout"|"duplicate"|...}.
+- The spend endpoint requires a confirm token that only the Urna page has; calling it directly from your game or
+  backend returns 403 confirm_required. coins 1..500 per spend; coins go to the village treasury.
+- Check a result from your backend: GET $SITE/api/universe/receipt?token=<session token>&key=<key> -> {kind, result}.
+
+## postMessage additions (game <-> Urna page)
+  game -> urna  {type:"upp:spend", v:1, rid, req:{coins|item,n, reason, key}}
+  urna -> game  {type:"upp:spend_result", v:1, rid, result:{...}}
+Origins are checked on both sides (same as upp:session).
+
+## Troubleshooting
+| symptom | fix |
+| s.avatar is null | the player has no skin (village: C -> SKIN) or you called connect({passport:false}). Render your default. |
+| presence join resolves null | token expired (>10 min: re-enter the portal) or portal not live. |
+| grant 403 not_allowed | PUT /api/portals/<id>/items with an active kind "item" mod you own. |
+| grant 409 duplicate | that key was already paid: it is working as intended. Use a new key for a NEW reward. |
+| spend always "no_session" | you are outside the Urna iframe (standalone): spend is impossible there by design. |

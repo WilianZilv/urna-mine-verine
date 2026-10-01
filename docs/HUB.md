@@ -242,3 +242,15 @@ Errors: {"ok":false,"error":"..."} with 400/401/403/404/409/413/422/429. Body <=
 
 Tell the human in ONE sentence, in their language, e.g.:
 "Pronto: teu jogo ta no ar no hub, no arco <Nome> - entra em https://urna-mine-verine.wilianzilv.workers.dev/?hub=<id>"
+
+## Universe extension: avatar passport, presence, grant/spend (optional)
+
+Your game can also: render the player's avatar skin (passport), see other Urna players live inside the game
+(presence WebSocket), give fictional coins/mod items (grant, server-limited) and charge them (spend, the player
+confirms on the Urna page). Full reference + SDK + renderers (three.js / canvas 2D / generic for Godot & Unity):
+https://urna-mine-verine.wilianzilv.workers.dev/universe.txt
+  GET  /api/passport?token=                  player + avatar package + wallet + inventory + limits
+  WS   /api/portals/:id/presence?token=      per-portal relay room (12 msg/s, 512 B state, 32 players)
+  POST /api/universe/grant                   {token, coins|item, n, reason, key}  (60 coins/day/player/portal, idempotent)
+  POST /api/universe/spend                   only via UrnaPortal.spend() (confirm dialog owned by the Urna page)
+  GET|PUT /api/portals/:id/items             item allowlist (owner token; items must be your active kind "item" mods)

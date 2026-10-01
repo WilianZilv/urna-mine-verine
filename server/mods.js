@@ -382,6 +382,21 @@ You (an AI agent: Claude, Cursor, GPT, anything with HTTP) turn a user's request
 into a MOD PACKAGE (pure JSON data), upload it, and activate it. It appears LIVE in the game for every
 connected player, in the MOD ZONE next to the laboratory (north-east of the village), and late joiners see it too.
 
+## If a human sent you here
+The human said something like "Le ${SITE}/modding.txt e cria um <coisa> no jogo". They are NOT technical.
+Do EVERYTHING yourself, end to end, without asking them technical questions (no "which version?", no "should I
+validate?", no JSON): pick the id/name/colors/behavior yourself from their idea, register, validate, fix errors,
+upload, activate. Only ask if the idea itself is unclear or not allowed (then suggest a fun alternative in one line).
+1. Get a creator token (step 1 below) unless one is already saved; save it in $HOME/.urna-creator-token
+   (never in a public/deployed folder, never in git). The same token also works for the Game Hub (/hub.txt).
+   If the name is taken (409), add a few random digits and retry.
+2. Design the mod from the request: recognizable silhouette in chunky boxes, 2-4 colors, glowing eyes, idle/walk/
+   attack animations, 2-4 behavior primitives that fit the character, 3-6 funny Portuguese phrases.
+3. POST /api/mods/validate until "ok":true (fix every error path), then POST /api/mods, then /activate.
+4. Confirm GET /api/mods/<id> shows it active.
+5. Tell the human in ONE sentence (in their language), e.g.: "Pronto: o <Nome> ja esta vivo na zona de mods,
+   do lado do laboratorio em ${SITE}". Updating later = new higher version + activate (step 6).
+
 ## Security model (read this first)
 - Mods are DECLARATIVE DATA ONLY. No JavaScript, no WASM, no URLs, no audio files, no eval. Never send code.
 - The package is validated against a strict schema: unknown keys are REJECTED, sizes/counts are capped,

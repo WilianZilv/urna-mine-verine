@@ -27,13 +27,14 @@
         addEventListener("keydown", (e) => { keys[e.key] = true; });
         addEventListener("keyup", (e) => { keys[e.key] = false; });
         cv.addEventListener("pointermove", (e) => { x = e.clientX / W; });
-        document.getElementById("sair").onclick = () => (online ? UrnaPortal.exit("botao") : history.back());
+        document.getElementById("sair").onclick = () => (online ? UrnaPortal.exit("botao") : (location.href = "https://urna-mine-verine.wilianzilv.workers.dev/?hub=chuva-de-votos"));
 
         UrnaPortal.connect({ portalId: "chuva-de-votos" }).then((s) => {
+            if (!s) return void (hud.dataset.off = "1");
             online = true;
             me = { ...me, ...s.player };
             UrnaPortal.event("chat", "entrei na Chuva de Votos!");
-        }).catch(() => { hud.dataset.off = "1"; });
+        });
 
         function frame(now) {
             const dt = Math.min(0.05, (now - last) / 1000);

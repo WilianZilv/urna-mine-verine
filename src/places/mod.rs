@@ -184,6 +184,8 @@ pub struct Screen {
     rt: Option<RenderTarget>,
     last: f32,
     key: u64,
+    warming: bool,
+    warmed: bool,
 }
 
 impl Default for Screen {
@@ -194,12 +196,17 @@ impl Default for Screen {
 
 impl Screen {
     pub fn new() -> Self {
-        Screen { rt: None, last: -100.0, key: u64::MAX }
+        Screen { rt: None, last: -100.0, key: u64::MAX, warming: false, warmed: false }
     }
 
     /// Prepara a câmera na render target se precisar repintar. `key` = hash do conteúdo; `animated` repinta
     /// mesmo sem mudar (no intervalo da qualidade). Retorna true: pinte em (0,0)-(TW,TH) e chame `end`.
     pub fn begin(&mut self, time: f32, eye: Vec3, g: &Geo, key: u64, animated: bool) -> bool {
+        self.begin_with(time, eye, g, animated, || key)
+    }
+
+    /// `begin` com a chave calculada só quando a tela está perto, de frente e no intervalo de repintar.
+    pub fn begin_with(&mut self, time: f32, eye: Vec3, g: &Geo, animated: bool, key: impl FnOnce() -> u64) -> bool {
         let d = eye.distance(g.c);
         if d > 220.0 {
             self.rt = None;
@@ -210,9 +217,22 @@ impl Screen {
         }
         let (every, res) = crate::quality::pick([(1.0, 0.25), (0.25, 0.5), (0.1, 0.5)]);
         let fresh = self.rt.as_ref().is_some_and(|rt| rt.texture.width() == TW * res);
-        if fresh && ((time - self.last < every && time >= self.last) || (!animated && key == self.key)) {
+        if fresh && time - self.last < every && time >= self.last {
             return false;
         }
+        let key = key();
+        if fresh && !animated && key == self.key {
+            return false;
+        }
+        // Conteúdo novo: um passe descartado antes, pra fonte cachear os glifos. Se o atlas da fonte crescer, o
+        // macroquad apaga a textura velha na hora e os glifos já enfileirados bindariam uma textura apagada.
+        if (!fresh || key != self.key) && !self.warmed {
+            let mut gl = unsafe { get_internal_gl() };
+            gl.flush();
+            self.warming = true;
+            return true;
+        }
+        self.warmed = false;
         if !fresh {
             self.rt = None;
         }
@@ -233,7 +253,12 @@ impl Screen {
         true
     }
 
-    pub fn end(&self) {
+    pub fn end(&mut self) {
+        if std::mem::take(&mut self.warming) {
+            unsafe { get_internal_gl() }.quad_gl.clear_draw_calls();
+            self.warmed = true;
+            return;
+        }
         set_default_camera();
         if let Some(rt) = &self.rt {
             crate::lab::panel::mipmaps(rt);
@@ -250,17 +275,24 @@ impl Screen {
         let col = Color::new(1.0, 1.0, 1.0, if glitch { 0.7 } else { 0.95 });
         let c = g.c + g.n * 0.05;
         let (r, u) = (g.right() * g.w * 0.5, Vec3::Y * g.h * 0.5);
-        draw_mesh(&Mesh {
-            vertices: vec![
+        quad(
+            &rt.texture,
+            [
                 Vertex::new2(c - r + u, vec2(0.0, 1.0), col),
                 Vertex::new2(c + r + u, vec2(1.0, 1.0), col),
                 Vertex::new2(c + r - u, vec2(1.0, 0.0), col),
                 Vertex::new2(c - r - u, vec2(0.0, 0.0), col),
             ],
-            indices: vec![0, 1, 2, 0, 2, 3],
-            texture: Some(rt.texture.clone()),
-        });
+        );
     }
+}
+
+/// Quad texturizado sem as alocações do draw_mesh.
+pub fn quad(tex: &Texture2D, v: [Vertex; 4]) {
+    let gl = unsafe { get_internal_gl() }.quad_gl;
+    gl.texture(Some(tex));
+    gl.draw_mode(DrawMode::Triangles);
+    gl.geometry(&v, &[0, 1, 2, 0, 2, 3]);
 }
 
 /// Hash barato pra chave de conteúdo da tela.

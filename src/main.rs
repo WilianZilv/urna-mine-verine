@@ -31,6 +31,7 @@ mod synth;
 mod telao;
 mod urna;
 mod voador;
+mod kaiju;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod world;
@@ -430,6 +431,7 @@ async fn main() {
     let (mut villagers, mut fighters) = spawn_actors();
     let mut npcs = npc::Npcs::new(villagers.len(), guests.len(), extras::ROBOTS);
     let mut voador = voador::Voador::new();
+    let mut kaiju = kaiju::Kaiju::new(audio.rate);
     let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
     let mut recent_hits: Vec<(u8, usize, f32)> = Vec::new();
@@ -582,6 +584,8 @@ async fn main() {
                         } else if m["by"] == voador::BY {
                             voador.on_shot(&plan, time, &mut fx);
                             play_at(&audio, &sfx.laser, plan.o, eye, 1.0, muted, in_club);
+                        } else if m["by"] == kaiju::BY {
+                            kaiju.on_shot(&plan, &mut fx);
                         }
                         match shot {
                             Shot::Deflected(p) => {
@@ -597,10 +601,10 @@ async fn main() {
                                     actors::blast_fighters(&mut fighters, p, r, time, &mut events);
                                     actors::blast_villagers(&mut villagers, p, r);
                                     let by_player = !m["by"].is_null();
-                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, time) {
+                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time) {
                                         let reach = r * 1.8 + rad * 0.5;
                                         let d = c.distance(p);
-                                        if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player) {
+                                        if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player && g != npc::KAIJU) || (g == npc::KAIJU && m["by"] == kaiju::BY) {
                                             continue;
                                         }
                                         let k = 1.0 - d / reach;
@@ -730,6 +734,7 @@ async fn main() {
                     time_offset = if (target - time_offset).abs() > 1.0 { target } else { time_offset + (target - time_offset) * 0.1 };
                     mp::apply_snapshot(&m, &mut urna, &mut fighters, &mut villagers, &mut fpos, &mut vpos, &mut events);
                     npcs.apply(&m["n"]);
+                    kaiju.apply(&m["kj"]);
                     mods.apply(&m["md"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
@@ -1164,7 +1169,7 @@ async fn main() {
         };
         let pick = if ch == 0 { world.raycast(eye, fw, 6.0) } else { None };
 
-        let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, time);
+        let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
         if let Some(b) = bandido.as_mut() {
             let mut outs = Vec::new();
             if b.driving {
@@ -1254,6 +1259,7 @@ async fn main() {
                         npc::URNA => 5000,
                         npc::EU => 2000,
                         npc::VOADOR => 2500,
+                        npc::KAIJU => 4000,
                         npc::GUARD => 1000,
                         npc::FIGHTER => 500,
                         _ => 100,
@@ -1343,8 +1349,12 @@ async fn main() {
             let shot_target = {
                 let fs = &fighters;
                 let vs = &villagers;
+                let rival = kaiju.lure(urna.root, &npcs);
                 urna.update(&world, dt, || {
                     let roll = gen_range(0.0, 1.0);
+                    if let Some(k) = rival.filter(|_| roll < 0.5) {
+                        return k;
+                    }
                     let active: Vec<Vec3> = fs.iter().filter(|f| f.active()).map(|f| f.pos + vec3(0.0, 0.9, 0.0)).collect();
                     if roll < 0.35 && !active.is_empty() {
                         active[gen_range(0, active.len())]
@@ -1370,6 +1380,11 @@ async fn main() {
                 v["by"] = json!(voador::BY);
                 send(v, &mut loopback);
             }
+            for plan in kaiju.think(&world, dt, time, &urna, &npcs, &targets, &fighters, &villagers, &mut events) {
+                let mut v = mp::shot(&plan);
+                v["by"] = json!(kaiju::BY);
+                send(v, &mut loopback);
+            }
         } else {
             let k = (dt * 12.0).min(1.0);
             for (f, &p) in fighters.iter_mut().zip(&fpos) {
@@ -1386,6 +1401,10 @@ async fn main() {
                 fx.shake = fx.shake.max((1.0 - d / 45.0).max(0.0) * 0.5);
             }
             play_at(&audio, &sfx.boom, urna.root, eye, 0.35, muted, in_club);
+        }
+        kaiju.animate(&world, dt, time, npcs.kaiju(), eye, in_club, &mut fx);
+        for (c, p, v) in kaiju.sfx.drain(..) {
+            play_at(&audio, &c, p, eye, v, muted, in_club);
         }
         for r in remotes.values_mut() {
             let moved = r.pos.distance(r.target);
@@ -1464,6 +1483,7 @@ async fn main() {
             if is_host {
                 let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
                 s["n"] = npcs.snapshot();
+                s["kj"] = kaiju.snapshot();
                 s["md"] = mods.snapshot();
                 net.send(s.to_string());
                 ev_out.clear();
@@ -1623,6 +1643,7 @@ async fn main() {
         let eu_dead = (!npcs.eu().alive()).then(|| npcs.eu().t);
         extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash, ai_say.as_ref().map(|s| s.0.as_str()), eu_dead);
         voador.draw(&mut opaque, &mut trans, &world, time, dt, &mut labels, npcs.voador());
+        kaiju.draw(&mut opaque, &mut trans, &world, &mut labels, time, npcs.kaiju());
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
@@ -1710,7 +1731,7 @@ async fn main() {
         }
         // Barras de chefão: urna (e eu, se apanhar)
         let mut boss_y = 70.0;
-        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false), ("BOLSONARO VOADOR", npcs.voador(), voador::pos(time).distance(eye) < 60.0)] {
+        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false), ("BOLSONARO VOADOR", npcs.voador(), voador::pos(time).distance(eye) < 60.0), ("GODZILHA", npcs.kaiju(), kaiju.root.distance(eye) < 80.0)] {
             if !(near || d.hp < d.max) {
                 continue;
             }
@@ -1982,7 +2003,7 @@ fn rgb_green() -> Color {
 
 /// Todo NPC vivo que dá pra acertar: (centro, raio, índice, grupo).
 #[allow(clippy::too_many_arguments)]
-fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::Guest], npcs: &npc::Npcs, urna: &Urna, mods: &mods::Mods, time: f32) -> Vec<gta::Target> {
+fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::Guest], npcs: &npc::Npcs, urna: &Urna, mods: &mods::Mods, kaiju: &kaiju::Kaiju, time: f32) -> Vec<gta::Target> {
     let up = Vec3::Y;
     let mut t: Vec<gta::Target> = fighters.iter().enumerate().filter(|(_, f)| f.active()).map(|(i, f)| (f.pos + up, 0.8, i, npc::FIGHTER)).collect();
     t.extend(villagers.iter().enumerate().filter(|(i, _)| npcs.alive(npc::VILLAGER, *i)).map(|(i, v)| (v.pos + up * 0.9, 0.7, i, npc::VILLAGER)));
@@ -2001,6 +2022,7 @@ fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::G
         let (c, r) = lab::guard_target(time);
         t.push((c, r, 0, npc::GUARD));
     }
+    t.extend(kaiju.targets(npcs));
     t.extend(mods.targets(npcs));
     t
 }
@@ -2027,6 +2049,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::URNA => ("URNA DESTRUIDA!!!", ORANGE),
         npc::VOADOR => ("MITO ABATIDO!!!", ORANGE),
         npc::GUARD => ("SINAPSE-9 DESLIGOU!", ORANGE),
+        npc::KAIJU => ("GODZILHA ABATIDO!!!", ORANGE),
         npc::MODS => ("MOD ABATIDO!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };

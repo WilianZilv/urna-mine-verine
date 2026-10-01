@@ -254,6 +254,11 @@ Wolverine é diferente.
 - Falas satíricas ("TALKEY?", "ESSA URNA AI NAO E AUDITAVEL!"). Matável: 900 HP, barra de
   chefão por perto, despenca e volta em 60s (+$2500 pro bandido que derrubar).
 
+### GODZILHA (kaiju rival da urna, `src/kaiju.rs`)
+- Paródia blocky do tamanho da urna: pisa (tremor), ruge, dá rabada e solta o **bafo atômico azul**
+  (placas acendem do rabo pra cabeça) que quebra bloco (`shot` com `by: 9`). Caça a urna (ela revida),
+  às vezes jogadores/NPCs/voador; não entra no escudo do clube nem no domo do lab. 1500 HP, volta em 90s (+$4000).
+
 ---
 
 ## Sistema de combate

@@ -118,7 +118,12 @@ pub fn spawn_villagers() -> Vec<Villager> {
     dj.arms_up = false;
     vs.push(dj);
     for i in 0..28 {
-        let pos = vec3(gen_range(FLOOR_X0 as f32 + 0.8, FLOOR_X1 as f32 - 0.8), g, gen_range(FLOOR_Z0 as f32 + 0.8, FLOOR_Z1 as f32 - 0.8));
+        let mut pos = vec3(gen_range(FLOOR_X0 as f32 + 0.8, FLOOR_X1 as f32 - 0.8), g, gen_range(FLOOR_Z0 as f32 + 0.8, FLOOR_Z1 as f32 - 0.8));
+        // Palco do Vorcaro livre (o dançarino vagueia 1.5 em volta de casa)
+        let d = vec3(pos.x - VORCARO_SPOT.x, 0.0, pos.z - VORCARO_SPOT.z);
+        if d.length() < 3.5 {
+            pos = vec3(VORCARO_SPOT.x, g, VORCARO_SPOT.z) + d.normalize_or(vec3(1.0, 0.0, 0.0)) * 3.5;
+        }
         vs.push(mk(pos, VKind::Dancer, i, i % FLAG_TEXTS.len()));
     }
     for i in 0..12 {
@@ -266,13 +271,42 @@ pub fn spawn_guests() -> Vec<Guest> {
         .map(|(i, (name, look))| Guest { name, look, pos: layout::club(vec3(17.2, g, 57.5 + i as f32 * 1.6)), yaw: FRAC_PI_2, phase: i as f32 * 1.7 })
         .collect();
     let casual = |shirt: Color, pants: Color, hair: Color| Look { skin, hair, shirt, pants, shoes: black, beard: None, glasses: false, wolverine: false, toga: false };
-    out.push(Guest { name: "VORCARO", look: casual(rgb(0.1, 0.13, 0.3), black, dark), pos: layout::club(vec3(11.6, g + 1.0, 61.3)), yaw: FRAC_PI_2, phase: 0.4 });
+    let navy = rgb(0.12, 0.18, 0.46);
+    let vorcaro = Look { skin: rgb(0.8, 0.56, 0.38), hair: rgb(0.04, 0.035, 0.03), shirt: navy, pants: navy, shoes: rgb(0.28, 0.14, 0.06), beard: None, glasses: false, wolverine: false, toga: false };
+    out.push(Guest { name: VORCARO, look: vorcaro, pos: VORCARO_SPOT, yaw: FRAC_PI_2, phase: 0.4 });
     out.push(Guest { name: "LULINHA", look: casual(rgb(0.55, 0.75, 0.95), rgb(0.85, 0.8, 0.7), dark), pos: layout::club(vec3(11.6, g + 1.0, 67.7)), yaw: FRAC_PI_2, phase: 2.2 });
     out
 }
 
+pub const VORCARO: &str = "VORCARO";
+/// Centro do palco: na pista, em frente à cabine do DJ.
+pub const VORCARO_SPOT: Vec3 = layout::club(vec3(19.5, G as f32, 64.0));
+pub const VORCARO_FALAS: [&str; 6] = [
+    "CDB A 140% DO CDI, QUEM QUER?",
+    "RELAXA, O FGC GARANTE!",
+    "ESSA RODADA E POR CONTA DO BANCO!",
+    "LIQUIDEZ? SO AQUI NA PISTA!",
+    "TA TUDO NO BALANCO... ACHO",
+    "DJ, SOLTA O GRAVE QUE EU SOLTO O CREDITO!",
+];
+
 pub fn guest_pose(g: &Guest, beat: f32) -> Pose {
     let s = (beat * PI + g.phase).sin();
+    if g.name == VORCARO {
+        let pump = (beat * PI).sin();
+        let mut p = Pose { bounce: pump.abs() * 0.3, nod: (beat * 2.0 * PI).sin() * 0.3, lean: pump * 0.08, ..Default::default() };
+        if (beat as i32 / 4) % 2 == 0 {
+            p.arm_l = -2.7 + pump * 0.6;
+            p.arm_r = -2.7 - pump * 0.6;
+            p.arm_l_out = 0.4;
+            p.arm_r_out = 0.4;
+        } else {
+            p.arm_r = -1.6 + pump.abs() * 0.5;
+            p.arm_l = -0.4;
+            p.arm_l_out = 0.9;
+        }
+        return p;
+    }
     let mut p = Pose { bounce: (beat * PI).sin().abs() * 0.15, nod: (beat * 2.0 * PI).sin() * 0.2, arm_l_out: 0.3, arm_r_out: 0.3, ..Default::default() };
     if (g.phase as i32) % 2 == 0 {
         p.arm_l = -2.6 + s * 0.4;

@@ -49,7 +49,7 @@ use batch::Batch;
 use extras::Label;
 use macroquad::prelude::*;
 use macroquad::rand::gen_range;
-use models::{Look, Pose, draw_flag, draw_humanoid, draw_villager, rgb, root};
+use models::{Look, Pose, draw_banker_extras, draw_flag, draw_humanoid, draw_villager, rgb, root};
 use player::Player;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -402,6 +402,8 @@ async fn main() {
     let mut lab_info = lab::LabInfo::new();
     let mut hub = hub::Hub::new();
     let mut club_k = 0.0f32;
+    let mut vibe = club::Vibe::new();
+    let mut vibe_t = 0.0f32;
     // Celular
     #[cfg(target_arch = "wasm32")]
     let mut mobile = unsafe { web::urna_is_touch() } != 0;
@@ -1602,6 +1604,14 @@ async fn main() {
 
         // Volume da música pela distância do clube
         telao.update();
+        vibe_t -= dt;
+        if vibe_t <= 0.0 {
+            vibe_t = quality::pick([0.25, 0.1, 0.1]);
+            if let Some(px) = telao.sample() {
+                vibe.sample(&px);
+            }
+        }
+        vibe.update(telao.live, dt);
         let target_vol = if muted { 0.0 } else { 0.25 + 0.75 * (1.0 - (eye.distance(shield_center()) - 10.0) / 90.0).clamp(0.0, 1.0) };
         audio.set_volume(house, if telao.live { 0.0 } else { target_vol * 0.6 });
         telao.set_volume(target_vol);
@@ -1609,7 +1619,9 @@ async fn main() {
         // ------------------------------------------------ Render 3D
         club_k += ((in_club as i32 as f32) - club_k) * (dt * 2.0).min(1.0);
         let day = 1.0 - club_k * 0.9;
-        let sky = Color::new(0.53 * day + 0.06 * club_k, 0.75 * day, 1.0 * day + 0.1 * club_k, 1.0);
+        let (va, vk) = (vibe.pal[3], vibe.k);
+        let night = vec3(0.06 + (va.r * 0.2 - 0.06) * vk, va.g * 0.2 * vk, 0.1 + (va.b * 0.2 - 0.1) * vk) * club_k;
+        let sky = Color::new(0.53 * day + night.x, 0.75 * day + night.y, 1.0 * day + night.z, 1.0);
         let sky = match ai_sky {
             Some((c, t)) => {
                 let k = t.min(1.0) * 0.8;
@@ -1662,7 +1674,7 @@ async fn main() {
         prof.mark(prof::WORLD);
 
         labels.clear();
-        club::draw(&mut opaque, &mut trans, time, beat);
+        club::draw(&mut opaque, &mut trans, time, beat, &vibe);
         relogio.draw(&mut opaque, time);
         let bf = beat.fract();
         for (i, v) in villagers.iter().enumerate() {
@@ -1699,15 +1711,35 @@ async fn main() {
         for (i, g) in guests.iter().enumerate() {
             let life = npcs.get(npc::GUEST, i).copied();
             if let Some(d) = life.filter(|d| !d.alive()) {
-                draw_humanoid(&mut opaque, &g.look, &actors::dead_pose(), &root(g.pos, g.yaw, d.lean(), 0.0));
+                let m = root(g.pos, g.yaw, d.lean(), 0.0);
+                draw_humanoid(&mut opaque, &g.look, &actors::dead_pose(), &m);
+                if g.name == actors::VORCARO {
+                    draw_banker_extras(&mut opaque, &g.look, &actors::dead_pose(), &m);
+                }
                 continue;
             }
             let mut pose = actors::guest_pose(g, beat);
             pose.flash = life.map(|d| d.flash).unwrap_or(0.0);
-            let m = root(g.pos, g.yaw, 0.0, pose.bounce);
+            let vip = g.name == actors::VORCARO;
+            let yaw = if vip { g.yaw + (beat * std::f32::consts::FRAC_PI_4).sin() * 0.7 } else { g.yaw };
+            let m = root(g.pos, yaw, pose.lean, pose.bounce);
+            let m = if vip { m * Mat4::from_scale(Vec3::splat(1.15)) } else { m };
             draw_humanoid(&mut opaque, &g.look, &pose, &m);
+            if vip {
+                draw_banker_extras(&mut opaque, &g.look, &pose, &m);
+                let v = vibe.light(Color::new(1.0, 0.9, 0.6, 1.0), 0);
+                let mut spot = Color::new(0.5 + v.r * 0.5, 0.5 + v.g * 0.5, 0.5 + v.b * 0.5, 1.0);
+                opaque.glow(&id, vec3(g.pos.x, G as f32 + 0.03, g.pos.z), vec3(2.2, 0.02, 2.2), spot);
+                spot.a = 0.14 + 0.08 * (1.0 - bf).powi(2);
+                trans.glow(&id, vec3(g.pos.x, G as f32 + 4.0, g.pos.z), vec3(1.6, 8.0, 1.6), spot);
+            }
             if g.pos.distance(eye) < 45.0 {
-                labels.push(Label { pos: g.pos + up * 2.2, text: g.name.to_string(), size: 18.0, color: Color::new(1.0, 0.85, 0.3, 1.0) });
+                let (size, h) = if vip { (24.0, 2.5) } else { (18.0, 2.2) };
+                labels.push(Label { pos: g.pos + up * h, text: g.name.to_string(), size, color: Color::new(1.0, 0.85, 0.3, 1.0) });
+                if vip && time % 9.0 < 4.5 {
+                    let fala = actors::VORCARO_FALAS[(time / 9.0) as usize % actors::VORCARO_FALAS.len()];
+                    labels.push(Label { pos: g.pos + up * 3.1, text: format!("\"{fala}\""), size: 22.0, color: WHITE });
+                }
             }
         }
         for r in remotes.values() {
@@ -1810,9 +1842,9 @@ async fn main() {
         if club_k > 0.01 {
             let (w, h) = (screen_width(), screen_height());
             let pulse = (1.0 - beat.fract()).powi(3);
-            let c = club::hsv(beat * 0.125, 0.85, 1.0);
-            draw_rectangle(0.0, 0.0, w, h, Color::new(0.05, 0.0, 0.12, 0.5 * club_k));
-            draw_rectangle(0.0, 0.0, w, h, Color::new(c.r, c.g, c.b, 0.12 * pulse * club_k));
+            let c = vibe.light(club::hsv(beat * 0.125, 0.85, 1.0), beat.floor().max(0.0) as usize);
+            draw_rectangle(0.0, 0.0, w, h, Color::new(night.x, night.y, night.z + 0.02 * club_k, 0.5 * club_k));
+            draw_rectangle(0.0, 0.0, w, h, Color::new(c.r, c.g, c.b, (0.12 + 0.06 * vibe.k) * pulse * club_k));
         }
         labels.push(Label { pos: layout::club(vec3(36.5, G as f32 + 8.2, 64.5)), text: "CLUB DO HOUSE - SO CURTINDO".into(), size: 30.0, color: Color::new(1.0, 0.4, 0.9, 1.0) });
         layout::labels(&mut labels, eye);

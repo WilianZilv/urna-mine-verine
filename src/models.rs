@@ -151,6 +151,27 @@ pub fn draw_humanoid(b: &mut Batch, look: &Look, p: &Pose, root: &Mat4) {
     b.cube(&m, vec3(0.0, 1.8 * U, fz + 0.45 * U), vec3(3.0 * U, 0.6 * U, 0.2 * U), rgb(0.45, 0.15, 0.15));
 }
 
+/// Banqueiro da balada: terno aberto sem gravata, cordão e relógio de ouro, óculos escuros, gel no cabelo.
+pub fn draw_banker_extras(b: &mut Batch, look: &Look, p: &Pose, root: &Mat4) {
+    let c = |col: Color| tint(col, p);
+    let gold = rgb(1.0, 0.8, 0.2);
+    let lapel = rgb(0.03, 0.05, 0.14);
+    b.cube(root, vec3(0.0, 20.5 * U, 2.05 * U), vec3(2.6 * U, 5.0 * U, 0.15 * U), c(WHITE));
+    b.cube(root, vec3(0.0, 22.6 * U, 2.12 * U), vec3(1.4 * U, 1.6 * U, 0.15 * U), c(look.skin));
+    for side in [1.0f32, -1.0] {
+        b.cube(root, vec3(side * 1.75 * U, 19.5 * U, 2.1 * U), vec3(0.9 * U, 7.0 * U, 0.15 * U), c(lapel));
+    }
+    b.glow(root, vec3(0.0, 21.9 * U, 2.2 * U), vec3(2.2 * U, 0.45 * U, 0.1 * U), gold);
+    b.glow(root, vec3(0.0, 21.1 * U, 2.22 * U), vec3(0.9 * U, 0.9 * U, 0.1 * U), gold);
+    let arm = *root * t(6.0 * U, 22.0 * U, 0.0) * Mat4::from_rotation_x(p.arm_l) * Mat4::from_rotation_z(p.arm_l_out);
+    b.glow(&arm, vec3(0.0, -8.6 * U, 0.0), vec3(4.35 * U, 1.1 * U, 4.35 * U), gold);
+    let m = *root * t(0.0, 24.0 * U, 0.0) * Mat4::from_rotation_x(p.nod);
+    let fz = 4.0 * U;
+    b.cube(&m, vec3(0.0, 4.0 * U, fz + 0.4 * U), vec3(7.4 * U, 2.2 * U, 0.2 * U), rgb(0.02, 0.02, 0.03));
+    b.glow(&m, vec3(2.6 * U, 4.6 * U, fz + 0.52 * U), vec3(0.8 * U, 0.4 * U, 0.05 * U), gold);
+    b.cube(&m, vec3(0.0, 8.38 * U, 0.6 * U), vec3(6.0 * U, 0.2 * U, 6.6 * U), c(rgb(0.2, 0.2, 0.25)));
+}
+
 #[derive(Clone, Copy)]
 pub struct VLook {
     pub robe: Color,

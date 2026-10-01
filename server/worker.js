@@ -17,6 +17,7 @@ export default {
         if (doc) return doc;
         if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname.startsWith("/api/portals") || url.pathname === "/api/passport" || url.pathname.startsWith("/api/universe")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
+        if (url.pathname.startsWith("/api/ytthumb/")) return ytThumb(url);
         if (url.pathname === "/ws") {
             if (req.headers.get("Upgrade") !== "websocket") return new Response("use websocket", { status: 426 });
             return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
@@ -24,6 +25,15 @@ export default {
         return env.ASSETS.fetch(req);
     },
 };
+
+// Proxy de miniatura do YouTube (só i.ytimg.com, só id/nome válidos) pro cliente ler as cores do vídeo.
+async function ytThumb(url) {
+    const m = url.pathname.match(/^\/api\/ytthumb\/([\w-]{11})\/(hqdefault|mqdefault|[123])$/);
+    if (!m) return new Response("bad thumb", { status: 400 });
+    const r = await fetch(`https://i.ytimg.com/vi/${m[1]}/${m[2]}.jpg`, { cf: { cacheEverything: true, cacheTtl: 86400 } });
+    if (!r.ok) return new Response("no thumb", { status: 404 });
+    return new Response(r.body, { headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=86400", "access-control-allow-origin": "*" } });
+}
 
 // Mensagem WebSocket do Cloudflare tem limite de 1 MiB (o log vai inteiro no "welcome").
 const MAX_LOG = 6000;

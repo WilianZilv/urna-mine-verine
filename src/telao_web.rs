@@ -37,6 +37,13 @@ impl Telao {
         }
     }
 
+    /// Amostra 8x8 das cores do vídeo (iframe não deixa ler pixel: o JS mistura as miniaturas do YouTube pela posição do vídeo).
+    pub fn sample(&mut self) -> Option<Vec<[u8; 3]>> {
+        let mut buf = [0u8; 192];
+        let n = unsafe { urna_yt_colors(buf.as_mut_ptr(), buf.len()) };
+        (n == 192).then(|| buf.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect())
+    }
+
     /// Cantos do telão na tela (topo-esq, topo-dir, baixo-dir, baixo-esq).
     pub fn place(&self, corners: Option<[Vec2; 4]>) {
         let c = corners.unwrap_or([Vec2::ZERO; 4]);

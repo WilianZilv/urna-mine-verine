@@ -35,6 +35,7 @@ pub struct Telao {
     sb: Arc<StreamBuf>,
     rate: u32,
     channels: usize,
+    small: Option<Vec<[u8; 3]>>,
 }
 
 fn color_bars() -> Vec<u8> {
@@ -156,7 +157,7 @@ impl Telao {
         let tex = Texture2D::from_rgba8(VW as u16, VH as u16, &color_bars());
         tex.set_filter(FilterMode::Linear);
         let (msg_tx, msg_rx) = mpsc::channel();
-        Telao { tex, status: "SEM SINAL".into(), title: String::new(), live: false, source: String::new(), frames: None, msg_rx, msg_tx, shown: 0, sb, rate, channels }
+        Telao { tex, status: "SEM SINAL".into(), title: String::new(), live: false, source: String::new(), frames: None, msg_rx, msg_tx, shown: 0, sb, rate, channels, small: None }
     }
 
     /// Troca a fonte: link do YouTube (ou qualquer URL suportada pelo yt-dlp) ou caminho de arquivo.
@@ -210,6 +211,16 @@ impl Telao {
         }
         if let Some(f) = latest {
             self.tex.update_from_bytes(VW as u32, VH as u32, &f);
+            let px = (0..64).map(|k| {
+                let i = ((VH / 16 + (k / 8) * VH / 8) * VW + VW / 16 + (k % 8) * VW / 8) * 4;
+                [f[i], f[i + 1], f[i + 2]]
+            });
+            self.small = Some(px.collect());
         }
+    }
+
+    /// Amostra 8x8 do último quadro novo (pras luzes do clube).
+    pub fn sample(&mut self) -> Option<Vec<[u8; 3]>> {
+        self.small.take()
     }
 }

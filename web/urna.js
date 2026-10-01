@@ -43,7 +43,43 @@
     function ytLoad(id) {
         if (!id) return;
         pendingId = id;
+        loadThumbs(id);
         if (ytReady) player.loadVideoById(id);
+    }
+    // Cores do vídeo pras luzes do clube: o iframe é de outra origem (pixel ilegível), então mistura as
+    // miniaturas do YouTube (capa + quadros a 25/50/75%) pela posição do player. Passam pelo proxy /api/ytthumb.
+    const thumbCtx = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }).getContext("2d", { willReadFrequently: true });
+    let thumbs = [], thumbId = null;
+    function loadThumbs(id) {
+        if (id === thumbId) return;
+        thumbId = id;
+        thumbs = [];
+        ["hqdefault", "1", "2", "3"].forEach((n, k) => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+                if (thumbId !== id) return;
+                try {
+                    const h = img.height * 0.75; // corta as tarjas pretas (16:9 dentro do 4:3)
+                    thumbCtx.drawImage(img, 0, (img.height - h) / 2, img.width, h, 0, 0, 8, 8);
+                    const d = thumbCtx.getImageData(0, 0, 8, 8).data, rgb = new Uint8Array(192);
+                    for (let i = 0; i < 64; i++) rgb.set(d.subarray(i * 4, i * 4 + 3), i * 3);
+                    thumbs[k] = rgb;
+                } catch (e) { }
+            };
+            img.onerror = () => { if (thumbId === id && !img.src.includes("ytimg")) img.src = `https://i.ytimg.com/vi/${id}/${n}.jpg`; };
+            img.src = `/api/ytthumb/${id}/${n}`;
+        });
+    }
+    function ytColors() {
+        const first = thumbs.find((t) => t);
+        if (ytState !== 1 || !first) return null;
+        const dur = player.getDuration() || 0;
+        const pos = dur > 0 ? ((player.getCurrentTime() / dur) % 1) * 4 : 0;
+        const a = Math.floor(pos) % 4, t = pos - Math.floor(pos);
+        const A = thumbs[a] || first, B = thumbs[(a + 1) % 4] || first, out = new Uint8Array(192);
+        for (let i = 0; i < 192; i++) out[i] = A[i] + (B[i] - A[i]) * t;
+        return out;
     }
     window.onYouTubeIframeAPIReady = function () {
         player = new YT.Player("yt", {
@@ -160,6 +196,7 @@
                     if (r > 0) titleSent = ytTitle;
                     return r;
                 },
+                urna_yt_colors: (p, cap) => { const c = ytColors(); return c ? put(c, p, cap) : 0; },
                 urna_yt_place: (x0, y0, x1, y1, x2, y2, x3, y3, visible, vol) => {
                     const wrap = document.getElementById("ytwrap");
                     if (visible) {

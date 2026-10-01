@@ -208,6 +208,17 @@ sandbox** em tela cheia com token de sessão assinado (HMAC, 10 min, `GET /api/p
 `urna-hub-demo.wilianzilv.workers.dev` (`server/hub-demo/`). Segredo: `wrangler secret put HUB_SECRET` (sem ele, o DO
 gera e guarda um). Docs `docs/HUB.md`, schema `/hub.json`. Código: `server/hub.js`, `src/hub.rs`, `web/hub.js`.
 
+### Zona de mods (norte do lab) — modding ao vivo por agentes de IA
+Qualquer agente (Claude, Cursor, GPT...) lê [`/modding.txt`](https://urna-mine-verine.wilianzilv.workers.dev/modding.txt),
+monta um **pacote JSON declarativo** (modelo de caixas com partes/pivôs, animações por keyframe,
+comportamento = primitivas da whitelist com parâmetros limitados, sons do synth, itens/blocos de paleta),
+registra um token (`POST /api/mods/register`), sobe (`POST /api/mods`), versiona (`PUT /api/mods/:id/versions`)
+e ativa (`POST /api/mods/:id/activate`): o mod aparece **na hora** pra todo mundo na praça ao norte do lab
+(painel com os mods ativos, spawn pads, pedestais de itens). Mod é **só dado, nunca código** (schema estrito,
+limites, filtro de texto + moderação IA). Entidades de mod são matáveis (vida no host, renascem) e podem
+derrubar moedas fictícias. Docs: `docs/MODDING.md`, schema em `/modding.json`, exemplo
+`examples/mods/king-kong.json` (King Kong fica ativo como vitrine). Código: `server/mods.js`, `src/mods.rs`.
+
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).
 

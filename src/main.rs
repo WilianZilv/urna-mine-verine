@@ -16,6 +16,7 @@ mod inventory;
 mod items;
 mod lab;
 mod models;
+mod mods;
 mod mp;
 mod npc;
 #[cfg_attr(target_arch = "wasm32", path = "net_web.rs")]
@@ -295,7 +296,7 @@ fn apply_world(world: &mut World, m: &Value, fx: &mut Fx, avg: &[Color]) -> Opti
             Some((plan, s))
         }
         "reset" => {
-            *world = World::generate();
+            *world = mods::generate();
             None
         }
         "ai" => {
@@ -354,7 +355,7 @@ async fn main() {
     }
 
     let atlas = atlas::build();
-    let mut world = World::generate();
+    let mut world = mods::generate();
     let mut chunks = build_all(&mut world, &atlas.tex);
 
     // Áudio: house sintetizado de fallback até o telão (YouTube) começar a tocar
@@ -405,6 +406,7 @@ async fn main() {
     let mut ai_rage = 0.0f32;
     let mut ai_sky: Option<(Color, f32)> = None;
     let mut eco = economy::Economy::new();
+    let mut mods = mods::Mods::new(sr);
 
     // Rede
     let mut net = net::Net::connect(url.as_deref().unwrap_or(""));
@@ -505,7 +507,7 @@ async fn main() {
                             remotes.insert(pid, Remote { name: p[1].as_str().unwrap_or("?").into(), pos: Vec3::ZERO, target: Vec3::ZERO, yaw: 0.0, walk: 0.0, look: remote_look(pid), ch: 0 });
                         }
                     }
-                    world = World::generate();
+                    world = mods::generate();
                     let mut scratch = Fx::default();
                     portals.clear();
                     for w in m["log"].as_array().into_iter().flatten() {
@@ -595,7 +597,7 @@ async fn main() {
                                     actors::blast_fighters(&mut fighters, p, r, time, &mut events);
                                     actors::blast_villagers(&mut villagers, p, r);
                                     let by_player = !m["by"].is_null();
-                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, time) {
+                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, time) {
                                         let reach = r * 1.8 + rad * 0.5;
                                         let d = c.distance(p);
                                         if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player) {
@@ -728,9 +730,11 @@ async fn main() {
                     time_offset = if (target - time_offset).abs() > 1.0 { target } else { time_offset + (target - time_offset) * 0.1 };
                     mp::apply_snapshot(&m, &mut urna, &mut fighters, &mut villagers, &mut fpos, &mut vpos, &mut events);
                     npcs.apply(&m["n"]);
+                    mods.apply(&m["md"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
+                "mod" | "mods" => mods.on_msg(&m),
                 "hub" | "hub_s" => hub.on_msg(&m),
                 _ => {}
             }
@@ -1160,7 +1164,7 @@ async fn main() {
         };
         let pick = if ch == 0 { world.raycast(eye, fw, 6.0) } else { None };
 
-        let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, time);
+        let targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, time);
         if let Some(b) = bandido.as_mut() {
             let mut outs = Vec::new();
             if b.driving {
@@ -1310,6 +1314,20 @@ async fn main() {
                 _ => {}
             }
         }
+        let (mod_hurt, mod_shake) = mods.update(&world, dt, time, is_host, &mut npcs, player.pos, &others);
+        if mod_hurt > 0.0 {
+            steve.hurt(mod_hurt);
+            if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
+                b.hurt(mod_hurt * 3.0);
+            }
+        }
+        fx.shake = fx.shake.max(mod_shake);
+        for (c, p) in mods.sfx.drain(..) {
+            play_at(&audio, &c, p, eye, 1.0, muted, in_club);
+        }
+        for v in mods.outbox.drain(..) {
+            send(v, &mut loopback);
+        }
         if urna.dead && npcs.urna().alive() && !is_host {
             urna.pos.y += 30.0;
         }
@@ -1446,6 +1464,7 @@ async fn main() {
             if is_host {
                 let mut s = mp::snapshot(time, &urna, &fighters, &villagers, &ev_out);
                 s["n"] = npcs.snapshot();
+                s["md"] = mods.snapshot();
                 net.send(s.to_string());
                 ev_out.clear();
             }
@@ -1606,6 +1625,7 @@ async fn main() {
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
         lab::draw(&mut opaque, &mut trans, &mut labels, time, eye, &lab_info, Some(npcs.guard()));
+        mods.draw(&mut opaque, &mut trans, &mut labels, time, eye, &npcs);
         hub.draw(&mut opaque, &mut trans, &mut labels, time, eye);
         eco.draw_world(&mut opaque, &mut labels, eye, time);
         steve.draw_world(&mut opaque, time, eye, fw, ch == 0, player.sel, remotes.iter().map(|(id, r)| (*id, r.pos, r.yaw, r.ch)), &atlas.avg);
@@ -1679,7 +1699,7 @@ async fn main() {
                 draw_rectangle(s.x - w * 0.5, s.y, w * k, 6.0, Color::new(1.0 - k, k, 0.1, 1.0));
             }
         }
-        for &(c, r, i, g) in targets.iter().filter(|t| matches!(t.3, npc::VILLAGER | npc::GUEST | npc::ROBOT)) {
+        for &(c, r, i, g) in targets.iter().filter(|t| matches!(t.3, npc::VILLAGER | npc::GUEST | npc::ROBOT | npc::MODS)) {
             let Some(d) = npcs.get(g, i).filter(|d| d.hp < d.max) else { continue };
             if let Some(s) = project(&vp, c + up * (r + 0.5)) {
                 let k = d.hp / d.max;
@@ -1960,7 +1980,8 @@ fn rgb_green() -> Color {
 }
 
 /// Todo NPC vivo que dá pra acertar: (centro, raio, índice, grupo).
-fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::Guest], npcs: &npc::Npcs, urna: &Urna, time: f32) -> Vec<gta::Target> {
+#[allow(clippy::too_many_arguments)]
+fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::Guest], npcs: &npc::Npcs, urna: &Urna, mods: &mods::Mods, time: f32) -> Vec<gta::Target> {
     let up = Vec3::Y;
     let mut t: Vec<gta::Target> = fighters.iter().enumerate().filter(|(_, f)| f.active()).map(|(i, f)| (f.pos + up, 0.8, i, npc::FIGHTER)).collect();
     t.extend(villagers.iter().enumerate().filter(|(i, _)| npcs.alive(npc::VILLAGER, *i)).map(|(i, v)| (v.pos + up * 0.9, 0.7, i, npc::VILLAGER)));
@@ -1979,6 +2000,7 @@ fn npc_targets(fighters: &[Fighter], villagers: &[Villager], guests: &[actors::G
         let (c, r) = lab::guard_target(time);
         t.push((c, r, 0, npc::GUARD));
     }
+    t.extend(mods.targets(npcs));
     t
 }
 
@@ -2004,6 +2026,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::URNA => ("URNA DESTRUIDA!!!", ORANGE),
         npc::VOADOR => ("MITO ABATIDO!!!", ORANGE),
         npc::GUARD => ("SINAPSE-9 DESLIGOU!", ORANGE),
+        npc::MODS => ("MOD ABATIDO!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
     events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });

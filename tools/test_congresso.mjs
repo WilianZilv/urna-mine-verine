@@ -1,6 +1,6 @@
 // Teste do Congresso sem worker: node tools/test_congresso.mjs
 import assert from "node:assert/strict";
-import { Congresso, ON_MS, REC_MS, isoWeek, weekEnd } from "../server/congresso.js";
+import { Congresso, ON_MS, REC_MS, ROADMAP, isoWeek, monthEnd, monthKey, weekEnd } from "../server/congresso.js";
 
 let T = 1_000_000;
 const names = ["ana"];
@@ -146,6 +146,93 @@ assert.equal(weekEnd(Date.UTC(2026, 9, 1, 15)), Date.UTC(2026, 9, 5));
     mc.command(0, ana, "concurso", []);
     assert.ok(msgs.at(-1).includes("nenhum mod ativo"));
     console.log("ok: concurso", msgs.length, "falas");
+}
+
+// ------------------------------------------------ O ROADMAP VIRA LEI
+assert.equal(monthKey(Date.UTC(2026, 9, 31, 23)), "2026-10");
+assert.equal(monthEnd(Date.UTC(2026, 11, 15)), Date.UTC(2027, 0, 1));
+{
+    let M = Date.UTC(2026, 9, 1, 12);
+    const mods = [];
+    const msgs = [], snaps = [];
+    let saves = 0;
+    const rroom = { send: (c, m) => snaps.push(m), broadcast: (m) => snaps.push(m), mods: { list: (k) => mods.filter((a) => (a.kind || "npc") === k) } };
+    const rpl = { room: rroom, online: () => ["ana"], say: (f, m) => msgs.push(m), priv: (c, f, m) => msgs.push(m), save: () => saves++ };
+    const st = {};
+    const rc = new Congresso(rpl, st);
+    rc.now = () => M;
+    const rm = () => snaps.filter((m) => m.k === "lei").at(-1).rm;
+    const v = (id) => st.rm.items.find((x) => x.id === id).v;
+
+    assert.ok(ROADMAP.length >= 6 && ROADMAP.length <= 8);
+    assert.ok(ROADMAP.every((r) => /^[\x20-\x7e]+$/.test(r.t + r.d) && r.t.length <= 28));
+    assert.equal(rc.command(0, ana, "roadmap", []), true);
+    assert.ok(msgs.some((m) => m.startsWith("1: PERF MOBILE 2")));
+    assert.equal(st.rm.items.length, ROADMAP.length);
+    assert.equal(st.rm.month, "2026-10");
+
+    // votar, repetir, trocar
+    rc.command(0, ana, "proposta", ["3"]);
+    assert.ok(msgs.at(-1).startsWith("voto registrado: SHARDS"));
+    assert.equal(v("shards"), 1);
+    assert.equal(rm().vc, 1);
+    assert.equal(saves > 0, true, "persistido");
+    rc.command(0, { name: "ANA" }, "proposta", ["shards"]);
+    assert.ok(msgs.at(-1).includes("ja vota"));
+    assert.equal(rm().vc, 1, "repetir nao conta evento");
+    rc.command(0, ana, "proposta", ["cidade-irma", "em", "ingles"]);
+    assert.ok(msgs.at(-1).startsWith("voto trocado: CIDADE-IRMA"));
+    assert.equal(v("shards"), 0);
+    assert.equal(v("irma"), 1);
+    assert.equal(st.rmv.ana, "irma");
+    rc.command(0, bia, "proposta", ["99"]);
+    assert.ok(msgs.at(-1).includes("nao existe"));
+    rc.command(0, bia, "proposta", ["agen"]);
+    assert.equal(v("agentes"), 1);
+
+    // conselho de criadores: mod ativo (qualquer tipo) = voto 2x, recalcula quando o mod sai
+    mods.push({ id: "kk", creator: "Caio", kind: "avatar" });
+    rc.command(0, caio, "proposta", ["agentes"]);
+    assert.ok(msgs.at(-1).includes("vale 2"));
+    assert.equal(v("agentes"), 3);
+    assert.deepEqual(rm().items.slice(5, 7).map((x) => [x.id, x.v]), [["irma", 1], ["agentes", 3]]);
+    mods.length = 0;
+    rc.tick(M, true);
+    assert.equal(v("agentes"), 2);
+    assert.equal(rm().items.find((x) => x.id === "agentes").v, 2, "tick reenvia snapshot");
+    mods.push({ id: "kk", creator: "Caio" });
+    rc.tick(M, true);
+    assert.equal(v("agentes"), 3);
+
+    // votos de leis contam evento por lei
+    rc.command(0, ana, "lei", ["turbo"]);
+    assert.equal(snaps.filter((m) => m.k === "lei").at(-1).laws.find((l) => l.id === "turbo").vc, 1);
+
+    // virada de mes: vencedor pro historico, votos zeram
+    M = Date.UTC(2026, 10, 1, 0, 0, 10);
+    rc.tick(M, true);
+    assert.ok(msgs.some((m) => m.includes("AGENTES RESIDENTES foi o mais votado de 2026-10 (3 voto(s))")));
+    assert.deepEqual(st.rm.winners[0], { month: "2026-10", id: "agentes", t: "AGENTES RESIDENTES", v: 3 });
+    assert.equal(st.rm.month, "2026-11");
+    assert.deepEqual(st.rmv, {});
+    assert.ok(st.rm.items.every((x) => x.v === 0));
+    assert.equal(rm().month, "2026-11");
+    assert.ok(rm().left > 29 * 86400);
+    // mes sem voto nao gera vencedor; historico max 12
+    M = Date.UTC(2026, 11, 1, 1);
+    rc.tick(M, false);
+    assert.equal(st.rm.winners.length, 1);
+    for (let k = 0; k < 14; k++) {
+        rc.command(0, ana, "proposta", ["1"]);
+        M = Date.UTC(2027, k, 1, 1);
+        rc.tick(M, true);
+    }
+    assert.equal(st.rm.winners.length, 12);
+    assert.equal(st.rm.winners[0].id, "perf");
+    // estado persistido volta igual
+    const rc2 = new Congresso(rpl, JSON.parse(JSON.stringify(st)));
+    assert.equal(rc2.s.rm.winners.length, 12);
+    console.log("ok: roadmap", msgs.length, "falas");
 }
 
 console.log("ok: congresso", chat.length, "falas,", sent.length, "snapshots");

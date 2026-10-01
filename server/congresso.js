@@ -39,6 +39,28 @@ export const weekEnd = (t) => {
     const d = new Date(t);
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7) + 7);
 };
+/// Mes UTC de `t`: "2026-10".
+export const monthKey = (t) => new Date(t).toISOString().slice(0, 7);
+/// Dia 1 do mes seguinte, 00:00 UTC.
+export const monthEnd = (t) => {
+    const d = new Date(t);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+};
+
+// O ROADMAP VIRA LEI: itens abertos de docs/ROADMAP.md que a vila prioriza (ids estaveis: o voto guarda o id).
+export const ROADMAP = [
+    { id: "perf", t: "PERF MOBILE 2", d: "vila lisinha ate no celular da tia" },
+    { id: "escola", t: "ESCOLA DE AGENTES", d: "predio que ensina IA a fazer mod" },
+    { id: "shards", t: "SHARDS: VARIAS VILAS", d: "varias vilas com o mesmo mapa e voo entre elas" },
+    { id: "indie", t: "PARCERIAS COM DEVS INDIE", d: "jogo indie vira portao fixo no Terminal" },
+    { id: "aovivo", t: "EVENTOS AO VIVO NA TV", d: "eleicao simulada e final da arena na TV URNA NEWS" },
+    { id: "irma", t: "CIDADE-IRMA EM INGLES", d: "cada pais faz a sua urna" },
+    { id: "agentes", t: "AGENTES RESIDENTES", d: "IAs de terceiros morando na vila" },
+    { id: "carimbos", t: "CARIMBOS DOS JOGOS DO HUB", d: "passaporte carimba jogo do Hub tambem" },
+];
+const RM_HIST = 12;
+const MOD_KINDS = ["npc", "avatar", "item"];
+
 const asc = (s, n) => txt(String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, ""), n).trim();
 
 export const findLaw = (s) => {
@@ -56,8 +78,14 @@ export class Congresso {
         s.passed ??= 0;
         s.mc ??= { week: isoWeek(this.now()), votes: {} };
         s.mds ??= { week: "", winner: null, at: 0, hist: [] };
+        s.rmv ??= {};
+        s.rm ??= { items: [], month: monthKey(this.now()), winners: [] };
+        // Contador de votos (leis + roadmap) desde o boot: o cliente anima o plenario pela diferenca entre snapshots
+        this.ev = { law: Object.fromEntries(LAWS.map((l) => [l.id, 0])), rm: 0 };
         this.lastQ = 0;
         this.lastMc = "";
+        this.tally();
+        this.lastRm = this.rmKey();
     }
 
     now() {
@@ -88,9 +116,93 @@ export class Congresso {
             const st = this.law(l.id);
             const a = Math.max(0, (st.until - now) / 1000);
             const cd = a > 0 ? 0 : Math.max(0, (st.rec - now) / 1000);
-            return { id: l.id, n: l.n, d: l.d, v: this.count(l.id, on), on: Math.round(a), cd: Math.round(cd) };
+            return { id: l.id, n: l.n, d: l.d, v: this.count(l.id, on), on: Math.round(a), cd: Math.round(cd), vc: this.ev.law[l.id] };
         });
-        return { t: "pl", k: "lei", laws, q: this.quorum(on), last: this.s.last, passed: this.s.passed, mds: this.mdsSnap(now) };
+        return { t: "pl", k: "lei", laws, q: this.quorum(on), last: this.s.last, passed: this.s.passed, mds: this.mdsSnap(now), rm: this.rmSnap(now) };
+    }
+
+    // ------------------------------------------------ O ROADMAP VIRA LEI
+    /// Nomes (normalizados) de quem tem mod ativo: conselho de criadores, voto vale 2.
+    creators() {
+        const mods = this.pl.room.mods;
+        return new Set(MOD_KINDS.flatMap((k) => mods?.list?.(k) || []).map((a) => norm(a.creator)).filter(Boolean));
+    }
+
+    /// Recalcula this.s.rm.items (estado publico: outros modulos leem daqui).
+    tally(cr = this.creators()) {
+        const v = {};
+        for (const [who, id] of Object.entries(this.s.rmv)) v[id] = (v[id] || 0) + (cr.has(who) ? 2 : 1);
+        this.s.rm.items = ROADMAP.map((r) => ({ id: r.id, t: r.t, v: v[r.id] || 0 }));
+        return this.s.rm.items;
+    }
+
+    /// Do mais votado pro menos (empate: ordem da lista).
+    rmRank() {
+        return this.s.rm.items.map((x, i) => ({ ...x, i: i + 1 })).sort((a, b) => b.v - a.v || a.i - b.i);
+    }
+
+    rmKey() {
+        return JSON.stringify([this.s.rm.month, this.s.rm.items.map((x) => x.v)]);
+    }
+
+    /// Virada de mes: o mais votado entra pro historico e os votos zeram. true = virou.
+    rmRoll(now = this.now()) {
+        const mk = monthKey(now);
+        const rm = this.s.rm;
+        if (rm.month === mk) return false;
+        this.tally();
+        const top = this.rmRank()[0];
+        if (top?.v > 0) {
+            rm.winners = [{ month: rm.month, id: top.id, t: top.t, v: top.v }, ...rm.winners].slice(0, RM_HIST);
+            this.pl.say("CONGRESSO", `O ROADMAP VIRA LEI: ${top.t} foi o mais votado de ${rm.month} (${top.v} voto(s)) e vira prioridade dos devs`);
+        }
+        this.s.rmv = {};
+        rm.month = mk;
+        this.tally();
+        this.save();
+        return true;
+    }
+
+    rmSnap(now = this.now()) {
+        const rm = this.s.rm;
+        return { items: rm.items, month: rm.month, left: Math.max(0, Math.round((monthEnd(now) - now) / 1000)), winners: rm.winners.slice(0, 4), vc: this.ev.rm };
+    }
+
+    findItem(s) {
+        const k = norm(s);
+        if (!k) return undefined;
+        if (/^\d{1,2}$/.test(k)) return ROADMAP[parseInt(k, 10) - 1];
+        return ROADMAP.find((r) => r.id === k || norm(r.t) === k) || (k.length >= 3 ? ROADMAP.find((r) => r.id.startsWith(k) || norm(r.t).startsWith(k)) : undefined);
+    }
+
+    roadmap(c) {
+        this.rmRoll();
+        const cr = this.creators();
+        const it = this.tally(cr);
+        const who = norm(c.name);
+        const w = this.s.rm.winners[0];
+        if (w) this.pl.priv(c, "ROADMAP", `prioridade de ${w.month}: ${w.t} (${w.v} voto(s))`);
+        this.pl.priv(c, "ROADMAP", `O ROADMAP VIRA LEI (${this.s.rm.month}): /proposta numero ou id. 1 voto, pode trocar, zera todo mes${cr.has(who) ? ". voce e do conselho de criadores: seu voto vale 2" : ". criador de mod ativo vale 2"}`);
+        const mine = this.s.rmv[who];
+        ROADMAP.forEach((r, i) => this.pl.priv(c, "ROADMAP", `${i + 1}: ${r.t} - ${r.d} - ${it[i].v} voto(s)${r.id === mine ? " [SEU VOTO]" : ""}`));
+    }
+
+    propose(c, s) {
+        this.rmRoll();
+        const r = this.findItem(s);
+        if (!r) return this.pl.priv(c, "ROADMAP", "proposta nao existe. /roadmap pra ver a lista numerada"), null;
+        const who = norm(c.name);
+        const old = this.s.rmv[who];
+        if (old === r.id) return this.pl.priv(c, "ROADMAP", `voce ja vota em ${r.t}. os devs ja anotaram (talvez)`), r;
+        this.s.rmv[who] = r.id;
+        const cr = this.creators();
+        const v = this.tally(cr).find((x) => x.id === r.id).v;
+        this.ev.rm++;
+        this.lastRm = this.rmKey();
+        this.pl.priv(c, "ROADMAP", `${old ? "voto trocado" : "voto registrado"}: ${r.t} (${v} voto(s))${cr.has(who) ? " - voto de criador vale 2" : ""}`);
+        this.save();
+        this.send();
+        return r;
     }
 
     // ------------------------------------------------ CONCURSO SEMANAL DE MODS
@@ -201,6 +313,7 @@ export class Congresso {
             this.pl.priv(c, "CONGRESSO", `voce ja votou em ${l.n}. voto de cabresto nao conta duas vezes`);
         } else {
             this.s.votes[who] = l.id;
+            this.ev.law[l.id]++;
             this.pl.priv(c, "CONGRESSO", `voto registrado: ${l.n} (${this.count(l.id)}/${this.quorum()})`);
         }
         this.check(l);
@@ -250,6 +363,8 @@ export class Congresso {
     }
 
     command(id, c, head, args) {
+        if (head === "roadmap" || (head === "proposta" && !args.length)) return this.roadmap(c), true;
+        if (head === "proposta") return this.propose(c, args.join(" ")), true;
         if (head === "concurso" || (head === "votarmod" && !args.length)) return this.contest(c), true;
         if (head === "votarmod") return this.voteMod(c, args.join(" ")), true;
         if (head === "leis" || (head === "lei" && !args.length)) return this.list(c), true;
@@ -269,7 +384,8 @@ export class Congresso {
     }
 
     tick(now, online) {
-        const rolled = this.rollover(now);
+        const rolledMc = this.rollover(now);
+        const rolled = this.rmRoll(now) || rolledMc;
         let changed = false;
         for (const l of LAWS) {
             const st = this.law(l.id);
@@ -291,9 +407,13 @@ export class Congresso {
         if (changed) this.save();
         // Mod ativado/desativado muda os candidatos sem passar por voto
         const mc = JSON.stringify(this.standings().slice(0, 3).map((x) => [x.id, x.vo]));
-        if (changed || busy || rolled || q !== this.lastQ || mc !== this.lastMc) this.send();
+        // Mod ativado/desativado tambem muda quem e do conselho (peso 2)
+        this.tally();
+        const rk = this.rmKey();
+        if (changed || busy || rolled || q !== this.lastQ || mc !== this.lastMc || rk !== this.lastRm) this.send();
         this.lastQ = q;
         this.lastMc = mc;
+        this.lastRm = rk;
     }
 
     priceFactor() {

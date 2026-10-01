@@ -89,6 +89,26 @@ struct Contest {
     hist: Vec<(String, Entry)>,
 }
 
+/// O ROADMAP VIRA LEI (rm no snapshot "lei"): itens na ordem do servidor (o número do /proposta).
+#[derive(Default)]
+struct Roadmap {
+    items: Vec<(String, u32)>,
+    month: String,
+    /// Segundos até a virada do mês, na hora do snapshot.
+    left: f32,
+    /// (mês, item, votos), mais recente primeiro.
+    winners: Vec<(String, String, u32)>,
+}
+
+impl Roadmap {
+    /// (posição 1-based, título, votos) do mais votado pro menos (empate: ordem da lista).
+    fn rank(&self) -> Vec<(usize, &str, u32)> {
+        let mut r: Vec<_> = self.items.iter().enumerate().map(|(i, (t, v))| (i + 1, t.as_str(), *v)).collect();
+        r.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        r
+    }
+}
+
 #[derive(Default, Clone, Copy)]
 struct Vote {
     v: u32,
@@ -119,11 +139,99 @@ pub struct Congresso {
     mds: Contest,
     /// Confete sobre o troféu quando o líder da semana muda.
     trophy_burst: f64,
+    rm: Roadmap,
+    /// Contadores de voto do servidor (por lei / roadmap): a diferença entre snapshots vira animação.
+    vc: [u32; 5],
+    rm_vc: u32,
+    /// (get_time, púlpito; None = voto do roadmap, acende todos) nos últimos ACT_S segundos.
+    act: Vec<(f64, Option<usize>)>,
+    /// Urninhas voando até o painel: (início, origem, cor).
+    ballots: Vec<(f64, Vec3, Color)>,
 }
+
+const ACT_S: f64 = 120.0;
+const FLY_S: f32 = 1.8;
+/// Banner PRIORIDADE DO POVO sobre o teto (acima das torres, y = G + 22).
+const BANNER: Vec3 = vec3(59.5, G as f32 + 31.0, 98.5);
 
 impl Congresso {
     pub fn new() -> Self {
-        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE, mds: Contest::default(), trophy_burst: -100.0 }
+        Congresso { st: [Vote::default(); 5], q: 1, passed: 0, last: String::new(), got: false, live: false, recv: 0.0, flash_at: -100.0, pad: None, hold: 0.0, sent: None, cool: 0.0, screen: Screen::new(), pulse: [-100.0; 5], burst: -100.0, burst_col: WHITE, mds: Contest::default(), trophy_burst: -100.0, rm: Roadmap::default(), vc: [0; 5], rm_vc: 0, act: Vec::new(), ballots: Vec::new() }
+    }
+
+    /// Registra `n` votos novos (snapshot diff): atividade do púlpito + urninha voando pro painel.
+    fn voted(&mut self, pad: Option<usize>, n: u32) {
+        let now = get_time();
+        let (from, col) = match pad {
+            Some(i) => (vec3(PADS[i].0 as f32 + 0.5, G as f32 + 1.2, PADS[i].1 as f32 + 0.5), LAWS[i].3),
+            None => (vec3(85.5, G as f32 + 1.2, PZ), PINK),
+        };
+        for k in 0..n.min(4) {
+            self.act.push((now, pad));
+            self.ballots.push((now + k as f64 * 0.25, from, col));
+        }
+        let cut = self.ballots.len().saturating_sub(16);
+        self.ballots.drain(..cut);
+    }
+
+    /// Calor do púlpito i em [0,1]: votos dos últimos 2 min, os mais novos pesam mais.
+    fn heat(&self, i: usize) -> f32 {
+        let now = get_time();
+        let h: f32 = self.act.iter().filter(|a| a.1.is_none_or(|p| p == i)).map(|a| (1.0 - (now - a.0) / ACT_S).max(0.0) as f32 * if a.1.is_some() { 0.35 } else { 0.15 }).sum();
+        h.min(1.0)
+    }
+
+    fn fly(&self, b: &mut Batch, time: f32, eye: Vec3) {
+        let to = vec3(PX + 0.8, PY, PZ);
+        if self.ballots.is_empty() || eye.distance(to) > 130.0 {
+            return;
+        }
+        let now = get_time();
+        for &(t0, from, col) in &self.ballots {
+            let t = (now - t0) as f32 / FLY_S;
+            if !(0.0..1.0).contains(&t) {
+                continue;
+            }
+            let at = |t: f32| from.lerp(to, t) + vec3(0.0, 6.0 * 4.0 * t * (1.0 - t), 0.0);
+            let p = at(t);
+            let m = Mat4::from_translation(p) * Mat4::from_rotation_y(time * 4.0) * Mat4::from_rotation_z((time * 3.0).sin() * 0.3);
+            b.cube(&m, Vec3::ZERO, vec3(0.7, 0.55, 0.5), rgb(0.92, 0.92, 0.95));
+            b.glow(&m, vec3(0.0, 0.28, 0.0), vec3(0.4, 0.04, 0.08), Color::new(0.05, 0.05, 0.07, 1.0));
+            b.glow(&m, vec3(0.0, 0.0, 0.26), vec3(0.5, 0.12, 0.02), col);
+            b.glow(&m, vec3(0.0, 0.45 + (time * 8.0).sin().abs() * 0.15, 0.0), vec3(0.3, 0.2, 0.03), WHITE);
+            for k in 1..=crate::quality::pick([2u32, 4, 6]) {
+                let s = 0.22 * (1.0 - k as f32 / 7.0);
+                b.glow(&Mat4::IDENTITY, at((t - k as f32 * 0.035).max(0.0)), Vec3::splat(s), col);
+            }
+        }
+    }
+
+    /// Banner holográfico girando sobre o teto com o item do roadmap mais votado.
+    fn banner(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+        let d = eye.distance(BANNER);
+        let Some(&(_, t, _)) = self.rm.rank().first().filter(|x| x.2 > 0 && self.got && self.live) else { return };
+        if d > 125.0 {
+            return;
+        }
+        let c = BANNER + vec3(0.0, (time * 0.9).sin() * 0.6, 0.0);
+        let m = Mat4::from_translation(c) * Mat4::from_rotation_y(time * 0.5);
+        let (w, h) = (24.0, 4.5);
+        let flick = 0.8 + 0.2 * (time * 7.0).sin() * (time * 2.3).sin();
+        let gold = Color::new(GOLD.r * flick, GOLD.g * flick, GOLD.b * flick, 1.0);
+        trans.glow(&m, Vec3::ZERO, vec3(w, h, 0.1), Color::new(1.0, 0.4, 0.8, 0.18));
+        for s in [-1.0f32, 1.0] {
+            b.glow(&m, vec3(0.0, s * h * 0.5, 0.0), vec3(w + 0.4, 0.3, 0.3), gold);
+            b.glow(&m, vec3(s * w * 0.5, 0.0, 0.0), vec3(0.3, h, 0.3), gold);
+        }
+        let scan = ((time * 0.8).fract() - 0.5) * h;
+        b.glow(&m, vec3(0.0, scan, 0.0), vec3(w - 0.4, 0.08, 0.14), CYAN);
+        let ring = crate::quality::pick([0, 10, 18]);
+        for r in 0..ring {
+            let a = r as f32 / ring as f32 * TAU - time * 1.1;
+            b.glow(&Mat4::IDENTITY, c + vec3(a.cos() * 14.0, -3.5 + (a * 2.0 + time * 2.0).sin() * 0.4, a.sin() * 14.0), Vec3::splat(0.5), PINK);
+        }
+        let pos = eye + (c - eye) * (40.0 / d.max(0.1)).min(1.0);
+        labels.push(Label { pos, text: format!("PRIORIDADE DO POVO: {t}"), size: 34.0, color: GOLD });
     }
 
     /// Troféu holográfico dourado girando num pedestal na entrada (MOD DA SEMANA).
@@ -183,9 +291,50 @@ impl Congresso {
         }
     }
 
-    /// Página do painel: 0 = leis, 1 = concurso de mods (alterna a cada 12 s).
+    /// Página do painel: 0 = leis, 1 = concurso de mods, 2 = roadmap (alterna a cada 12 s).
     fn page(&self, time: f32) -> u32 {
-        if self.got && self.live { (time / 12.0) as u32 % 2 } else { 0 }
+        if self.got && self.live { (time / 12.0) as u32 % 3 } else { 0 }
+    }
+
+    fn paint_roadmap(&self, time: f32) {
+        let r = &self.rm;
+        draw_text("O ROADMAP VIRA LEI", 40.0, 92.0, 84.0, PINK);
+        let s = (r.left - (get_time() - self.recv) as f32).max(0.0) as i32;
+        let tot: u32 = r.items.iter().map(|x| x.1).sum();
+        text_right(&format!("MES {}  -  FALTAM {} DIA(S) {}H", r.month, s / 86400, s % 86400 / 3600), TW - 40.0, 70.0, 44.0, CYAN);
+        text_right(&format!("{tot} voto(s)  -  criador de mod ativo vale 2x"), TW - 40.0, 108.0, 30.0, SOFT);
+        draw_rectangle(40.0, 126.0, TW - 80.0, 4.0, Color::new(1.0, 0.4, 0.8, 0.7));
+
+        frame(40.0, 146.0, TW - 80.0, 610.0, "");
+        let (xb, bw) = (1060.0, 640.0);
+        let rank = r.rank();
+        let max = rank.first().map_or(0, |x| x.2).max(1);
+        for (j, &(i, t, v)) in rank.iter().take(5).enumerate() {
+            let y = 158.0 + j as f32 * 118.0;
+            let lead = j == 0 && v > 0;
+            let col = if lead { GOLD } else { CYAN };
+            draw_rectangle(56.0, y + 4.0, TW - 112.0, 108.0, Color::new(0.35, 0.08, 0.3, if lead { 0.5 } else { 0.22 }));
+            draw_rectangle(56.0, y + 4.0, 12.0, 108.0, col);
+            draw_text(&format!("{}.", j + 1), 90.0, y + 76.0, 72.0, col);
+            draw_text(&fit(t, xb - 230.0, 58.0), 180.0, y + 62.0, 58.0, if lead { GOLD } else { WHITE });
+            draw_text(&format!("/proposta {i}"), 180.0, y + 100.0, 30.0, SOFT);
+            let k = v as f32 / max as f32;
+            draw_rectangle(xb, y + 34.0, bw, 48.0, Color::new(1.0, 0.4, 0.8, 0.1));
+            draw_rectangle(xb, y + 34.0, bw * k, 48.0, Color::new(col.r, col.g, col.b, 0.85));
+            draw_rectangle_lines(xb, y + 34.0, bw, 48.0, 2.0, DIM);
+            text_right(&format!("{v} voto(s)"), TW - 70.0, y + 76.0, 46.0, WHITE);
+        }
+
+        frame(40.0, 772.0, TW - 80.0, 170.0, "");
+        text_mid("MAIS VOTADO VIRA PRIORIDADE DOS DEVS", TW * 0.5, 846.0, 72.0, GOLD);
+        let sub = match r.winners.first() {
+            Some((m, t, v)) => format!("prioridade de {m}: {t} ({v} voto(s))"),
+            None => "primeiro vencedor sai na virada do mes (UTC). zera todo mes".into(),
+        };
+        text_mid(&fit(&sub, TW - 160.0, 40.0), TW * 0.5, 912.0, 40.0, SOFT);
+        draw_text("/roadmap   /proposta numero ou id", 40.0, 1000.0, 40.0, PINK);
+        text_right("1 voto por pessoa, pode trocar", TW - 40.0, 1000.0, 30.0, SOFT);
+        holo_fx(time, self.flash());
     }
 
     fn paint_mods(&self, time: f32) {
@@ -394,7 +543,17 @@ impl Place for Congresso {
                 (self.burst, self.burst_col) = (get_time(), LAWS[i].3);
             }
             self.st[i] = Vote { v: l["v"].as_u64().unwrap_or(0) as u32, on, cd: l["cd"].as_f64().unwrap_or(0.0) as f32 };
+            let vc = l["vc"].as_u64().unwrap_or(0) as u32;
+            if self.got && vc > self.vc[i] {
+                self.voted(Some(i), vc - self.vc[i]);
+            }
+            self.vc[i] = vc;
         }
+        let rvc = m["rm"]["vc"].as_u64().unwrap_or(0) as u32;
+        if self.got && rvc > self.rm_vc {
+            self.voted(None, rvc - self.rm_vc);
+        }
+        self.rm_vc = rvc;
         let passed = m["passed"].as_u64().unwrap_or(0) as u32;
         if self.got && passed > self.passed {
             self.flash_at = get_time();
@@ -418,11 +577,23 @@ impl Place for Congresso {
             winner: d["winner"].is_object().then(|| (super::s(&d["winner"]["week"]), Entry::from(&d["winner"]))),
             hist: arr("hist").iter().map(|h| (super::s(&h["week"]), Entry::from(h))).collect(),
         };
+        let r = &m["rm"];
+        let ra = |k: &str| r[k].as_array().cloned().unwrap_or_default();
+        let n = |v: &Value| v.as_u64().unwrap_or(0) as u32;
+        self.rm = Roadmap {
+            items: ra("items").iter().map(|x| (super::s(&x["t"]), n(&x["v"]))).collect(),
+            month: super::s(&r["month"]),
+            left: r["left"].as_f64().unwrap_or(0.0) as f32,
+            winners: ra("winners").iter().map(|w| (super::s(&w["month"]), super::s(&w["t"]), n(&w["v"]))).collect(),
+        };
     }
 
     fn update(&mut self, p: &mut Player, dt: f32, _time: f32, online: bool, out: &mut Vec<Value>) {
         self.live = online;
         self.cool = (self.cool - dt).max(0.0);
+        let now = get_time();
+        self.act.retain(|a| now - a.0 < ACT_S);
+        self.ballots.retain(|b| ((now - b.0) as f32) < FLY_S);
         let at = PADS.iter().position(|&(x, z)| p.on_ground && (p.pos.y - G as f32).abs() < 1.0 && (p.pos.x - x as f32 - 0.5).abs() < 1.5 && (p.pos.z - z as f32 - 0.5).abs() < 1.5);
         if at != self.pad {
             (self.pad, self.hold) = (at, 0.0);
@@ -442,10 +613,19 @@ impl Place for Congresso {
         let live = self.got && self.live;
         let page = self.page(time);
         let m = &self.mds;
-        let mins = if page == 1 { ((m.left - (get_time() - self.recv) as f32) / 60.0) as i32 } else { 0 };
+        let el = (get_time() - self.recv) as f32;
+        let mins = match page {
+            1 => ((m.left - el) / 60.0) as i32,
+            2 => ((self.rm.left - el) / 3600.0) as i32,
+            _ => 0,
+        };
         let mut key = format!("{live}|{}|{}|{}|{page}|{}|{}|{}|{mins}", self.q, self.passed, self.last, m.week, m.tot, m.n);
         for e in m.top.iter().chain(m.winner.iter().map(|w| &w.1)) {
             key += &format!("|{}:{}:{}", e.n, e.c, e.vo);
+        }
+        key += &format!("|{}", self.rm.month);
+        for (t, v) in self.rm.items.iter().map(|x| (&x.0, x.1)).chain(self.rm.winners.iter().take(1).map(|w| (&w.1, w.2))) {
+            key += &format!("|{t}:{v}");
         }
         let mut animated = self.flash() > 0.0;
         for i in 0..5 {
@@ -454,10 +634,10 @@ impl Place for Congresso {
             key += &format!("|{}:{}:{}", self.st[i].v, on > 0.0, cd > 0.0);
         }
         if self.screen.begin(time, eye, &geo(), hash_str(&key), animated || !live || (page == 1 && m.top.is_empty())) {
-            if page == 1 {
-                self.paint_mods(time);
-            } else {
-                self.paint(time);
+            match page {
+                1 => self.paint_mods(time),
+                2 => self.paint_roadmap(time),
+                _ => self.paint(time),
             }
             self.screen.end();
         }
@@ -467,6 +647,8 @@ impl Place for Congresso {
         self.emblems(b, labels, time, eye);
         self.confetti(b, eye);
         self.trophy(b, labels, time, eye);
+        self.banner(b, trans, labels, time, eye);
+        self.fly(b, time, eye);
         if eye.distance(center()) > 130.0 {
             return;
         }
@@ -481,7 +663,18 @@ impl Place for Congresso {
             let (on, cd) = if live { self.left(i) } else { (0.0, 0.0) };
             let pulse = 0.75 + 0.25 * (time * 3.0 + i as f32).sin();
             let k = if on > 0.0 { 1.0 } else if cd > 0.0 { 0.3 } else { pulse };
-            b.glow(&id, c + vec3(0.0, 0.03, 0.0), vec3(2.8, 0.06, 2.8), Color::new(col.r * k, col.g * k, col.b * k, 1.0));
+            let heat = self.heat(i);
+            let k = k + (1.0 - k) * heat;
+            let hot = |x: f32| (x * k + (1.0 - x) * heat * 0.45 * (0.8 + 0.2 * (time * 6.0 + i as f32).sin())).min(1.0);
+            b.glow(&id, c + vec3(0.0, 0.03, 0.0), vec3(2.8, 0.06, 2.8), Color::new(hot(col.r), hot(col.g), hot(col.b), 1.0));
+            if heat > 0.05 {
+                trans.glow(&id, c + vec3(0.0, 0.05, 0.0), vec3(3.6, 0.04, 3.6), Color::new(col.r, col.g, col.b, 0.35 * heat));
+                for s in 0..(crate::quality::pick([0.0f32, 4.0, 7.0]) * heat).ceil() as u32 {
+                    let a = s as f32 * 2.4 + i as f32;
+                    let y = ((time * 0.8 + s as f32 * 0.31).fract()) * 2.5;
+                    b.glow(&id, c + vec3(a.cos() * 1.2, 0.2 + y, a.sin() * 1.2), Vec3::splat(0.12 * (1.0 - y / 2.5)), col);
+                }
+            }
             let mine = self.sent == Some(i);
             if self.pad == Some(i) && self.hold > 0.0 && !mine {
                 let s = 2.6 * self.hold / HOLD;

@@ -1,6 +1,7 @@
 // Economia FICTICIA da vila (moedas de brinquedo: sem dinheiro real, sem cripto, sem doacao real).
 // Toda movimentacao de moeda e codigo deterministico aqui. A IA so sugere precos, missoes, aprovacoes
 // e o texto do "porque"; o servidor limita tudo e nunca deixa a IA criar moeda ou mexer em carteira.
+import { SPOTS, PLAZA, RING_R, ARENA, CLUB, LAB, PLACAR, blocked } from "./layout.js";
 
 const START = 100; // bonus fixo de conta nova (unica emissao de moeda que existe)
 const TREASURY0 = 1000;
@@ -24,7 +25,6 @@ const ITEMS = {
     raiva: { name: "Urna enfurecida 15s", base: 80 },
     wolverine: { name: "Wolverine cai do ceu", base: 120 },
 };
-const SPOTS = { praca: [64, 64], clube: [22, 64], lab: [103, 64], torre: [64, 105] };
 const MISSIONS = { quebrar: [5, 60], construir: [5, 60], acertar: [3, 30], visitar: [1, 1] };
 const EVENTS = { fogos: 60, ceu: 30 };
 
@@ -42,18 +42,7 @@ const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const BANNED = /(r\$|reais|real money|dinheiro (de verdade|real)|\bpix\b|cripto|crypto|bitcoin|\bbtc\b|\beth\b|usdt|\bnft|api.?key|chave|senha|password|token|cartao|paypal|patreon|apoia.?se|doacao real|https?:|www\.|\.(com|net|org|br|io)\b|@)/;
 export const safe = (s) => !BANNED.test(norm(s));
 
-// Areas onde a IA nao constroi sozinha: praca, clube, lab, caminhos, casas, torre, placar, outdoors.
-const PROTECTED = [
-    [6, 38, 46, 82], [92, 114, 50, 78], [93, 113, 29, 49], [36, 52, 61, 66], [76, 100, 61, 66], [61, 66, 20, 52], [61, 66, 76, 108],
-    [90, 122, 80, 96],
-    [24, 104, 33, 38], [36, 44, 42, 50], [44, 52, 52, 60], [44, 52, 68, 76], [76, 84, 50, 58], [52, 60, 76, 84],
-    ...[[50, 30], [70, 30], [50, 90], [70, 90], [84, 44], [84, 78], [38, 28], [38, 92]].map(([x, z]) => [x - 1, x + 7, z - 1, z + 7]),
-];
-function blocked(lo, hi) {
-    const dx = Math.max(lo[0] - 64, 0, 64 - hi[0]), dz = Math.max(lo[2] - 64, 0, 64 - hi[2]);
-    if (dx * dx + dz * dz < 15 * 15) return true;
-    return PROTECTED.some(([x0, x1, z0, z1]) => lo[0] <= x1 && hi[0] >= x0 && lo[2] <= z1 && hi[2] >= z0);
-}
+// Areas onde a IA nao constroi sozinha: blocked() em server/layout.js (praca, anel, ruas, distritos, outdoors).
 const opBox = (o) => (o.op === "box" ? [o.a.map((v, i) => Math.min(v, o.b[i])), o.a.map((v, i) => Math.max(v, o.b[i]))] : [o.c.map((v) => v - o.r), o.c.map((v) => v + o.r)]);
 const opVol = (o) => (o.op === "box" ? (Math.abs(o.a[0] - o.b[0]) + 1) * (Math.abs(o.a[1] - o.b[1]) + 1) * (Math.abs(o.a[2] - o.b[2]) + 1) : o.op === "ball" ? 4.2 * o.r ** 3 : 0);
 const OP_COST = { fireworks: 10, rage: 30, wolverine: 50, boom: 10, sky: 5, banner: 5 };
@@ -236,7 +225,7 @@ export class Economy {
         this.s.sales[id] = (this.s.sales[id] || 0) + 1;
         this.entry(c.name, `comprou ${item.name}`, p, "venda da loja, preco definido pela IA");
         this.sendMe(c.name);
-        const [x, y, z] = Array.isArray(c.pos) ? c.pos.map((v) => Math.round(Number(v) || 0)) : [64, 20, 64];
+        const [x, y, z] = Array.isArray(c.pos) ? c.pos.map((v) => Math.round(Number(v) || 0)) : [PLAZA[0], 20, PLAZA[1]];
         const ops = {
             fogos: [{ op: "fireworks", seconds: 15 }, { op: "banner", text: `FOGOS PATROCINADOS POR ${c.name}` }],
             ceu: [{ op: "sky", color: [Math.random(), Math.random(), Math.random()], seconds: 30 }],
@@ -446,8 +435,8 @@ export class Economy {
             `1) prices (cada um entre metade e 1.5x do atual) e ad_price.\n` +
             `2) event (so com gente online): "nenhum", "fogos" (custa ${EVENTS.fogos}) ou "ceu" (${EVENTS.ceu}, com color [r,g,b] 0..1).\n` +
             `3) build (opcional): obra pequena tua apoiada no chao (comeca em y=20, minimo 10 blocos) {"what":"nome","ops":[...]} max 8 ops, ate ${left} blocos, custa 20 + 1 por 100 blocos do cofre (sempre sobra ${RESERVE}). ` +
-            `Chao plano y=20 dentro do raio 46 de (64,64). NAO construa: circulo raio 15 da praca, clube x6..38 z46..82, lab x92..114 z50..78, ` +
-            `caminhos (z61..66, x61..66), casas, placar z33..38. Continue projetos da memoria ou o voto mais pedido. ` +
+            `Chao plano y=20 entre os raios ${RING_R + 4} e 130 de (${PLAZA[0]},${PLAZA[1]}), nos espacos entre os distritos. NAO construa: praca raio 30, anel de rua raio ${RING_R}, ruas, ` +
+            `clube x${CLUB.x0}..${CLUB.x1} z${CLUB.z0}..${CLUB.z1}, distrito da ciencia x${LAB.panelX}..285 z105..212, arena x${ARENA.x0}..${ARENA.x1} z${ARENA.z0}..${ARENA.z1}, casas, torre, skate, placar z${PLACAR[1]}..${PLACAR[3]}. Continue projetos da memoria ou o voto mais pedido. ` +
             `Op: {"op":"box","from":[x,y,z],"to":[x,y,z],"block":"tijolo","hollow":true} ou {"op":"sphere","center":[x,y,z],"radius":3,"block":"vidro","hollow":true}. ` +
             `Blocos: grama terra pedra areia madeira tronco folha pedregulho vidro preto tijolo cascalho la neon.\n` +
             `4) needs: texto do TEU outdoor (ate 80 letras) pedindo coisas DO JOGO (moedas ficticias, jogadores, missoes, votos). Proibido pedir dinheiro real, pix, cripto, chave, senha, link.\n` +
@@ -492,8 +481,8 @@ export class Economy {
         let raw = out?.build?.ops;
         if (!out && Math.random() < 0.5) {
             for (let i = 0; i < 20 && !raw; i++) {
-                const a = Math.random() * Math.PI * 2, r = 18 + Math.random() * 26;
-                const x = Math.round(64 + Math.cos(a) * r), z = Math.round(64 + Math.sin(a) * r), h = 3 + Math.floor(Math.random() * 5);
+                const a = Math.random() * Math.PI * 2, r = 32 + Math.random() * 100;
+                const x = Math.round(PLAZA[0] + Math.cos(a) * r), z = Math.round(PLAZA[1] + Math.sin(a) * r), h = 3 + Math.floor(Math.random() * 5);
                 if (!blocked([x, 20, z], [x + 1, 20 + h, z + 1])) {
                     raw = [{ op: "box", from: [x, 20, z], to: [x + 1, 20 + h, z + 1], block: pick(["neon", "tijolo", "madeira", "vidro", "pedra", "la"]) }];
                     what = "totem (regra fixa, sem IA)";

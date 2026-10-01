@@ -8,6 +8,7 @@ import { Mods, docs, SITE } from "./mods.js";
 import { Hub } from "./hub.js";
 import { Universe } from "./universe.js";
 import { skill } from "./skill.js";
+import { WORLD, WORLD_VERSION, PLACES, onLandmarkBox, shielded } from "./layout.js";
 
 export default {
     async fetch(req, env) {
@@ -36,8 +37,7 @@ const BLOCK_BUDGET = 30000;
 
 const SYSTEM = `Voce e a IA guardia do jogo URNA-MINE-VERINE (clone de Minecraft, satira politica brasileira, zoeira).
 Jogadores mandam /comandos no chat e voce OBEDECE de forma criativa e exagerada, alterando o mundo com operacoes.
-MUNDO: voxels 128x48x128. x e z de 0 a 127, y de 0 a 47. O chao da vila e y=20 (primeira camada de ar; blocos em y<20 sao terreno).
-LUGARES: praca central da briga (64,20,64) com Lula, Flavio Bolsonaro, Renan Santos e Wolverine. Clube de house a oeste (x 8..36, z 48..80) protegido por escudo (centro 22,22,64 raio 22; explosoes nao afetam dentro). Laboratorio de robos a leste (x 94..112, z 52..76). Torre/spawn (64,30,105) ao sul. Placar das eleicoes ao norte da praca. Uma urna eletronica gigante anda pelo mapa atirando laser.
+${PLACES} Uma urna eletronica gigante anda pela arena atirando laser.
 BLOCOS: grama, terra, pedra, areia, madeira, tronco, folha, pedregulho, vidro, preto, tijolo, cascalho, la, neon, ar (ar apaga).
 OPERACOES (lista "ops", max 40):
 {"op":"box","from":[x,y,z],"to":[x,y,z],"block":"neon","hollow":false}  caixa cheia ou oca (paredes). Combine varias pra formar piramides, letras, predios, estatuas.
@@ -54,27 +54,18 @@ Limite total ~30000 blocos por comando. Se o jogador nao disser onde, construa p
 Nunca destrua o clube. Recuse discurso de odio/ofensa pesada com uma piada e sem ops. Sempre responda em portugues zoeiro.
 RESPONDA SO JSON: {"say":"frase curta (ate 140 letras) que a IA fala no jogo","ops":[...]}`;
 
-// Nenhuma obra da IA (pedido de jogador ou autonoma) cobre clube, lab+domo, zona de mods ou hub.
-const LANDMARKS = [[6, 38, 46, 82], [87, 120, 48, 81], [93, 113, 29, 49], [90, 122, 80, 96]];
+// Nenhuma obra da IA (pedido de jogador ou autonoma) cobre clube, lab+domo, zona de mods ou hub (server/layout.js).
 function onLandmark(o) {
     const [lo, hi] = o.op === "box" ? [o.a.map((v, i) => Math.min(v, o.b[i])), o.a.map((v, i) => Math.max(v, o.b[i]))] : o.op === "ball" || o.op === "boom" ? [o.c.map((v) => v - o.r), o.c.map((v) => v + o.r)] : [];
-    return !!lo && LANDMARKS.some(([x0, x1, z0, z1]) => lo[0] <= x1 && hi[0] >= x0 && lo[2] <= z1 && hi[2] >= z0);
+    return !!lo && onLandmarkBox(lo, hi);
 }
 const unguarded = (w) => ({ ...w, ops: (w.ops || []).filter((o) => !onLandmark(o)) });
 
-// Escudos de energia (igual src/shield.rs): domo do lab, domo do hub + piso do corredor. "set" dentro nunca entra no log.
-const G = 20;
-const DOMES = [[[103.5, G, 64.5], [16, 16, 16]], [[106.5, G, 88.5], [17, 11, 10]]];
-function shielded(p) {
-    if (!Array.isArray(p) || p.length < 3) return false;
-    const [x, y, z] = p.map(Number);
-    if (x >= 91 && x <= 121 && z >= 81 && z <= 95) return true;
-    return DOMES.some(([c, r]) => ((x + 0.5 - c[0]) / r[0]) ** 2 + (Math.max(0, y + 0.5 - c[1]) / r[1]) ** 2 + ((z + 0.5 - c[2]) / r[2]) ** 2 < 1);
-}
+// Escudos de energia: "set" dentro de domo (shielded, server/layout.js) nunca entra no log.
 const DOC_LINK = /^\/(hub|modding)(\.txt)?\s*$/i;
 
 const ci = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
-const pos3 = (a) => (Array.isArray(a) && a.length >= 3 ? [ci(a[0], 0, 127), ci(a[1], 1, 47), ci(a[2], 0, 127)] : null);
+const pos3 = (a) => (Array.isArray(a) && a.length >= 3 ? [ci(a[0], 0, WORLD - 1), ci(a[1], 1, 47), ci(a[2], 0, WORLD - 1)] : null);
 const block = (b) => BLOCKS[String(b ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")];
 
 function sanitize(ops) {
@@ -147,6 +138,8 @@ export class Room extends DurableObject {
         this.aiLog = [];
         this.aiSave = null;
         ctx.blockConcurrencyWhile(async () => {
+            // Planta nova: obras salvas com coordenadas antigas virariam blocos soltos no mapa novo.
+            if ((await ctx.storage.get("worldv")) !== WORLD_VERSION) await ctx.storage.put({ ailog: [], worldv: WORLD_VERSION });
             this.aiLog = ((await ctx.storage.get("ailog")) || []).map(unguarded);
             this.log = [...this.aiLog];
         });

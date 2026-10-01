@@ -9,6 +9,7 @@ import { Hub } from "./hub.js";
 import { Universe } from "./universe.js";
 import { Places } from "./places.js";
 import { skill } from "./skill.js";
+import { world } from "./embed.js";
 import { WORLD, WORLD_VERSION, PLACES, onLandmarkBox, shielded } from "./layout.js";
 
 export default {
@@ -17,7 +18,7 @@ export default {
         const doc = skill(url) || docs(url);
         if (doc) return doc;
         if (url.pathname === "/api/mods" || url.pathname.startsWith("/api/mods/")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
-        if (url.pathname.startsWith("/api/portals") || url.pathname === "/api/passport" || url.pathname.startsWith("/api/universe")) return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
+        if (url.pathname.startsWith("/api/portals") || url.pathname === "/api/passport" || url.pathname.startsWith("/api/universe") || url.pathname === "/api/world") return env.ROOM.get(env.ROOM.idFromName("vila")).fetch(req);
         if (url.pathname.startsWith("/api/ytthumb/")) return ytThumb(url);
         if (url.pathname === "/ws") {
             if (req.headers.get("Upgrade") !== "websocket") return new Response("use websocket", { status: 426 });
@@ -222,7 +223,9 @@ export class Room extends DurableObject {
     }
 
     async fetch(req) {
-        if (new URL(req.url).pathname.startsWith("/api/mods")) return this.mods.http(req);
+        const path = new URL(req.url).pathname;
+        if (path === "/api/world") return world(this, req);
+        if (path.startsWith("/api/mods")) return this.mods.http(req);
         const uni = await this.uni.route(req);
         if (uni) return uni;
         const hub = await this.hub.route(req);

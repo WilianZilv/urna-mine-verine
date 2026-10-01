@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>TV URNA NEWS - URNA-MINE-VERINE</title>
+<style>
+    :root { --bg: #0d0519; --panel: #1b0d33; --line: #3a1d66; --fg: #f3ecff; --dim: #8f7bb8; --accent: #00e5ff; --live: #ff2b4f; --crawl: #ffd23d; --glow: 0 0 6px; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.35 ui-monospace, Consolas, "Courier New", monospace; overflow: hidden; }
+    body { display: flex; flex-direction: column; border: 1px solid var(--line); }
+    header { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: var(--panel); border-bottom: 2px solid var(--accent); }
+    h1 { margin: 0; font-size: 15px; letter-spacing: 2px; color: var(--accent); text-shadow: var(--glow) var(--accent); }
+    #live { margin-left: auto; font-weight: bold; font-size: 11px; color: var(--live); }
+    #live::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; background: var(--live); animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    #urg { display: none; padding: 5px 10px; font-weight: bold; color: #fff; background: var(--live); }
+    #urg b { background: #fff; color: var(--live); padding: 0 4px; margin-right: 6px; }
+    main { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 8px 12px; gap: 6px; overflow: hidden; }
+    #hl { font-size: 17px; font-weight: bold; text-transform: uppercase; transition: opacity .4s; }
+    #n { color: var(--dim); font-size: 11px; }
+    #crawl { overflow: hidden; white-space: nowrap; background: var(--crawl); color: #120624; font-weight: bold; padding: 4px 0; }
+    #crawl span { display: inline-block; padding-left: 100%; animation: crawl 40s linear infinite; }
+    @keyframes crawl { to { transform: translateX(-100%); } }
+    footer { display: flex; justify-content: space-between; padding: 3px 10px; color: var(--dim); font-size: 11px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @media (prefers-reduced-motion: reduce) {
+        #live::before { animation: none; }
+        #hl { transition: none; }
+        #crawl span { display: block; animation: none; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; }
+    }
+</style>
+</head>
+<body>
+<header><h1>TV URNA NEWS</h1><span id="live">AO VIVO</span></header>
+<div id="urg"><b>PLANTAO</b><span id="urgtxt"></span></div>
+<main><div id="hl">sintonizando...</div><div id="n"></div></main>
+<div id="crawl"><span id="crawltxt">TV URNA NEWS - o jornal mais imparcial de toda a vila de blocos</span></div>
+<footer><span id="st">conectando</span><a id="play" href="/" target="_blank" rel="noopener">jogar na vila &gt;</a></footer>
+<script>
+(() => {
+    const q = new URLSearchParams(location.search);
+    let api = "";
+    try { if (q.get("api")) api = new URL(q.get("api")).origin; } catch (e) { }
+    document.getElementById("play").href = (api || "") + "/";
+    const $ = (id) => document.getElementById(id);
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let heads = [], i = 0, lastCrawl = "", bits = [], k = 0;
+
+    function show() {
+        if (still && bits.length) $("crawltxt").textContent = bits[k++ % bits.length];
+        if (!heads.length) return;
+        i = (i + 1) % heads.length;
+        $("hl").textContent = heads[i];
+        $("n").textContent = `manchete ${i + 1}/${heads.length}`;
+    }
+
+    function render(w) {
+        const tv = w.tv || {};
+        const h = (tv.headlines || []).filter(Boolean);
+        if (h.join("\n") !== heads.join("\n")) { heads = h; i = -1; show(); }
+        if (!heads.length) $("hl").textContent = "sem boletim ainda, o robo ta passando base";
+        $("urg").style.display = tv.urgent ? "block" : "none";
+        $("urgtxt").textContent = tv.urgent || "";
+        bits = [];
+        if (tv.ticker) bits.push(tv.ticker);
+        for (const l of w.laws || []) bits.push(`EM VIGOR: ${l.n} (${Math.ceil(l.left / 60)} min)`);
+        if (w.banco && w.banco.rich && w.banco.rich[0]) bits.push(`MAGNATA DA VILA: ${w.banco.rich[0][0]} com ${w.banco.rich[0][1]} moedas ficticias`);
+        if (w.terminal) bits.push(`TERMINAL: ${w.terminal.trips_today} viagens hoje`);
+        if (w.lab && w.lab.title) bits.push(`LAB: ${w.lab.title.length > 90 ? w.lab.title.slice(0, 87) + "..." : w.lab.title}`);
+        if (typeof w.treasury === "number") bits.push(`COFRE DA IA: ${w.treasury}`);
+        const crawl = bits.join("  ///  ") || "TV URNA NEWS";
+        if (crawl !== lastCrawl) { lastCrawl = crawl; $("crawltxt").textContent = still ? bits[0] || crawl : crawl; }
+        $("st").textContent = `${w.online || 0} na vila agora`;
+    }
+
+    async function poll() {
+        try {
+            const r = await fetch(api + "/api/world");
+            if (!r.ok) throw new Error(r.status);
+            render(await r.json());
+        } catch (e) {
+            $("st").textContent = "sinal fraco, tentando de novo";
+        }
+    }
+    poll();
+    setInterval(poll, 15000);
+    setInterval(show, still ? 12000 : 7000);
+})();
+</script>
+</body>
+</html>

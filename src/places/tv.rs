@@ -47,13 +47,123 @@ pub struct Tv {
     rec: i64,
     recd: String,
     watching: bool,
+    ar: Option<Arena>,
     pad: f32,
     cool: f32,
 }
 
+/// AO VIVO DA ARENA (janela de golpes nos gigantes, vinda do servidor).
+struct Arena {
+    n: i64,
+    /// Placar: (gigante, dano na janela, vida 0..100).
+    f: Vec<(String, i64, f32)>,
+    /// Quem mais bateu: (nome, dano).
+    top: Vec<(String, i64)>,
+    hits: i64,
+    hpm: i64,
+    /// Maior combo: (jogador, gigante, golpes seguidos).
+    combo: Option<(String, String, i64)>,
+    ko: i64,
+    nar: String,
+    /// Líder do CAMPEONATO DA ARENA da semana: (nome, dano).
+    lead: Option<(String, i64)>,
+    end: f64,
+    /// Último aumento de dano no placar (barras piscam e tremem).
+    hit_t: f64,
+}
+
 impl Tv {
     pub fn new() -> Self {
-        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, aud: 0, rec: 0, recd: String::new(), watching: false, pad: 0.0, cool: 0.0 }
+        Tv { scr: Screen::new(), got: false, h: vec![], tk: String::new(), a: String::new(), n: 0, ago: -1.0, recv: 0.0, a_t: -100.0, fl_t: -100.0, air: None, sp: vec![], urg: None, mom: None, aud: 0, rec: 0, recd: String::new(), watching: false, ar: None, pad: 0.0, cool: 0.0 }
+    }
+
+    fn ar_now(&self) -> Option<&Arena> {
+        self.ar.as_ref().filter(|a| a.end > get_time())
+    }
+
+    /// Tela da transmissão da arena: placar com barras de vida, narrador, líder da semana e crawl dos porradeiros.
+    fn paint_arena(&self, time: f32, a: &Arena, now: f64) {
+        let hot = Color::new(1.0, 0.45, 0.08, 1.0);
+        draw_rectangle(0.0, 0.0, TW, 1024.0, Color::new(0.06, 0.02, 0.05, 1.0));
+        for i in 0..10 {
+            let x = ((time * 120.0 + i as f32 * 260.0) % (TW + 520.0)) - 260.0;
+            draw_triangle(vec2(x, 150.0), vec2(x + 120.0, 150.0), vec2(x - 200.0, 880.0), Color::new(0.5, 0.1, 0.02, 0.18));
+        }
+        let blink = (time * 2.5).fract() < 0.5;
+        draw_rectangle(0.0, 0.0, TW, 150.0, if blink { Color::new(0.75, 0.18, 0.02, 1.0) } else { Color::new(0.6, 0.1, 0.02, 1.0) });
+        draw_rectangle(0.0, 150.0, TW, 8.0, GOLD);
+        draw_text("AO VIVO DA ARENA", 40.0, 118.0, 120.0, WHITE);
+        text_right(&format!("{:.0}s", (a.end - now).max(0.0)), TW - 530.0, 108.0, 90.0, GOLD);
+        text_right(&format!("TRANSMISSAO #{}", a.n), TW - 530.0, 40.0, 30.0, SOFT);
+        self.badge(time, TW - 500.0, 25.0);
+
+        // Placar: dois gigantes mais surrados, barras de vida pelo dano da janela
+        let flash = (1.0 - (now - a.hit_t) as f32 / 0.5).clamp(0.0, 1.0);
+        let shake = flash * (time * 70.0).sin() * 10.0;
+        let (bw, by) = (820.0, 300.0);
+        for (k, (name, d, hp)) in a.f.iter().take(2).enumerate() {
+            let left = k == 0;
+            let x0 = if left { 60.0 } else { TW - 60.0 - bw };
+            let x0 = x0 + if left { shake } else { -shake };
+            draw_rectangle(x0, 185.0, bw, 300.0, Color::new(0.0, 0.0, 0.0, 0.55));
+            draw_rectangle_lines(x0, 185.0, bw, 300.0, 4.0, if left { hot } else { CYAN });
+            let nm = fit(name, bw - 40.0, 84.0);
+            if left {
+                draw_text(&nm, x0 + 20.0, 270.0, 84.0, WHITE);
+            } else {
+                text_right(&nm, x0 + bw - 20.0, 270.0, 84.0, WHITE);
+            }
+            let f = (hp / 100.0).clamp(0.0, 1.0);
+            let col = if f > 0.6 { Color::new(0.2, 0.9, 0.3, 1.0) } else if f > 0.3 { Color::new(1.0, 0.8, 0.1, 1.0) } else if blink { RED } else { Color::new(0.6, 0.05, 0.05, 1.0) };
+            draw_rectangle(x0 + 20.0, by, bw - 40.0, 80.0, Color::new(0.25, 0.02, 0.02, 1.0));
+            let fw = (bw - 40.0) * f;
+            let fx = if left { x0 + 20.0 + (bw - 40.0 - fw) } else { x0 + 20.0 };
+            draw_rectangle(fx, by, fw, 80.0, col);
+            draw_rectangle(fx, by, fw, 80.0, Color::new(1.0, 1.0, 1.0, flash * 0.6));
+            draw_rectangle_lines(x0 + 20.0, by, bw - 40.0, 80.0, 4.0, WHITE);
+            text_mid(&format!("{hp:.0}%"), x0 + bw * 0.5, by + 62.0, 60.0, WHITE);
+            let dt = format!("DANO: {d}");
+            if left {
+                draw_text(&dt, x0 + 20.0, 455.0, 60.0, GOLD);
+            } else {
+                text_right(&dt, x0 + bw - 20.0, 455.0, 60.0, GOLD);
+            }
+        }
+        draw_circle(TW * 0.5, 335.0, 95.0, Color::new(0.1, 0.0, 0.0, 1.0));
+        draw_circle_lines(TW * 0.5, 335.0, 95.0, 8.0, GOLD);
+        text_mid("VS", TW * 0.5, 370.0, 110.0, GOLD);
+
+        let combo = a.combo.as_ref().map_or("-".to_string(), |(p, _, c)| format!("{c}x {p}"));
+        text_mid(&fit(&format!("GOLPES {}   |   {}/MIN   |   COMBO MAX {combo}   |   NOCAUTES {}", a.hits, a.hpm, a.ko), TW - 120.0, 54.0), TW * 0.5, 560.0, 54.0, GOLD);
+
+        frame(60.0, 590.0, TW - 120.0, 170.0, "");
+        draw_text("NARRADOR URNA-BOT:", 84.0, 632.0, 34.0, CYAN);
+        for (j, l) in wrap(&a.nar, TW - 170.0, 54.0, 2).iter().enumerate() {
+            draw_text(l, 84.0, 690.0 + j as f32 * 56.0, 54.0, WHITE);
+        }
+
+        // Líder da semana: troféu + nome
+        let (tx, ty) = (110.0, 822.0);
+        draw_triangle(vec2(tx - 34.0, ty - 40.0), vec2(tx + 34.0, ty - 40.0), vec2(tx, ty + 6.0), GOLD);
+        draw_rectangle(tx - 6.0, ty, 12.0, 22.0, GOLD);
+        draw_rectangle(tx - 24.0, ty + 20.0, 48.0, 10.0, GOLD);
+        let lead = a.lead.as_ref().map_or("CAMPEONATO DA SEMANA: SEM LIDER, A VAGA TA ABERTA".to_string(), |(n, v)| format!("LIDER DO CAMPEONATO DA SEMANA: {} - {v} DE DANO", n.to_uppercase()));
+        draw_text(&fit(&lead, TW - 260.0, 54.0), 170.0, 840.0, 54.0, GOLD);
+
+        // Crawl dos porradeiros
+        let line = if a.top.is_empty() {
+            "NINGUEM BATEU AINDA   ///   A ARENA ESPERA POR VOCE   ///   /campeonato".to_string()
+        } else {
+            format!("TOP PORRADEIROS: {}   ///   /campeonato", a.top.iter().enumerate().map(|(i, (n, d))| format!("{}. {} ({d})", i + 1, n)).collect::<Vec<_>>().join("   ///   "))
+        };
+        draw_rectangle(0.0, 880.0, TW, 84.0, Color::new(0.02, 0.02, 0.05, 0.95));
+        let lw = measure_text(&line, None, 54, 1.0).width;
+        draw_text(&line, TW - (time * 260.0) % (lw + TW - 300.0), 940.0, 54.0, WHITE);
+        draw_rectangle(0.0, 880.0, 300.0, 84.0, hot);
+        text_mid("ARENA", 150.0, 940.0, 56.0, WHITE);
+        draw_rectangle(0.0, 964.0, TW, 60.0, Color::new(0.0, 0.0, 0.0, 0.8));
+        draw_text("satira - gigantes ficticios, dor ficticia   |   bata nos gigantes da arena e entre no /campeonato da semana", 40.0, 1004.0, 30.0, SOFT);
+        holo_fx(time, flash * 0.3);
     }
 
     /// Canto do telão: AO VIVO pulsando + AUDIENCIA e recorde. (x, y) = canto superior esquerdo, 470x100.
@@ -164,6 +274,9 @@ impl Tv {
         let now = get_time();
         if let Some((text, end, _)) = self.urg_now() {
             return self.paint_urg(time, text, *end, now);
+        }
+        if let Some(a) = self.ar_now() {
+            return self.paint_arena(time, a, now);
         }
         if let Some((items, end, start)) = self.mom_now() {
             return self.paint_mom(time, items, *end, *start, now);
@@ -283,7 +396,7 @@ impl Tv {
     }
 
     /// Sirene girando no topo da fachada, halo vermelho pulsando em volta do telão e chamariz de longe.
-    fn siren(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
+    fn siren(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3, text: &str) {
         let id = Mat4::IDENTITY;
         let g = G as f32;
         let p = (time * 6.0).sin() * 0.5 + 0.5;
@@ -304,7 +417,7 @@ impl Tv {
         trans.glow(&id, vec3(x0 - d, gs.c.y, z), vec3(d, gs.h, 0.1), c);
         trans.glow(&id, vec3(x1 + d, gs.c.y, z), vec3(d, gs.h, 0.1), c);
         if eye.distance(top) < 150.0 {
-            labels.push(Label { pos: top + vec3(0.0, 3.0, 0.0), text: "PLANTAO NA TV URNA".into(), size: 30.0, color: Color::new(1.0, 0.3, 0.3, 1.0) });
+            labels.push(Label { pos: top + vec3(0.0, 3.0, 0.0), text: text.into(), size: 30.0, color: Color::new(1.0, 0.3, 0.3, 1.0) });
         }
     }
 }
@@ -357,6 +470,31 @@ impl Place for Tv {
             (items, now + left, start)
         });
         self.sp = m["sp"].as_array().map(|v| v.iter().map(|x| (s(&x["text"]), s(&x["by"]), now + x["left"].as_f64().unwrap_or(0.0))).collect()).unwrap_or_default();
+        let ar = &m["ar"];
+        self.ar = ar.is_object().then(|| {
+            let n = ar["n"].as_i64().unwrap_or(0);
+            let f: Vec<(String, i64, f32)> = ar["f"].as_array().map(|v| v.iter().map(|x| (s(&x["n"]), x["d"].as_i64().unwrap_or(0), x["hp"].as_f64().unwrap_or(100.0) as f32)).collect()).unwrap_or_default();
+            let hit_t = match &self.ar {
+                Some(o) if o.n == n && f.iter().map(|x| x.1).sum::<i64>() > o.f.iter().map(|x| x.1).sum::<i64>() => now,
+                Some(o) if o.n == n => o.hit_t,
+                _ => -100.0,
+            };
+            let c = &ar["combo"];
+            let l = &ar["lead"];
+            Arena {
+                n,
+                f,
+                top: ar["top"].as_array().map(|v| v.iter().map(|x| (s(&x["n"]), x["d"].as_i64().unwrap_or(0))).collect()).unwrap_or_default(),
+                hits: ar["hits"].as_i64().unwrap_or(0),
+                hpm: ar["hpm"].as_i64().unwrap_or(0),
+                combo: c.is_object().then(|| (s(&c["n"]), s(&c["f"]), c["c"].as_i64().unwrap_or(0))),
+                ko: ar["ko"].as_i64().unwrap_or(0),
+                nar: s(&ar["nar"]),
+                lead: l.is_object().then(|| (s(&l["n"]), l["v"].as_i64().unwrap_or(0))),
+                end: now + ar["left"].as_f64().unwrap_or(0.0),
+                hit_t,
+            }
+        });
     }
 
     fn update(&mut self, p: &mut Player, dt: f32, time: f32, online: bool, out: &mut Vec<Value>) {
@@ -381,7 +519,8 @@ impl Place for Tv {
         let air = self.air.as_ref().filter(|a| a.2 > now).map_or("", |a| a.0.as_str());
         let urg = self.urg.as_ref().filter(|u| u.1 > now).map_or("", |u| u.0.as_str());
         let mom = self.mom.as_ref().filter(|m| m.1 > now).map_or(0, |m| m.0.len());
-        let key = || hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom, self.aud, self.rec, self.watching));
+        let ar = self.ar_now().map_or(String::new(), |a| format!("{}|{}|{:?}|{:?}|{:?}", a.n, a.nar, a.f, a.top, a.lead));
+        let key = || hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom, self.aud, self.rec, self.watching, ar));
         if self.scr.begin_with(time, eye, &geo(), true, key) {
             self.paint(time);
             self.scr.end();
@@ -391,8 +530,12 @@ impl Place for Tv {
     fn draw(&self, b: &mut Batch, trans: &mut Batch, labels: &mut Vec<Label>, time: f32, eye: Vec3) {
         let id = Mat4::IDENTITY;
         let g = G as f32;
-        if self.urg_now().is_some() && eye.distance(STUDIO) < 160.0 {
-            self.siren(b, trans, labels, time, eye);
+        if eye.distance(STUDIO) < 160.0 {
+            if self.urg_now().is_some() {
+                self.siren(b, trans, labels, time, eye, "PLANTAO NA TV URNA");
+            } else if self.ar_now().is_some() {
+                self.siren(b, trans, labels, time, eye, "AO VIVO DA ARENA NA TV URNA");
+            }
         }
         if eye.distance(STUDIO) > 140.0 {
             return;

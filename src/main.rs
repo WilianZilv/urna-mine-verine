@@ -159,6 +159,16 @@ fn project_any(vp: &Mat4, p: Vec3) -> Option<Vec2> {
     Some(vec2((n.x + 1.0) * 0.5 * screen_width(), (1.0 - n.y) * 0.5 * screen_height()))
 }
 
+/// Barrinha de vida do villager, usada por todo mundo; `r` é o raio do alvo (gigantes ganham barra um pouco maior).
+fn overhead_bar(vp: &Mat4, top: Vec3, r: f32, k: f32) {
+    let Some(s) = project(vp, top + Vec3::Y * 0.5) else { return };
+    let z = (r / 0.7).sqrt().clamp(1.0, 2.2);
+    let (w, h) = (44.0 * z, 5.0 * z.sqrt());
+    let k = k.clamp(0.0, 1.0);
+    draw_rectangle(s.x - w * 0.5, s.y, w, h, Color::new(0.0, 0.0, 0.0, 0.6));
+    draw_rectangle(s.x - w * 0.5, s.y, w * k, h, Color::new(1.0 - k, k, 0.1, 1.0));
+}
+
 /// Tamanhos contínuos rasterizam glifos novos no atlas da fonte (reenvia a textura inteira):
 /// rasteriza em poucos tamanhos fixos e escala.
 fn text_centered(s: &str, x: f32, y: f32, size: f32, color: Color, bg: bool) {
@@ -473,6 +483,8 @@ async fn main() {
     let mut muted = false;
     let mut banner: Option<(String, f32)> = Some(("BEM-VINDO A VILA. O HOUSE TA TOCANDO.".into(), 4.0));
     let mut wolverine_called = false;
+    // (hp do último frame, segundos de barrinha) de cada lutador; funciona igual no host e nos clientes.
+    let mut fighter_bars: Vec<(f32, f32)> = Vec::new();
     let mut was_event = false;
     let mut fireworks_t = 0.0f32;
     let start = get_time();
@@ -1863,39 +1875,27 @@ async fn main() {
                 text_centered(&l.text, s.x, s.y, size, l.color, true);
             }
         }
-        for f in &fighters {
-            if !f.spawned {
-                continue;
-            }
-            if let Some(s) = project(&vp, f.pos + up * 2.05) {
-                let w = 60.0;
-                draw_rectangle(s.x - w * 0.5, s.y, w, 6.0, Color::new(0.0, 0.0, 0.0, 0.6));
-                let k = f.hp / f.max_hp;
-                draw_rectangle(s.x - w * 0.5, s.y, w * k, 6.0, Color::new(1.0 - k, k, 0.1, 1.0));
+        // Barrinhas de vida só sobre a cabeça, por alguns segundos depois de apanhar
+        fighter_bars.resize(fighters.len(), (0.0, 0.0));
+        for (f, (last, left)) in fighters.iter().zip(fighter_bars.iter_mut()) {
+            *left = if f.hp < *last { npc::BAR_SECS } else { (*left - dt).max(0.0) };
+            *last = f.hp;
+            if f.spawned && f.hp < f.max_hp && *left > 0.0 {
+                overhead_bar(&vp, f.pos + up * 1.55, 0.8, f.hp / f.max_hp);
             }
         }
-        for &(c, r, i, g) in targets.iter().filter(|t| matches!(t.3, npc::VILLAGER | npc::GUEST | npc::ROBOT | npc::MODS)) {
-            let Some(d) = npcs.get(g, i).filter(|d| d.hp < d.max) else { continue };
-            if let Some(s) = project(&vp, c + up * (r + 0.5)) {
-                let k = d.hp / d.max;
-                draw_rectangle(s.x - 22.0, s.y, 44.0, 5.0, Color::new(0.0, 0.0, 0.0, 0.6));
-                draw_rectangle(s.x - 22.0, s.y, 44.0 * k, 5.0, Color::new(1.0 - k, k, 0.1, 1.0));
+        let mut tops: Vec<(u8, usize, Vec3, f32)> = Vec::new();
+        for &(c, r, i, g) in targets.iter().filter(|t| t.3 != npc::FIGHTER) {
+            let top = c + up * if g == npc::KAIJU { 8.0 } else { r };
+            match tops.iter_mut().find(|t| t.0 == g && t.1 == i) {
+                Some(t) if top.y > t.2.y => (t.2, t.3) = (top, t.3.max(r)),
+                Some(t) => t.3 = t.3.max(r),
+                None => tops.push((g, i, top, r)),
             }
         }
-        // Barras de chefão: urna (e eu, se apanhar)
-        let mut boss_y = 70.0;
-        for (name, d, near) in [("URNA ELETRONICA", npcs.urna(), urna.pos.distance(eye) < 70.0), ("A IA (EU)", npcs.eu(), false), ("GUARDIA DO LAB", npcs.guard(), false), ("BOLSONARO VOADOR", npcs.voador(), voador::pos(time).distance(eye) < 60.0), ("GODZILHA", npcs.kaiju(), kaiju.root.distance(eye) < 80.0), ("URNA AIRSHIP", npcs.zeppelin(), zeppelin::pos(time).distance(eye) < 75.0)] {
-            if !(near || d.hp < d.max) {
-                continue;
-            }
-            let w = (screen_width() * 0.45).min(420.0);
-            let x = screen_width() * 0.5 - w * 0.5;
-            let k = d.hp / d.max;
-            draw_rectangle(x - 2.0, boss_y - 2.0, w + 4.0, 16.0, Color::new(0.0, 0.0, 0.0, 0.6));
-            draw_rectangle(x, boss_y, w * k, 12.0, if d.flash > 0.0 { WHITE } else { Color::new(0.85, 0.15, 0.1, 1.0) });
-            let label = if d.alive() { name.to_string() } else { format!("{name} - VOLTA EM {:.0}s", d.down.max(0.0)) };
-            text_centered(&label, screen_width() * 0.5, boss_y + 30.0, 18.0, WHITE, false);
-            boss_y += 40.0;
+        for (g, i, top, r) in tops {
+            let Some(d) = npcs.get(g, i).filter(|d| d.hp < d.max && d.bar > 0.0) else { continue };
+            overhead_bar(&vp, top, r, d.hp / d.max);
         }
         for t in &texts {
             if let Some(s) = project(&vp, t.pos) {
@@ -1920,9 +1920,6 @@ async fn main() {
             draw_rectangle(x, 10.0, 6.0, 52.0, f.flag.0);
             draw_text(f.name, x + 12.0, 30.0, name_size, WHITE);
             if f.spawned {
-                let k = f.hp / f.max_hp;
-                draw_rectangle(x + 12.0, 38.0, panel_w - 70.0, 12.0, Color::new(0.2, 0.2, 0.2, 1.0));
-                draw_rectangle(x + 12.0, 38.0, (panel_w - 70.0) * k, 12.0, if f.berserk > 0.0 { RED } else { Color::new(1.0 - k, k, 0.15, 1.0) });
                 draw_text(&format!("KO {}", f.kos), x + panel_w - 52.0, 50.0, 20.0, YELLOW);
                 if matches!(f.state, FState::Ko(_)) {
                     draw_text("NOCAUTE", x + 14.0, 49.0, 16.0, WHITE);

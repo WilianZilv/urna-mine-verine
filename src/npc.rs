@@ -28,12 +28,17 @@ pub struct Vida {
     /// Segundos desde a morte (animação de queda).
     pub t: f32,
     pub flash: f32,
+    /// Segundos que a barrinha de vida ainda fica visível sobre a cabeça.
+    pub bar: f32,
     respawn: f32,
 }
 
+/// Quanto tempo a barrinha de vida fica na tela depois de tomar dano.
+pub const BAR_SECS: f32 = 4.0;
+
 impl Vida {
     fn new(max: f32, respawn: f32) -> Self {
-        Vida { hp: max, max, down: 0.0, t: 0.0, flash: 0.0, respawn }
+        Vida { hp: max, max, down: 0.0, t: 0.0, flash: 0.0, bar: 0.0, respawn }
     }
 
     pub fn alive(&self) -> bool {
@@ -47,6 +52,7 @@ impl Vida {
         }
         self.hp -= dmg;
         self.flash = 1.0;
+        self.bar = BAR_SECS;
         if self.hp > 0.0 {
             return false;
         }
@@ -141,6 +147,7 @@ impl Npcs {
         for (g, list) in self.groups.iter_mut().enumerate() {
             for (i, v) in list.iter_mut().enumerate() {
                 v.flash = (v.flash - dt * 4.0).max(0.0);
+                v.bar = (v.bar - dt).max(0.0);
                 if v.alive() {
                     continue;
                 }
@@ -177,6 +184,7 @@ impl Npcs {
             let hp = e[2].as_f64().unwrap_or(0.0) as f32;
             if hp < v.hp {
                 v.flash = 1.0;
+                v.bar = BAR_SECS;
             }
             v.hp = hp;
             let down = e[3].as_f64().unwrap_or(0.0) as f32;

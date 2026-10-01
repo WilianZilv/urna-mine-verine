@@ -454,8 +454,8 @@ impl Place for Banco {
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
-        let key = if eye.distance(GEO.c) < 110.0 { hash_str(&format!("{}|{:?}|{:?}|{:?}|{}|{}|{}|{}", self.shown_tr(), self.rich, self.cri, self.led, self.sv, self.nsv, self.got, creators_page(time))) } else { 0 };
-        if self.scr.begin(time, eye, &GEO, key, crate::quality::tier() != crate::quality::LOW) {
+        let key = || hash_str(&format!("{}|{:?}|{:?}|{:?}|{}|{}|{}|{}", self.shown.round() as i64, self.rich, self.cri, self.led, self.sv, self.nsv, self.got, creators_page(time)));
+        if self.scr.begin_with(time, eye, &GEO, crate::quality::tier() != crate::quality::LOW, key) {
             self.paint(time);
             self.scr.end();
         }
@@ -494,11 +494,15 @@ impl Place for Banco {
         // Friso dourado na cornija
         b.glow(&id, vec3(183.95, G as f32 + 18.05, 237.5), vec3(0.1, 0.1, 29.0), gold);
 
+        self.statue(b, trans, labels, time, eye);
+        // Salão (cofre, hall, moedas, caixas, lustres): só se vê pela porta, some de longe
+        if eye.distance(vec3(201.0, FL, 237.5)) > crate::quality::pick([45.0, 70.0, 70.0]) {
+            return;
+        }
         self.vault(b, trans, time);
         if eye.distance(VAULT) < 45.0 {
             labels.push(Label { pos: VAULT + vec3(-0.8, 4.6, 0.0), text: format!("COFRE DA IA: {} moedas", self.shown_tr()), size: 24.0, color: GOLD });
         }
-        self.statue(b, trans, labels, time, eye);
         self.hall(b, trans, labels, time, eye);
         for c in &self.coins {
             let s = (2.5 - c.t).clamp(0.0, 0.4) / 0.4;

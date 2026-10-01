@@ -258,6 +258,8 @@ impl Bolsa {
         }
         let ws: Vec<f32> = segs.iter().map(|(t, _)| measure_text(t, None, size as u16, 1.0).width).collect();
         let lw = ws.iter().sum::<f32>().max(1.0);
+        // measure_text já cacheou os glifos; o flush desenha o que estava na fila antes do atlas ser recriado.
+        unsafe { get_internal_gl() }.flush();
         if !fresh {
             self.tape = None;
         }
@@ -299,16 +301,15 @@ impl Bolsa {
         let u0 = self.tape_u;
         let (y0, y1, z0) = (LY - LH * 0.5, LY + LH * 0.5, LZ - LW * 0.5);
         let quad = |za: f32, zb: f32, ua: f32, ub: f32| {
-            draw_mesh(&Mesh {
-                vertices: vec![
+            super::quad(
+                &rt.texture,
+                [
                     Vertex::new(LX, y1, za, ua, 1.0, WHITE),
                     Vertex::new(LX, y1, zb, ub, 1.0, WHITE),
                     Vertex::new(LX, y0, zb, ub, 0.0, WHITE),
                     Vertex::new(LX, y0, za, ua, 0.0, WHITE),
                 ],
-                indices: vec![0, 1, 2, 0, 2, 3],
-                texture: Some(rt.texture.clone()),
-            })
+            )
         };
         if u0 + f <= 1.0 {
             quad(z0, z0 + LW, u0, u0 + f);
@@ -546,7 +547,7 @@ impl Place for Bolsa {
             frame_at(b, trans, &Mat4::from_translation(vec3(PX, 0.0, PZ)), (PW, PH, PY), time, self.flash);
         }
         // Monitores do pregão (verde/vermelho piscando) em cima das mesas
-        if hi {
+        if hi && eye.distance(vec3(243.5, G as f32, 83.0)) < 70.0 {
             let id = Mat4::IDENTITY;
             for (i, (x, z)) in [242, 245].iter().flat_map(|&x| (75..=79).chain(87..=91).map(move |z| (x, z))).enumerate() {
                 let c = vec3(x as f32 + 0.5, G as f32 + 1.35, z as f32 + 0.5);

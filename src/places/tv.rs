@@ -377,11 +377,12 @@ impl Place for Tv {
     }
 
     fn render(&mut self, time: f32, eye: Vec3) {
-        let air = self.air_now().map(|a| a.0.clone()).unwrap_or_default();
-        let urg = self.urg_now().map(|u| u.0.as_str()).unwrap_or("");
-        let mom = self.mom_now().map(|m| m.0.len()).unwrap_or(0);
-        let key = hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom, self.aud, self.rec, self.watching));
-        if self.scr.begin(time, eye, &geo(), key, true) {
+        let now = get_time();
+        let air = self.air.as_ref().filter(|a| a.2 > now).map_or("", |a| a.0.as_str());
+        let urg = self.urg.as_ref().filter(|u| u.1 > now).map_or("", |u| u.0.as_str());
+        let mom = self.mom.as_ref().filter(|m| m.1 > now).map_or(0, |m| m.0.len());
+        let key = || hash_str(&format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", self.h.join("|"), self.tk, self.a, self.n, air, self.sp.len(), urg, mom, self.aud, self.rec, self.watching));
+        if self.scr.begin_with(time, eye, &geo(), true, key) {
             self.paint(time);
             self.scr.end();
         }

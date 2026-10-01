@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>WIDGETS DA VILA - URNA-MINE-VERINE</title>
+<style>
+    :root { --bg: #0d0519; --panel: #160a2b; --line: #3a1d66; --fg: #e8dcff; --dim: #8f7bb8; --accent: #ff2bd6; --cy: #00e5ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 ui-monospace, Consolas, "Courier New", monospace; }
+    header, main, footer { max-width: 1000px; margin: 0 auto; padding: 16px; }
+    h1 { margin: 0 0 4px; color: var(--accent); letter-spacing: 3px; text-shadow: 0 0 8px var(--accent); }
+    h2 { margin: 0 0 8px; color: var(--cy); font-size: 16px; letter-spacing: 2px; }
+    p { margin: 4px 0; color: var(--dim); }
+    a { color: var(--cy); }
+    #opts { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 12px; padding: 10px; background: var(--panel); border: 1px solid var(--line); }
+    label { display: flex; gap: 6px; align-items: center; }
+    select, button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 4px 8px; }
+    button { cursor: pointer; border-color: var(--accent); color: var(--accent); }
+    button:hover, button:focus-visible { background: var(--accent); color: var(--bg); }
+    .card { margin: 18px 0; padding: 14px; background: var(--panel); border: 1px solid var(--line); }
+    .prev { overflow-x: auto; padding: 10px 0; }
+    .prev iframe { display: block; border: 0; max-width: 100%; }
+    .snip { display: flex; gap: 8px; align-items: stretch; }
+    textarea { flex: 1; font: 12px/1.4 ui-monospace, Consolas, monospace; color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 6px; resize: none; height: 54px; }
+    footer { color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+    <h1>WIDGETS DA VILA</h1>
+    <p>Bota a vila ao vivo no teu site, blog ou stream: copia o &lt;iframe&gt; e cola. Atualiza sozinho a cada 15 s. Moedas 100% ficticias.</p>
+    <p>Dados abertos tambem em <a id="apilink" href="/api/world">/api/world</a> (JSON, CORS liberado).</p>
+    <div id="opts">
+        <label>tema <select id="theme"><option value="dark">escuro</option><option value="light">claro</option></select></label>
+        <label>largura <select id="width"><option value="320">320 px</option><option value="480" selected>480 px</option><option value="640">640 px</option><option value="100%">100%</option></select></label>
+    </div>
+</header>
+<main id="cards"></main>
+<footer>URNA-MINE-VERINE - satira em blocos. <a id="play" href="/">jogar na vila</a></footer>
+<script>
+(() => {
+    const W = [
+        { id: "bolsa", name: "BOLSA DA VILA", desc: "painel neon dos tickers ficticios, indice IVILA e alertas de circuit breaker", h: 220 },
+        { id: "tv", name: "TV URNA NEWS", desc: "manchetes do jornal da vila, plantao urgente e letreiro com leis, magnata, terminal e lab", h: 200 },
+        { id: "leis", name: "LEIS EM VIGOR", desc: "leis aprovadas pelo Congresso da Vila com contagem regressiva", h: 220 },
+    ];
+    const origin = location.origin;
+    const $ = (id) => document.getElementById(id);
+    const el = (tag, c, t) => { const e = document.createElement(tag); if (c) e.className = c; if (t != null) e.textContent = t; return e; };
+    const cards = W.map((w) => {
+        const card = el("section", "card");
+        card.id = `card-${w.id}`;
+        const prev = el("div", "prev"), frame = el("iframe"), snip = el("div", "snip"), ta = el("textarea"), btn = el("button", "", "copiar");
+        frame.title = w.name;
+        frame.loading = "lazy";
+        ta.readOnly = true;
+        ta.setAttribute("aria-label", `codigo do widget ${w.name}`);
+        btn.addEventListener("click", () => copy(ta, btn));
+        prev.append(frame);
+        snip.append(ta, btn);
+        card.append(el("h2", "", w.name), el("p", "", w.desc), prev, snip);
+        $("cards").append(card);
+        return { w, frame, ta };
+    });
+
+    function update() {
+        const theme = $("theme").value, width = $("width").value;
+        for (const { w, frame, ta } of cards) {
+            const src = `${origin}/embed/${w.id}.html${theme === "light" ? "?theme=light" : ""}`;
+            if (frame.src !== src) frame.src = src;
+            frame.style.width = width === "100%" ? "100%" : `${width}px`;
+            frame.height = w.h;
+            ta.value = `<iframe src="${src}" width="${width}" height="${w.h}" style="border:0;max-width:100%" title="${w.name}" loading="lazy"></iframe>`;
+        }
+    }
+
+    async function copy(ta, btn) {
+        let ok = false;
+        try {
+            await navigator.clipboard.writeText(ta.value);
+            ok = true;
+        } catch (e) {
+            ta.select();
+            try { ok = document.execCommand("copy"); } catch (e2) { }
+        }
+        btn.textContent = ok ? "copiado!" : "seleciona e Ctrl+C";
+        setTimeout(() => (btn.textContent = "copiar"), 1800);
+    }
+
+    $("theme").addEventListener("change", update);
+    $("width").addEventListener("change", update);
+    update();
+})();
+</script>
+</body>
+</html>

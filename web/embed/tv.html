@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>TV URNA NEWS - URNA-MINE-VERINE</title>
+<script>if (new URLSearchParams(location.search).get("theme") === "light") document.documentElement.className = "light";</script>
 <style>
     :root { --bg: #0d0519; --panel: #1b0d33; --line: #3a1d66; --fg: #f3ecff; --dim: #8f7bb8; --accent: #00e5ff; --live: #ff2b4f; --crawl: #ffd23d; --glow: 0 0 6px; }
+    :root.light { --bg: #fbf8ff; --panel: #ece4ff; --line: #cdb8f0; --fg: #1d0f38; --dim: #6b5a8e; --accent: #007a99; --live: #d6003a; --crawl: #ffd23d; --glow: 0 0 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.35 ui-monospace, Consolas, "Courier New", monospace; overflow: hidden; }
     body { display: flex; flex-direction: column; border: 1px solid var(--line); }

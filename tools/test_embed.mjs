@@ -48,6 +48,12 @@ const opt = await fetch(BASE + "/api/world", { method: "OPTIONS" });
 must(opt.status === 204 && opt.headers.get("access-control-allow-origin") === "*", "OPTIONS 204 + CORS");
 console.log("world:", raw.slice(0, 600));
 
+// lei aprovada (quorum = metade de quem ta online) aparece no /api/world quando o cache vence
+ws.send(JSON.stringify({ t: "chat", m: "/lei turbo" }));
+await sleep(5500);
+const w3 = await (await fetch(BASE + "/api/world")).json();
+must(w3.laws.some((l) => l.id === "turbo" && l.left > 0 && l.left <= 300), "lei votada aparece com segundos restantes", JSON.stringify(w3.laws));
+
 // 3) widgets no Chrome headless
 const chrome = spawn(CHROME, ["--headless=new", "--mute-audio", `--remote-debugging-port=${PORT}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "urna-embed-"))}`, "--no-first-run", "about:blank"], { stdio: "ignore" });
 let ver;
@@ -101,6 +107,36 @@ await check("tv", `${BASE}/embed/tv.html`, 480, 200, TV_OK);
 // ?api= cross-origin (localhost -> 127.0.0.1): prova o CORS no navegador e o link do site trocado
 await check("bolsa_api", `${OTHER}/embed/bolsa.html?api=${encodeURIComponent(BASE)}`, 360, 260, `${BOLSA_OK} && document.getElementById("play").href === ${JSON.stringify(BASE + "/")}`);
 await check("tv_still", `${BASE}/embed/tv.html`, 480, 200, `${TV_OK} && getComputedStyle(document.querySelector("#crawl span")).animationName === "none"`, true);
+
+const LEIS_OK = `document.querySelectorAll(".law").length > 0 && /^\\d+:\\d\\d$/.test(document.querySelector(".law .t").textContent)`;
+await check("leis", `${BASE}/embed/leis.html`, 480, 220, LEIS_OK);
+const LIGHT = `document.documentElement.className === "light" && getComputedStyle(document.body).backgroundColor === "rgb(251, 248, 255)"`;
+await check("bolsa_light", `${BASE}/embed/bolsa.html?theme=light`, 480, 220, `${BOLSA_OK} && ${LIGHT}`);
+await check("tv_light", `${BASE}/embed/tv.html?theme=light`, 480, 200, `${TV_OK} && ${LIGHT}`);
+await check("leis_light", `${BASE}/embed/leis.html?theme=light`, 480, 220, `${LEIS_OK} && ${LIGHT}`);
+
+// galeria: 3 previews, snippets com a origem, tema/largura mudam iframe + snippet, botao copiar
+await cmd("Browser.grantPermissions", { origin: BASE, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
+const g = await page(`${BASE}/embed/`, 1100, 1250);
+await sleep(1500);
+const g1 = await g.ev(`JSON.stringify({ n: document.querySelectorAll(".card iframe").length, snip: [...document.querySelectorAll("textarea")].map((t) => t.value) })`);
+must(/"n":3/.test(g1) && ["bolsa", "tv", "leis"].every((k) => g1.includes(`src=\\"${BASE}/embed/${k}.html\\"`)), "galeria: 3 previews + snippets com a origem", g1.slice(0, 300));
+await g.shot("embed_gallery.png");
+const g2 = await g.ev(`(async () => {
+    const t = document.getElementById("theme"), w = document.getElementById("width");
+    t.value = "light"; t.dispatchEvent(new Event("change"));
+    w.value = "320"; w.dispatchEvent(new Event("change"));
+    document.querySelector("#card-tv button").click();
+    await new Promise((r) => setTimeout(r, 300));
+    const ta = document.querySelector("#card-tv textarea").value;
+    return JSON.stringify({ src: document.querySelector("#card-bolsa iframe").src, ta, btn: document.querySelector("#card-tv button").textContent, clip: await navigator.clipboard.readText().catch((e) => "ERR " + e) });
+})()`);
+must(/theme=light/.test(g2) && /width=\\"320\\"/.test(g2), "galeria: tema claro + largura no iframe e no snippet", g2);
+must(/"btn":"copiado!"/.test(g2) && /"clip":"<iframe src=\\"[^"]+tv\.html\?theme=light/.test(g2), "galeria: copiar poe o snippet no clipboard", g2.slice(-200));
+await sleep(2500);
+await g.shot("embed_gallery_light.png");
+must(g.errs.length === 0, "galeria: sem erro no console", JSON.stringify(g.errs));
+await g.close();
 
 ws.close();
 cdp.close();

@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>BOLSA DA VILA - URNA-MINE-VERINE</title>
+<script>if (new URLSearchParams(location.search).get("theme") === "light") document.documentElement.className = "light";</script>
 <style>
     :root { --bg: #0d0519; --panel: #160a2b; --line: #3a1d66; --fg: #e8dcff; --dim: #8f7bb8; --up: #39ff88; --down: #ff3b6b; --accent: #ff2bd6; --glow: 0 0 6px; }
+    :root.light { --bg: #fbf8ff; --panel: #efe6ff; --line: #cdb8f0; --fg: #1d0f38; --dim: #6b5a8e; --up: #00994d; --down: #d6003a; --accent: #b0008f; --glow: 0 0 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.3 ui-monospace, Consolas, "Courier New", monospace; overflow: hidden; }
     body { display: flex; flex-direction: column; border: 1px solid var(--line); }

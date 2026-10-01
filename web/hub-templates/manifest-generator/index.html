@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gerador de manifest - URNA GAME HUB</title>
+    <style>
+        body { background: #0d0a14; color: #e8e6f0; font: 15px/1.5 ui-monospace, Consolas, monospace; max-width: 980px; margin: 24px auto; padding: 0 16px; }
+        a { color: #6cf; } h1 { color: #b48cff; } h2 { margin: 22px 0 6px; }
+        label { display: block; margin: 8px 0 2px; color: #b9b3cc; }
+        input[type=text], input[type=url], textarea { width: 100%; box-sizing: border-box; background: #1a1330; color: #fff; border: 1px solid #3a2d63; border-radius: 6px; padding: 7px 9px; font: inherit; }
+        textarea { height: 56px; resize: vertical; }
+        .row { display: flex; gap: 12px; } .row > div { flex: 1; }
+        pre { position: relative; background: #1a1330; padding: 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; margin: 4px 0; }
+        button.copy { float: right; background: #7a3cff; color: #fff; border: 0; border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; }
+        #status { padding: 8px 12px; border-radius: 6px; margin-top: 12px; }
+        .ok { background: #11331f; color: #3dff8a; } .bad { background: #3a1218; color: #ff8a8a; }
+        small { color: #8f88a6; }
+    </style>
+</head>
+<body>
+    <h1>Gerador de manifest do Hub</h1>
+    <p>Preencha e copie: o manifest (validado aqui com as regras do <a href="/hub.json">/hub.json</a> + as do servidor) e os
+        comandos do <a href="/hub.txt">/hub.txt</a>. <b>Esta página nunca pede nem guarda token</b>: os comandos leem
+        o token do arquivo <code>~/.urna-creator-token</code> no teu computador. Templates: <a href="../">/hub-templates/</a></p>
+
+    <div class="row">
+        <div><label for="name">nome do jogo (2-32)</label><input type="text" id="name" maxlength="40" value="Meu Jogo"></div>
+        <div><label for="id">id do portal (slug, permanente)</label><input type="text" id="id" maxlength="40" placeholder="(slug do nome)"></div>
+        <div style="flex:.5"><label for="version">versão</label><input type="text" id="version" value="1.0.0"></div>
+    </div>
+    <label for="url">url do jogo (https, origem só tua)</label>
+    <input type="url" id="url" placeholder="https://meu-jogo.pages.dev/">
+    <label for="desc">descrição (até 200; sem link, @, dinheiro, senha)</label>
+    <textarea id="desc">jogo feito com o template do hub</textarea>
+    <label><input type="checkbox" id="useColors" checked> cores do arco:
+        <input type="color" id="c1" value="#ff3d7f"> <input type="color" id="c2" value="#ffd23d"></label>
+    <label for="dir">pasta publicada (onde vai o .well-known)</label>
+    <input type="text" id="dir" value="./">
+    <div id="status">carregando /hub.json...</div>
+
+    <h2>1. manifest</h2>
+    <pre><code id="out-manifest"></code></pre>
+    <h2>2. helper (Node 18+) <small>recomendado</small></h2>
+    <pre><code id="out-helper"></code></pre>
+    <h2>3. curl (bash)</h2>
+    <pre><code id="out-bash"></code></pre>
+    <h2>4. PowerShell</h2>
+    <pre><code id="out-ps"></code></pre>
+    <h2>5. arquivo &lt;pasta&gt;/.well-known/urna-portal.json</h2>
+    <pre><code id="out-wk"></code></pre>
+    <p><small>Troque &lt;CHALLENGE&gt; pelo valor que o registro devolve (portal.well_known.body). O helper escreve esse arquivo sozinho.</small></p>
+
+    <script>
+        "use strict";
+        const SITE = "https://urna-mine-verine.wilianzilv.workers.dev";
+        const $ = (id) => document.getElementById(id);
+        const norm = (s) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const slug = (s) => norm(s).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
+        // mesmo filtro de texto e de url do servidor (server/hub.js), alem do schema
+        const BANNED = /(r\$|reais|\bpix\b|cripto|crypto|bitcoin|\bnft|api.?key|senha|password|token|cartao|paypal|https?:|www\.|\.(com|net|org|br|io|gg|xyz|ru)\b|@|nazi|hitler)/;
+        let schema = null;
+
+        /** Subconjunto de JSON Schema usado pelo /hub.json: type, required, additionalProperties, pattern, min/maxLength, maxItems, items. */
+        function check(s, v, path, errs) {
+            const t = Array.isArray(v) ? "array" : typeof v;
+            if (s.type && s.type !== t) return errs.push(`${path}: precisa ser ${s.type}`);
+            if (t === "string") {
+                if (s.minLength != null && v.length < s.minLength) errs.push(`${path}: minimo ${s.minLength} letras`);
+                if (s.maxLength != null && v.length > s.maxLength) errs.push(`${path}: maximo ${s.maxLength} letras`);
+                if (s.pattern && !new RegExp(s.pattern).test(v)) errs.push(`${path}: formato invalido (${s.pattern})`);
+            }
+            if (t === "array") {
+                if (s.maxItems != null && v.length > s.maxItems) errs.push(`${path}: no maximo ${s.maxItems}`);
+                if (s.items) v.forEach((x, i) => check(s.items, x, `${path}[${i}]`, errs));
+            }
+            if (t === "object") {
+                for (const k of s.required || []) if (!(k in v)) errs.push(`${path}.${k}: obrigatorio`);
+                for (const [k, x] of Object.entries(v)) {
+                    if (s.properties && s.properties[k]) check(s.properties[k], x, `${path}.${k}`, errs);
+                    else if (s.additionalProperties === false) errs.push(`${path}.${k}: campo nao permitido`);
+                }
+            }
+            return errs;
+        }
+        function serverRules(m, errs) {
+            let u = null;
+            try { u = new URL(m.url); } catch (e) { errs.push("url invalida"); }
+            if (u) {
+                const h = u.hostname;
+                if (u.protocol !== "https:") errs.push("url precisa ser https://");
+                if (u.username || u.password || u.port) errs.push("url sem usuario/senha/porta");
+                if (!h.includes(".") || /^[\d.]+$/.test(h) || h.startsWith("[") || /(^|\.)(localhost|local|internal|lan|home)$/.test(h)) errs.push("host invalido (sem IP/localhost)");
+                if (h === new URL(SITE).hostname) errs.push("o jogo nao pode estar na origem do Urna");
+            }
+            if (BANNED.test(norm(m.name))) errs.push("name: sem link/@/dinheiro/chave");
+            if (m.description && BANNED.test(norm(m.description))) errs.push("description: sem link/@/dinheiro/chave");
+            return errs;
+        }
+
+        const sq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;   // bash single quotes
+        const pq = (s) => `'${s.replace(/'/g, "''")}'`;      // PowerShell single quotes
+        const dq = (s) => `"${s.replace(/["\\$`]/g, "\\$&")}"`;
+
+        function build() {
+            const name = $("name").value.trim(), id = ($("id").value.trim() || slug(name));
+            const m = { id, name, version: $("version").value.trim(), url: $("url").value.trim() };
+            const desc = $("desc").value.trim();
+            if (desc) m.description = desc;
+            const colors = $("useColors").checked ? [$("c1").value, $("c2").value] : null;
+            if (colors) m.thumbnail = { colors };
+            return m;
+        }
+
+        function render() {
+            const m = build();
+            const errs = schema ? check(schema, m, "manifest", []) : [];
+            serverRules(m, errs);
+            const st = $("status");
+            st.className = errs.length ? "bad" : "ok";
+            st.textContent = !schema ? "sem /hub.json: validando so com as regras do servidor" : "";
+            st.textContent += errs.length ? errs.join(" · ") : (schema ? "manifest valido" : " - ok");
+            st.dataset.valid = errs.length ? "0" : "1";
+
+            const json = JSON.stringify(m), dir = $("dir").value.trim() || "./";
+            const id = m.id || "<id>", v = m.version || "1.0.0";
+            $("out-manifest").textContent = JSON.stringify(m, null, 2);
+            $("out-helper").textContent = [
+                `curl -sO ${SITE}/sdk/urna-hub.mjs          # fora da pasta publicada`,
+                `node urna-hub.mjs prepare --id ${id} --name ${dq(m.name)} --url ${m.url || "<URL>"} --dir ${dq(dir)}` +
+                (m.thumbnail ? ` --colors "${m.thumbnail.colors.join(",")}"` : "") + (m.description ? ` --desc ${dq(m.description)}` : "") + (v !== "1.0.0" ? ` --version ${v}` : ""),
+                `# publique a pasta (com .well-known/urna-portal.json) e depois:`,
+                `node urna-hub.mjs publish --id ${id}`,
+            ].join("\n");
+            $("out-bash").textContent = [
+                `S=${SITE}`,
+                `# so na primeira vez (token aparece UMA vez: salve em ~/.urna-creator-token, nunca no projeto):`,
+                `curl -s -X POST $S/api/mods/register -H "content-type: application/json" -d '{"name":"<SEU-NOME-DE-CRIADOR>"}'`,
+                `TOKEN=$(cat ~/.urna-creator-token)`,
+                `curl -s -X POST $S/api/portals -H "authorization: Bearer $TOKEN" -H "content-type: application/json" -d ${sq(json)}`,
+                `# grave portal.well_known.body em ${dir.replace(/\/?$/, "/")}.well-known/urna-portal.json, publique, depois:`,
+                `curl -s -X POST $S/api/portals/${id}/verify -H "authorization: Bearer $TOKEN"`,
+                `curl -s -X POST $S/api/portals/${id}/activate -H "authorization: Bearer $TOKEN" -H "content-type: application/json" -d '{"version":"${v}"}'`,
+                `curl -s $S/api/portals/${id}`,
+            ].join("\n");
+            $("out-ps").textContent = [
+                `$S = "${SITE}"`,
+                `# so na primeira vez: Invoke-RestMethod -Method Post "$S/api/mods/register" -ContentType "application/json" -Body '{"name":"<SEU-NOME-DE-CRIADOR>"}'`,
+                `$TOKEN = (Get-Content "$HOME\\.urna-creator-token" -Raw).Trim()`,
+                `$H = @{ authorization = "Bearer $TOKEN" }`,
+                `$r = Invoke-RestMethod -Method Post "$S/api/portals" -Headers $H -ContentType "application/json" -Body ${pq(json)}`,
+                `New-Item -ItemType Directory -Force ${pq(dir.replace(/[\\/]?$/, "/") + ".well-known")} | Out-Null`,
+                `[IO.File]::WriteAllText((Join-Path (Resolve-Path ${pq(dir)}) ".well-known/urna-portal.json"), ($r.portal.well_known.body | ConvertTo-Json -Depth 5 -Compress))`,
+                `# publique a pasta, depois:`,
+                `Invoke-RestMethod -Method Post "$S/api/portals/${id}/verify" -Headers $H`,
+                `Invoke-RestMethod -Method Post "$S/api/portals/${id}/activate" -Headers $H -ContentType "application/json" -Body '{"version":"${v}"}'`,
+            ].join("\n");
+            $("out-wk").textContent = JSON.stringify({ urna_portal: 1, portals: [{ id, challenge: "<CHALLENGE>" }] });
+        }
+        for (const code of document.querySelectorAll("pre > code")) {
+            const b = document.createElement("button");
+            b.className = "copy"; b.textContent = "copiar";
+            b.onclick = () => navigator.clipboard && navigator.clipboard.writeText(code.textContent);
+            code.before(b);
+        }
+        document.querySelectorAll("input, textarea").forEach((el) => el.addEventListener("input", render));
+        $("name").addEventListener("input", () => { $("id").placeholder = slug($("name").value) || "(slug do nome)"; });
+
+        fetch("/hub.json").then((r) => r.ok ? r.json() : Promise.reject()).catch(() => fetch(SITE + "/hub.json").then((r) => r.json()))
+            .then((s) => { schema = s; }).catch(() => { }).finally(render);
+        render();
+    </script>
+</body>
+</html>

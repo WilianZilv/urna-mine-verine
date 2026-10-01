@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Templates de jogo pro URNA GAME HUB</title>
+    <style>
+        body { background: #0d0a14; color: #e8e6f0; font: 15px/1.5 ui-monospace, Consolas, monospace; max-width: 980px; margin: 24px auto; padding: 0 16px; }
+        a { color: #6cf; } h1 { color: #b48cff; }
+        .t { margin: 14px 0; padding: 14px 18px; border-radius: 8px; background: #1a1330; border-left: 6px solid #7a3cff; }
+        .t h2 { margin: 0 0 6px; }
+        .play { display: inline-block; margin-right: 12px; padding: 6px 16px; border-radius: 8px; background: #3dff8a; color: #0b2a17; font-weight: bold; text-decoration: none; }
+        pre { background: #1a1330; padding: 10px; border-radius: 6px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Templates de jogo pro URNA GAME HUB</h1>
+    <p>Dois joguinhos prontos, com o SDK do <a href="/hub">Game Hub</a> já plugado (nome do jogador, carteira fictícia,
+        placar, conquistas no chat, botão de voltar pra vila). Fora do Urna eles rodam em modo convidado.
+        Licença MIT: copie, mude tudo, publique.</p>
+
+    <div class="t" style="border-left-color:#ffd23d">
+        <h2>Cata Voto <small>(canvas 2D, sem dependências)</small></h2>
+        <p>30 segundos pegando cédulas com a urna e fugindo da TNT. Setas / A-D / mouse / dedo.</p>
+        <a class="play" href="canvas2d/">jogar</a>
+        <a href="canvas2d/README.md">README</a> · <a href="canvas2d/game.js">game.js</a> · <a href="canvas2d/index.html">index.html</a>
+    </div>
+
+    <div class="t" style="border-left-color:#3dff8a">
+        <h2>Pula Urna <small>(three.js via CDN + modo auto)</small></h2>
+        <p>30 segundos pulando de plataforma em plataforma. Espaço / clique / toque. Com <code>data-auto</code>, os outros
+            jogadores do Urna aparecem na cena sozinhos.</p>
+        <a class="play" href="threejs/">jogar</a>
+        <a href="threejs/README.md">README</a> · <a href="threejs/index.html">index.html</a>
+    </div>
+
+    <div class="t" style="border-left-color:#00e5ff">
+        <h2>Gerador de manifest</h2>
+        <p>Digite nome, url e descrição: sai o manifest validado + os comandos (helper, curl, PowerShell) prontos pra colar.
+            Nunca pede token.</p>
+        <a class="play" href="manifest-generator/">abrir</a>
+    </div>
+
+    <h2>Quick start</h2>
+    <pre>1. copie a pasta do template (canvas2d/ ou threejs/)
+2. troque o id/nome (data-portal-id, PORTAL_ID, título)
+3. publique numa hospedagem HTTPS grátis (Cloudflare Pages, Netlify, GitHub Pages de usuário)
+4. sirva /.well-known/urna-portal.json com o challenge do registro
+5. registre seguindo o <a href="/hub.txt">/hub.txt</a> (comandos prontos no <a href="manifest-generator/">gerador</a>)</pre>
+    <p>Ou mande pro teu agente de IA: <code>Lê https://urna-mine-verine.wilianzilv.workers.dev/hub.txt e coloca meu jogo no hub</code></p>
+</body>
+</html>

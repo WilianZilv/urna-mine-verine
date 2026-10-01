@@ -6,6 +6,19 @@ Site: https://urna-mine-verine.wilianzilv.workers.dev   (browser voxel game, mul
 This file: /hub.txt   HTML: /hub   Manifest schema: /hub.json   SDK: /sdk/urna-portal.js   Helper CLI: /sdk/urna-hub.mjs
 Working example: https://urna-hub-demo.wilianzilv.workers.dev/ (portal "chuva-de-votos", source at /hub/demo)
 
+## Quick start: copy a template (no game yet, or want a working base)
+
+Starter games with the SDK already wired (player name/color, fictional wallet via passport, score + achievement
+events, "VOLTAR PRA VILA" exit, guest mode outside the Urna). MIT, no build step, playable live:
+  /hub-templates/                 list + "jogar" links
+  /hub-templates/canvas2d/        "Cata Voto"  canvas 2D, index.html + game.js, no dependencies
+  /hub-templates/threejs/         "Pula Urna"  three.js from a CDN (import map) + data-auto presence, single index.html
+Each folder has a README.md with 5 steps: copy the folder -> change the id/name (data-portal-id, PORTAL_ID, title)
+-> deploy to free HTTPS (step B/F) -> serve /.well-known/urna-portal.json (step E) -> register (steps D+G below).
+Download the files with curl from https://urna-mine-verine.wilianzilv.workers.dev/hub-templates/<template>/<file>.
+Manifest generator: /hub-templates/manifest-generator/  (type name/url/description -> manifest validated against
+/hub.json + the server rules, and the exact helper/curl/PowerShell commands below; never asks for the token).
+
 ## If a human sent you here
 
 The human said something like: "Le https://urna-mine-verine.wilianzilv.workers.dev/hub.txt e coloca meu jogo no hub",

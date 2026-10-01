@@ -4,6 +4,16 @@ use crate::world::*;
 use macroquad::prelude::*;
 use std::f32::consts::FRAC_PI_2;
 
+/// Câmera inicial voando pra screenshot/debug: ?cam=x,y,z,yaw,pitch (nativo: URNA_CAM).
+fn cam() -> Option<Vec<f32>> {
+    #[cfg(target_arch = "wasm32")]
+    let s = crate::web::query("cam");
+    #[cfg(not(target_arch = "wasm32"))]
+    let s = std::env::var("URNA_CAM").ok();
+    let v: Vec<f32> = s?.split(',').filter_map(|t| t.parse().ok()).collect();
+    (v.len() == 5).then_some(v)
+}
+
 pub struct Player {
     pub pos: Vec3,
     pub vel: Vec3,
@@ -21,7 +31,11 @@ pub struct Player {
 
 impl Player {
     pub fn new() -> Self {
-        Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0, stick: Vec2::ZERO, jump_held: false, can_fly: true }
+        let mut p = Player { pos: Self::spawn(), vel: Vec3::ZERO, knock: Vec3::ZERO, yaw: -FRAC_PI_2, pitch: -0.3, fly: false, on_ground: false, sel: 0, stick: Vec2::ZERO, jump_held: false, can_fly: true };
+        if let Some(c) = cam() {
+            (p.pos, p.yaw, p.pitch, p.fly) = (vec3(c[0], c[1], c[2]), c[3], c[4], true);
+        }
+        p
     }
 
     pub fn spawn() -> Vec3 {

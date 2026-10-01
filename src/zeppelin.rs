@@ -20,9 +20,9 @@ const LEN: f32 = 72.0;
 const R: f32 = 6.5;
 const ALT: f32 = 34.0;
 /// Segundos por volta na elipse (raios RX, RZ em volta do centro do mapa).
-const LOOP: f32 = 260.0;
-const RX: f32 = 50.0;
-const RZ: f32 = 44.0;
+const LOOP: f32 = 520.0;
+const RX: f32 = 105.0;
+const RZ: f32 = 92.0;
 /// Queda até o chão; o destroço some depois de WRECK.
 const FALL: f32 = 16.0;
 const WRECK: f32 = 70.0;
@@ -51,7 +51,8 @@ fn radius(z: f32) -> f32 {
 
 pub fn pos(t: f32) -> Vec3 {
     let a = t * TAU / LOOP;
-    vec3(64.0 + RX * a.cos(), G as f32 + ALT + 1.2 * (t * 0.21).sin(), 64.0 + RZ * a.sin())
+    let c = crate::layout::PLAZA;
+    vec3(c.x + RX * a.cos(), G as f32 + ALT + 1.2 * (t * 0.21).sin(), c.y + RZ * a.sin())
 }
 
 fn yaw_at(t: f32) -> f32 {

@@ -1,5 +1,6 @@
 //! Villagers (curtindo o house / se rendendo) e lutadores (IA de combate).
 
+use crate::layout;
 use crate::models::*;
 use crate::world::*;
 use macroquad::prelude::*;
@@ -112,7 +113,7 @@ pub fn spawn_villagers() -> Vec<Villager> {
             walk: 0.0,
         }
     };
-    let mut dj = mk(vec3(12.3, g + 1.0, 64.5), VKind::Dj, 2, 2);
+    let mut dj = mk(layout::club(vec3(12.3, g + 1.0, 64.5)), VKind::Dj, 2, 2);
     dj.yaw = FRAC_PI_2;
     dj.arms_up = false;
     vs.push(dj);
@@ -123,7 +124,7 @@ pub fn spawn_villagers() -> Vec<Villager> {
     for i in 0..12 {
         let a: f32 = gen_range(0.0, 6.28);
         let r = gen_range(16.0, 32.0);
-        let pos = arena_center() + vec3(a.cos() * r, 0.0, a.sin() * r);
+        let pos = layout::plaza_center() + vec3(a.cos() * r, 0.0, a.sin() * r);
         let flag = if i % 3 == 0 { 1 } else { 0 };
         vs.push(mk(pos, VKind::Wanderer, i + 3, flag));
     }
@@ -132,7 +133,7 @@ pub fn spawn_villagers() -> Vec<Villager> {
 
 /// `dead(i)`: villager morto só cai com a física e fica onde parou.
 pub fn update_villagers(vs: &mut [Villager], world: &World, dt: f32, time: f32, dead: impl Fn(usize) -> bool) {
-    let dj = vec3(12.3, G as f32, 64.5);
+    let dj = layout::club(vec3(12.3, G as f32, 64.5));
     for (i, v) in vs.iter_mut().enumerate() {
         let dead = dead(i);
         if v.airborne {
@@ -180,8 +181,8 @@ pub fn update_villagers(vs: &mut [Villager], world: &World, dt: f32, time: f32, 
                 let to = vec3(to.x, 0.0, to.z);
                 if to.length() < 0.6 || v.timer < 0.0 {
                     let a: f32 = gen_range(0.0, 6.28);
-                    let r = gen_range(15.0, 36.0);
-                    v.target = arena_center() + vec3(a.cos() * r, 0.0, a.sin() * r);
+                    let r = gen_range(15.0, 70.0);
+                    v.target = layout::plaza_center() + vec3(a.cos() * r, 0.0, a.sin() * r);
                     v.timer = 10.0;
                 } else {
                     let dir = to.normalize();
@@ -262,11 +263,11 @@ pub fn spawn_guests() -> Vec<Guest> {
     let mut out: Vec<Guest> = stf
         .into_iter()
         .enumerate()
-        .map(|(i, (name, look))| Guest { name, look, pos: vec3(17.2, g, 57.5 + i as f32 * 1.6), yaw: FRAC_PI_2, phase: i as f32 * 1.7 })
+        .map(|(i, (name, look))| Guest { name, look, pos: layout::club(vec3(17.2, g, 57.5 + i as f32 * 1.6)), yaw: FRAC_PI_2, phase: i as f32 * 1.7 })
         .collect();
     let casual = |shirt: Color, pants: Color, hair: Color| Look { skin, hair, shirt, pants, shoes: black, beard: None, glasses: false, wolverine: false, toga: false };
-    out.push(Guest { name: "VORCARO", look: casual(rgb(0.1, 0.13, 0.3), black, dark), pos: vec3(11.6, g + 1.0, 61.3), yaw: FRAC_PI_2, phase: 0.4 });
-    out.push(Guest { name: "LULINHA", look: casual(rgb(0.55, 0.75, 0.95), rgb(0.85, 0.8, 0.7), dark), pos: vec3(11.6, g + 1.0, 67.7), yaw: FRAC_PI_2, phase: 2.2 });
+    out.push(Guest { name: "VORCARO", look: casual(rgb(0.1, 0.13, 0.3), black, dark), pos: layout::club(vec3(11.6, g + 1.0, 61.3)), yaw: FRAC_PI_2, phase: 0.4 });
+    out.push(Guest { name: "LULINHA", look: casual(rgb(0.55, 0.75, 0.95), rgb(0.85, 0.8, 0.7), dark), pos: layout::club(vec3(11.6, g + 1.0, 67.7)), yaw: FRAC_PI_2, phase: 2.2 });
     out
 }
 

@@ -84,23 +84,26 @@ mod tests {
         let (lab_lo, lab_hi) = (ivec3(LAB_X0, G - 3, LAB_Z0), ivec3(LAB_X1, G + 5, LAB_Z1));
         let (hub_lo, hub_hi) = (ivec3(HX0, G - 3, HZ0), ivec3(HX1, G + 5, HZ1));
         let (lab0, hub0) = (count(&w, lab_lo, lab_hi), count(&w, hub_lo, hub_hi));
-        for c in [vec3(103.0, G as f32, 64.0), vec3(LAB_X0 as f32, G as f32 + 1.0, 60.0), vec3(106.0, G as f32, 88.0), vec3(HX1 as f32, G as f32, 90.0)] {
+        let (lab, hub) = (crate::layout::lab, crate::layout::hub);
+        let (lz, hz) = (crate::layout::LAB_D.y, crate::layout::HUB_D.y);
+        for c in [lab(vec3(103.0, G as f32, 64.0)), vec3(LAB_X0 as f32, G as f32 + 1.0, 60.0 + lz as f32), hub(vec3(106.0, G as f32, 88.0)), vec3(HX1 as f32, G as f32, 90.0 + hz as f32)] {
             urna::explode(&mut w, c, 5.5, &mut fx, &avg);
         }
         for x in LAB_X0..=LAB_X1 {
-            w.set(x, G - 1, 60, AIR);
-            w.set(x, G + 2, 70, crate::world::TNT);
+            w.set(x, G - 1, 60 + lz, AIR);
+            w.set(x, G + 2, 70 + lz, crate::world::TNT);
         }
-        w.set(100, G - 1, 88, AIR);
-        let o = vec3(60.0, G as f32 + 30.0, 64.0);
-        let s = urna::apply(&mut w, &Plan { o, hit: vec3(103.0, G as f32, 64.0), r: 5.5, deflect: false }, &mut fx, &avg);
+        w.set(100 + crate::layout::HUB_D.x, G - 1, 88 + hz, AIR);
+        let o = lab(vec3(60.0, G as f32 + 30.0, 64.0));
+        let s = urna::apply(&mut w, &Plan { o, hit: lab(vec3(103.0, G as f32, 64.0)), r: 5.5, deflect: false }, &mut fx, &avg);
         assert!(matches!(s, Shot::Deflected(p) if p.distance(crate::lab::dome_center()) > crate::lab::DOME_R - 0.5));
-        let s = urna::apply(&mut w, &Plan { o, hit: vec3(106.0, G as f32, 88.0), r: 5.5, deflect: false }, &mut fx, &avg);
+        let s = urna::apply(&mut w, &Plan { o, hit: hub(vec3(106.0, G as f32, 88.0)), r: 5.5, deflect: false }, &mut fx, &avg);
         assert!(matches!(s, Shot::Deflected(_)));
         assert_eq!(count(&w, lab_lo, lab_hi), lab0);
         assert_eq!(count(&w, hub_lo, hub_hi), hub0);
-        assert!(!protected(ivec3(64, G, 64)));
-        urna::explode(&mut w, vec3(64.0, G as f32 - 1.0, 64.0), 3.0, &mut fx, &avg);
-        assert_eq!(w.get(64, G - 1, 64), AIR);
+        let c = crate::layout::plaza_center().as_ivec3() + ivec3(10, 0, 0);
+        assert!(!protected(c));
+        urna::explode(&mut w, vec3(c.x as f32, G as f32 - 1.0, c.z as f32), 3.0, &mut fx, &avg);
+        assert_eq!(w.get(c.x, G - 1, c.z), AIR);
     }
 }

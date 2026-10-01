@@ -1,11 +1,12 @@
 //! Mundo voxel: geração da vila, clube de house, meshing por chunk com AO, raycast.
 
 use crate::atlas::{self, *};
+use crate::layout::{self, CLUB_D, LAB_D};
 use macroquad::prelude::*;
 
-pub const WX: i32 = 128;
+pub const WX: i32 = crate::layout::SIZE;
 pub const WY: i32 = 48;
-pub const WZ: i32 = 128;
+pub const WZ: i32 = crate::layout::SIZE;
 /// Altura do chão da vila (y dos pés).
 pub const G: i32 = 20;
 pub const CHUNK: i32 = 16;
@@ -34,25 +35,25 @@ pub const TNT: u8 = 17;
 pub const FIRE: u8 = 18;
 
 // Clube de house (lado oeste)
-pub const CLUB_X0: i32 = 8;
-pub const CLUB_X1: i32 = 36;
-pub const CLUB_Z0: i32 = 48;
-pub const CLUB_Z1: i32 = 80;
-pub const FLOOR_X0: i32 = 16;
-pub const FLOOR_X1: i32 = 32;
-pub const FLOOR_Z0: i32 = 54;
-pub const FLOOR_Z1: i32 = 74;
+pub const CLUB_X0: i32 = 8 + CLUB_D.x;
+pub const CLUB_X1: i32 = 36 + CLUB_D.x;
+pub const CLUB_Z0: i32 = 48 + CLUB_D.y;
+pub const CLUB_Z1: i32 = 80 + CLUB_D.y;
+pub const FLOOR_X0: i32 = 16 + CLUB_D.x;
+pub const FLOOR_X1: i32 = 32 + CLUB_D.x;
+pub const FLOOR_Z0: i32 = 54 + CLUB_D.y;
+pub const FLOOR_Z1: i32 = 74 + CLUB_D.y;
 pub const SHIELD_R: f32 = 22.0;
-pub const LAB_X0: i32 = 94;
-pub const LAB_X1: i32 = 112;
-pub const LAB_Z0: i32 = 52;
-pub const LAB_Z1: i32 = 76;
+pub const LAB_X0: i32 = 94 + LAB_D.x;
+pub const LAB_X1: i32 = 112 + LAB_D.x;
+pub const LAB_Z0: i32 = 52 + LAB_D.y;
+pub const LAB_Z1: i32 = 76 + LAB_D.y;
 
 pub fn shield_center() -> Vec3 {
-    vec3(22.0, G as f32 + 2.0, 64.0)
+    layout::club(vec3(22.0, G as f32 + 2.0, 64.0))
 }
 pub fn arena_center() -> Vec3 {
-    vec3(64.0, G as f32, 64.0)
+    layout::arena_center()
 }
 
 pub fn face_tile(b: u8, face: usize) -> usize {
@@ -250,16 +251,15 @@ impl World {
             guard: false,
         };
 
-        // Terreno: vila plana no centro e no clube, colinas em volta
+        // Terreno: cidade plana no meio, morros com floresta nas bordas
         let mut flat = vec![0f32; (WX * WZ) as usize];
+        let (m0, m1) = (22.0, WX as f32 - 22.0);
         for z in 0..WZ {
             for x in 0..WX {
                 let (xf, zf) = (x as f32, z as f32);
-                let dc = ((xf - 64.0).powi(2) + (zf - 64.0).powi(2)).sqrt();
-                let bx = (4.0 - xf).max(0.0).max(xf - 40.0);
-                let bz = (44.0 - zf).max(0.0).max(zf - 84.0);
-                let db = (bx * bx + bz * bz).sqrt();
-                let t = smoothstep(48.0, 62.0, dc).min(smoothstep(0.0, 10.0, db));
+                let bx = (m0 - xf).max(0.0).max(xf - m1);
+                let bz = (m0 - zf).max(0.0).max(zf - m1);
+                let t = smoothstep(0.0, 16.0, (bx * bx + bz * bz).sqrt());
                 flat[(z * WX + x) as usize] = t;
                 let n = 0.6 * vnoise(xf / 22.0, zf / 22.0, 1)
                     + 0.3 * vnoise(xf / 11.0, zf / 11.0, 2)
@@ -282,24 +282,13 @@ impl World {
         }
 
         let g = G;
-        // Praça (arena da briga)
-        for z in 0..WZ {
-            for x in 0..WX {
-                let d = (((x - 64) * (x - 64) + (z - 64) * (z - 64)) as f32).sqrt();
-                if d < 13.0 {
-                    w.put(x, g - 1, z, if d > 12.0 { STONE } else { COBBLE });
-                }
-            }
-        }
-        // Caminhos de cascalho
-        w.fill(36, g - 1, 62, 52, g - 1, 65, GRAVEL);
-        w.fill(76, g - 1, 62, 100, g - 1, 65, GRAVEL);
-        w.fill(62, g - 1, 20, 65, g - 1, 52, GRAVEL);
-        w.fill(62, g - 1, 76, 65, g - 1, 108, GRAVEL);
+        w.build_roads();
+        w.build_plaza();
+        w.build_arena();
+        w.build_skate();
 
-        // Casas
-        for &(x0, z0) in &[(50, 30), (70, 30), (50, 90), (70, 90), (84, 44), (84, 78), (38, 28), (38, 92)] {
-            w.build_house(x0, z0);
+        for &(x0, z0, south) in layout::HOUSES.iter().chain([&layout::TOWER_HOUSE]) {
+            w.build_house(x0, z0, south);
         }
 
         w.build_club();
@@ -313,24 +302,29 @@ impl World {
         w.fill(lx0, g, lz1, lx1, g + 3, lz1, GLASS);
         w.fill(lx1, g, lz0, lx1, g + 3, lz1, GLASS);
         w.fill(lx0, g, lz0, lx0, g + 3, lz1, GLASS);
-        w.fill(lx0, g, 62, lx0, g + 3, 66, AIR);
-        for &(x, z) in &[(lx0, lz0), (lx1, lz0), (lx0, lz1), (lx1, lz1), (lx0, 61), (lx0, 67)] {
+        w.fill(lx0, g, 62 + LAB_D.y, lx0, g + 3, 66 + LAB_D.y, AIR);
+        for &(x, z) in &[(lx0, lz0), (lx1, lz0), (lx0, lz1), (lx1, lz1), (lx0, 61 + LAB_D.y), (lx0, 67 + LAB_D.y)] {
             w.fill(x, g, z, x, g + 4, z, STONE);
         }
         w.fill(lx0, g + 4, lz0, lx1, g + 4, lz0, NEON);
         w.fill(lx0, g + 4, lz1, lx1, g + 4, lz1, NEON);
 
-        // Torre de observação (spawn do jogador)
-        w.fill(62, g, 104, 65, g + 9, 107, COBBLE);
-        for &(x, z) in &[(62, 104), (65, 104), (62, 107), (65, 107)] {
+        // Torre de observação (fim da rua sul)
+        let t = layout::tower(vec3(62.0, 0.0, 104.0)).as_ivec3();
+        let (tx, tz) = (t.x, t.z);
+        w.fill(tx, g, tz, tx + 3, g + 9, tz + 3, COBBLE);
+        for &(x, z) in &[(tx, tz), (tx + 3, tz), (tx, tz + 3), (tx + 3, tz + 3)] {
             w.fill(x, g, z, x, g + 9, z, LOG);
         }
-        w.fill(62, g + 9, 104, 65, g + 9, 107, PLANKS);
+        w.fill(tx, g + 9, tz, tx + 3, g + 9, tz + 3, PLANKS);
 
-        // Árvores fora da vila
+        // Árvores: floresta nos morros e bosques soltos entre os distritos
         for z in 3..WZ - 3 {
             for x in 3..WX - 3 {
-                if flat[(z * WX + x) as usize] < 0.7 || hash2(x, z, 777) > 0.014 {
+                let t = flat[(z * WX + x) as usize];
+                let forest = t >= 0.7 && hash2(x, z, 777) < 0.014;
+                let grove = t < 0.3 && hash2(x, z, 777) < 0.006 && layout::free(x, z, 4);
+                if !forest && !grove {
                     continue;
                 }
                 let top = w.floor_at(x as f32 + 0.5, WY as f32 - 1.0, z as f32 + 0.5) as i32;
@@ -342,7 +336,7 @@ impl World {
                     let r: i32 = if dy == 1 { 1 } else { 2 };
                     for dz in -r..=r {
                         for dx in -r..=r {
-                            if r == 2 && dx.abs() == 2 && dz.abs() == 2 && hash2(x + dx, z + dz, 779 + dy as u32) < 0.6 {
+                            if r == 2 && dx.abs() == 2 && dz.abs() == 2 && hash2(x + dx, z + dz, 779u32.wrapping_add(dy as u32)) < 0.6 {
                                 continue;
                             }
                             let (lx, ly, lz) = (x + dx, top + th + dy, z + dz);
@@ -359,7 +353,7 @@ impl World {
         w
     }
 
-    fn build_house(&mut self, x0: i32, z0: i32) {
+    fn build_house(&mut self, x0: i32, z0: i32, door_south: bool) {
         let g = G;
         let (x1, z1) = (x0 + 6, z0 + 6);
         self.fill(x0, g - 1, z0, x1, g - 1, z1, COBBLE);
@@ -377,8 +371,7 @@ impl World {
                 self.put(x1, y, z0 + i, GLASS);
             }
         }
-        // Porta virada pro centro
-        let dz = if z0 + 3 < 64 { z1 } else { z0 };
+        let dz = if door_south { z1 } else { z0 };
         self.put(x0 + 3, g, dz, AIR);
         self.put(x0 + 3, g + 1, dz, AIR);
         // Telhado escalonado
@@ -405,11 +398,156 @@ impl World {
         self.fill(CLUB_X1, g + 5, CLUB_Z0, CLUB_X1, g + 5, CLUB_Z1, CLUBWALL);
         self.fill(CLUB_X1, g + 6, CLUB_Z0, CLUB_X1, g + 6, CLUB_Z1, NEON);
         // Palco + cabine do DJ
-        self.fill(9, g, 56, 14, g, 72, PLANKS);
-        self.fill(13, g + 1, 60, 14, g + 1, 68, BLACK);
+        let (dx, dz) = (CLUB_D.x, CLUB_D.y);
+        self.fill(9 + dx, g, 56 + dz, 14 + dx, g, 72 + dz, PLANKS);
+        self.fill(13 + dx, g + 1, 60 + dz, 14 + dx, g + 1, 68 + dz, BLACK);
         // Caixas de som
-        self.fill(9, g, 50, 11, g + 4, 52, BLACK);
-        self.fill(9, g, 76, 11, g + 4, 78, BLACK);
+        self.fill(9 + dx, g, 50 + dz, 11 + dx, g + 4, 52 + dz, BLACK);
+        self.fill(9 + dx, g, 76 + dz, 11 + dx, g + 4, 78 + dz, BLACK);
+    }
+
+    fn lamp(&mut self, x: i32, z: i32) {
+        self.fill(x, G, z, x, G + 2, z, BLACK);
+        self.put(x, G + 3, z, NEON);
+    }
+
+    fn grass_free(&self, x: i32, z: i32) -> bool {
+        self.get(x, G - 1, z) == GRASS && self.get(x, G, z) == AIR
+    }
+
+    /// Anel em volta da praça + ruas retas (cascalho com meio-fio de pedra), trilhas, postes e placas.
+    fn build_roads(&mut self) {
+        let g = G;
+        let (pc, r) = (layout::PLAZA, layout::RING_R);
+        for z in 0..WZ {
+            for x in 0..WX {
+                let e = (vec2(x as f32 + 0.5, z as f32 + 0.5).distance(pc) - r).abs();
+                if e < 2.5 {
+                    self.put(x, g - 1, z, if e < 1.5 { GRAVEL } else { STONE });
+                    self.fill(x, g, z, x, g + 4, z, AIR);
+                }
+            }
+        }
+        for &(x0, z0, x1, z1) in &layout::ROADS {
+            let along_z = z1 - z0 > x1 - x0;
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    let curb = if along_z { x == x0 || x == x1 } else { z == z0 || z == z1 };
+                    if !curb || self.get(x, g - 1, z) != GRAVEL {
+                        self.put(x, g - 1, z, if curb { STONE } else { GRAVEL });
+                    }
+                    self.fill(x, g, z, x, g + 4, z, AIR);
+                }
+            }
+        }
+        for &(x0, z0, x1, z1) in &layout::PATHS {
+            self.fill(x0, g - 1, z0, x1, g - 1, z1, GRAVEL);
+        }
+        // Postes a cada 14 blocos, alternando o lado da rua
+        for &(x0, z0, x1, z1) in &layout::ROADS {
+            let along_z = z1 - z0 > x1 - x0;
+            let (a0, a1) = if along_z { (z0, z1) } else { (x0, x1) };
+            for (k, a) in (a0 + 7..a1).step_by(14).enumerate() {
+                let side = if k % 2 == 0 { -1 } else { 1 };
+                let (x, z) = if along_z { (if side < 0 { x0 - 1 } else { x1 + 1 }, a) } else { (a, if side < 0 { z0 - 1 } else { z1 + 1 }) };
+                if layout::free(x, z, 0) && self.grass_free(x, z) {
+                    self.lamp(x, z);
+                }
+            }
+        }
+        for k in 0..20 {
+            let a = k as f32 * std::f32::consts::TAU / 20.0 + 0.16;
+            let (x, z) = ((pc.x + a.cos() * (r + 3.5)) as i32, (pc.y + a.sin() * (r + 3.5)) as i32);
+            if layout::free(x, z, 0) && self.grass_free(x, z) {
+                self.lamp(x, z);
+            }
+        }
+        for &(x, z, _) in &layout::SIGNS {
+            let (x, z) = (x as i32, z as i32);
+            self.fill(x, g, z, x, g + 1, z, LOG);
+            self.put(x, g + 2, z, PLANKS);
+        }
+    }
+
+    /// Praça central: piso de pedregulho com anel de tijolo, fonte no meio, bancos e postes.
+    fn build_plaza(&mut self) {
+        let g = G;
+        let (pc, pr) = (layout::PLAZA, layout::PLAZA_R);
+        let (cx, cz) = (pc.x as i32, pc.y as i32);
+        let n = pr as i32 + 1;
+        for z in cz - n..=cz + n {
+            for x in cx - n..=cx + n {
+                let d = vec2(x as f32 + 0.5, z as f32 + 0.5).distance(pc);
+                if d >= pr {
+                    continue;
+                }
+                let b = if d > pr - 1.0 || d < 4.5 { STONE } else if (d - 11.0).abs() < 0.5 { BRICK } else { COBBLE };
+                self.put(x, g - 1, z, b);
+                self.fill(x, g, z, x, g + 6, z, AIR);
+                if d < 3.5 {
+                    self.put(x, g - 1, z, GLASS);
+                } else if d < 4.5 {
+                    self.put(x, g, z, STONE);
+                }
+                if d < 1.0 {
+                    self.fill(x, g - 1, z, x, g + 2, z, STONE);
+                    self.put(x, g + 3, z, NEON);
+                }
+            }
+        }
+        let tau = std::f32::consts::TAU;
+        for k in 0..8 {
+            let a = (k as f32 + 0.5) * tau / 8.0;
+            let (dir, tan) = (vec2(a.cos(), a.sin()), vec2(-a.sin(), a.cos()));
+            for s in -1..=1 {
+                let p = pc + dir * 15.0 + tan * s as f32;
+                self.put(p.x.floor() as i32, g, p.y.floor() as i32, PLANKS);
+            }
+            let p = pc + dir * (pr - 3.0);
+            self.lamp(p.x.floor() as i32, p.y.floor() as i32);
+        }
+    }
+
+    /// Arena aberta pros gigantes: grama com manchas de terra e borda de areia.
+    fn build_arena(&mut self) {
+        let g = G;
+        let (c, h) = (layout::ARENA, layout::ARENA_HALF);
+        let (x0, x1, z0, z1) = ((c.x - h.x) as i32, (c.x + h.x) as i32, (c.y - h.y) as i32, (c.y + h.y) as i32);
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                let edge = x - x0 < 2 || x1 - x < 2 || z - z0 < 2 || z1 - z < 2;
+                let b = if edge { SAND } else if vnoise(x as f32 / 9.0, z as f32 / 9.0, 41) > 0.68 { DIRT } else { GRASS };
+                self.fill(x, g - 4, z, x, g - 2, z, DIRT);
+                self.put(x, g - 1, z, b);
+                self.fill(x, g, z, x, WY - 1, z, AIR);
+            }
+        }
+        for &(x, z) in &[(x0, z0), (x1, z0), (x0, z1), (x1, z1)] {
+            self.lamp(x, z);
+        }
+    }
+
+    /// Pista de skate: piso de pedra, quarter pipes em escada no norte/sul, caixote, ledges e corrimões.
+    fn build_skate(&mut self) {
+        let g = G;
+        let (x0, z0, x1, z1) = layout::SKATE;
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                self.put(x, g - 1, z, STONE);
+                self.fill(x, g, z, x, g + 6, z, AIR);
+            }
+        }
+        for k in 0..3 {
+            self.fill(x0, g, z0 + k, x1, g + 2 - k, z0 + k, STONE);
+            self.fill(x0, g, z1 - k, x1, g + 2 - k, z1 - k, STONE);
+        }
+        let (mx, mz) = ((x0 + x1) / 2, (z0 + z1) / 2);
+        self.fill(mx - 6, g, mz - 4, mx + 6, g, mz + 4, PLANKS);
+        self.fill(mx - 3, g + 1, mz - 2, mx + 3, g + 1, mz + 2, PLANKS);
+        self.fill(x0 + 6, g, z0 + 7, x0 + 18, g, z0 + 7, COBBLE);
+        self.fill(x1 - 18, g, z1 - 7, x1 - 6, g, z1 - 7, COBBLE);
+        self.fill(x1 - 18, g, z0 + 10, x1 - 4, g, z0 + 10, BLACK);
+        self.fill(x0 + 4, g, z1 - 11, x0 + 16, g, z1 - 11, BLACK);
     }
 
     /// Gera meshes de um chunk (face culling + ambient occlusion por vértice).

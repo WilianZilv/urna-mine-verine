@@ -8,10 +8,11 @@ use macroquad::prelude::*;
 use serde_json::Value;
 
 const LEDGER: usize = 200;
-/// Outdoors (x, z) em volta da praça e do caminho do clube, todos virados pro centro (64, 64).
-const SPOTS: [(f32, f32); 4] = [(48.0, 56.0), (48.0, 72.0), (80.0, 54.0), (56.0, 80.0)];
-/// Outdoor da própria IA, do lado do clube.
-const AI_SPOT: (f32, f32) = (40.0, 46.0);
+/// Outdoors (x, z) nos cantos da praça, todos virados pro centro.
+const SPOTS: [(f32, f32); 4] = crate::layout::BILLBOARDS;
+/// Outdoor da própria IA, na rua do clube.
+const AI_SPOT: (f32, f32) = crate::layout::AI_BOARD;
+const MID: Vec2 = crate::layout::PLAZA;
 
 struct Entry {
     who: String,
@@ -100,7 +101,7 @@ impl Economy {
     pub fn draw_world(&self, b: &mut Batch, labels: &mut Vec<Label>, eye: Vec3, time: f32) {
         for (i, &(x, z)) in SPOTS.iter().enumerate() {
             let base = vec3(x, G as f32, z);
-            let to = vec3(64.0, 0.0, 64.0) - vec3(x, 0.0, z);
+            let to = vec3(MID.x - x, 0.0, MID.y - z);
             let m = Mat4::from_translation(base) * Mat4::from_rotation_y(to.x.atan2(to.z));
             let ad = self.ads.get(i).and_then(|a| a.as_ref()).filter(|a| a.left > 0.0);
             let wood = Color::new(0.25, 0.17, 0.1, 1.0);
@@ -132,7 +133,7 @@ impl Economy {
             return;
         }
         let (x, z) = AI_SPOT;
-        let to = vec3(64.0 - x, 0.0, 64.0 - z);
+        let to = vec3(MID.x - x, 0.0, MID.y - z);
         let m = Mat4::from_translation(vec3(x, G as f32, z)) * Mat4::from_rotation_y(to.x.atan2(to.z));
         let dark = Color::new(0.08, 0.06, 0.1, 1.0);
         b.cube(&m, vec3(-3.6, 2.5, 0.0), vec3(0.3, 5.0, 0.3), dark);

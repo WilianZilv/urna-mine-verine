@@ -16,8 +16,9 @@ use std::f32::consts::FRAC_PI_2;
 mod panel;
 
 pub const DOME_R: f32 = 16.0;
-pub const PANEL_X: f32 = 86.0;
-const PANEL_Z: f32 = 64.5;
+const PANEL: Vec3 = crate::layout::lab(vec3(86.0, 0.0, 64.5));
+pub const PANEL_X: f32 = PANEL.x;
+const PANEL_Z: f32 = PANEL.z;
 
 pub fn dome_center() -> Vec3 {
     vec3((LAB_X0 + LAB_X1) as f32 * 0.5 + 0.5, G as f32, (LAB_Z0 + LAB_Z1) as f32 * 0.5 + 0.5)

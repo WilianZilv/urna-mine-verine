@@ -681,7 +681,7 @@ pub struct Car {
 
 impl Car {
     pub fn new(world: &World) -> Self {
-        let (x, z) = (70.5, 99.5);
+        let (x, z) = crate::layout::CAR_SPAWN;
         Car { pos: vec3(x, world.floor_at(x, G as f32 + 3.0, z), z), yaw: -FRAC_PI_2, vel: Vec3::ZERO, vy: 0.0, steer: 0.0, wheel: 0.0, hp: 100.0, wreck: 0.0, door: 0.0, smoke_t: 0.0 }
     }
 

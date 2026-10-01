@@ -73,14 +73,14 @@ fn keep_out() -> [(Vec2, f32); 2] {
     [(xz(shield_center()), SHIELD_R + MARGIN), (xz(crate::lab::dome_center()), crate::lab::DOME_R + MARGIN)]
 }
 
-/// Área do GODZILHA: ao sul do placar (z >= 44), fora do clube e do lab.
+/// Área do GODZILHA: a arena do norte, fora do clube e do lab.
 fn zone_ok(p: Vec2) -> bool {
-    (10.0..118.0).contains(&p.x) && (44.0..118.0).contains(&p.y) && keep_out().iter().all(|(c, r)| p.distance(*c) > *r)
+    crate::layout::in_arena(p, 0.0) && keep_out().iter().all(|(c, r)| p.distance(*c) > *r)
 }
 
 fn wander_point() -> Vec3 {
     loop {
-        let p = vec2(gen_range(14.0, 114.0), gen_range(48.0, 114.0));
+        let p = crate::layout::arena_point(4.0);
         if zone_ok(p) {
             return vec3(p.x, G as f32, p.y);
         }
@@ -138,7 +138,7 @@ pub struct Kaiju {
 
 impl Kaiju {
     pub fn new(sr: u32) -> Self {
-        let root = vec3(96.0, G as f32, 104.0);
+        let root = crate::layout::arena_center() + vec3(24.0, 0.0, 16.0);
         let yaw = PI;
         let foot = |s: f32| {
             let p = root + side(yaw) * s * HIP_X;
@@ -391,8 +391,9 @@ impl Kaiju {
                 next = vec3(p.x, next.y, p.y);
             }
         }
-        next.x = next.x.clamp(10.0, 118.0);
-        next.z = next.z.clamp(44.0, 118.0);
+        let (lo, hi) = (crate::layout::ARENA - crate::layout::ARENA_HALF, crate::layout::ARENA + crate::layout::ARENA_HALF);
+        next.x = next.x.clamp(lo.x, hi.x);
+        next.z = next.z.clamp(lo.y, hi.y);
         match self.blocked(world, next).filter(|_| self.blocked(world, self.root).is_none()) {
             Some(hit) => {
                 // Prédio no caminho: derruba na porrada

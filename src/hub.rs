@@ -5,21 +5,22 @@
 use crate::batch::Batch;
 use crate::extras::Label;
 use crate::models::rgb;
+use crate::layout::{self, HUB_D};
 use crate::player::Player;
 use crate::world::*;
 use macroquad::prelude::*;
 use serde_json::{Value, json};
 use std::f32::consts::PI;
 
-pub const HX0: i32 = 91;
-pub const HX1: i32 = 121;
-pub const HZ0: i32 = 81;
-pub const HZ1: i32 = 95;
+pub const HX0: i32 = 91 + HUB_D.x;
+pub const HX1: i32 = 121 + HUB_D.x;
+pub const HZ0: i32 = 81 + HUB_D.y;
+pub const HZ1: i32 = 95 + HUB_D.y;
 const SLOTS: usize = 8;
-const SIGN: Vec3 = vec3(120.6, G as f32 + 6.5, 88.0);
+const SIGN: Vec3 = layout::hub(vec3(120.6, G as f32 + 6.5, 88.0));
 const SITE: &str = "urna-mine-verine.wilianzilv.workers.dev";
 /// Placas que abrem as instruções: (centro, normal da frente, meia largura, meia altura, caminho).
-const SIGNS: [(Vec3, Vec3, f32, f32, &str); 2] = [(SIGN, vec3(-1.0, 0.0, 0.0), 6.0, 2.5, "hub.txt"), (vec3(103.5, G as f32 + 7.5, 31.8), vec3(0.0, 0.0, 1.0), 7.5, 4.0, "modding.txt")];
+const SIGNS: [(Vec3, Vec3, f32, f32, &str); 2] = [(SIGN, vec3(-1.0, 0.0, 0.0), 6.0, 2.5, "hub.txt"), (layout::modz(vec3(103.5, G as f32 + 7.5, 31.8)), vec3(0.0, 0.0, 1.0), 7.5, 4.0, "modding.txt")];
 
 /// Abre o link numa aba nova (precisa vir logo depois de clique/tecla); bloqueado = copia. Retorna a linha do chat.
 pub fn open_url(url: &str) -> String {
@@ -87,7 +88,7 @@ pub fn build(w: &mut World) {
         }
     }
     for x in HX0..=HX0 + 1 {
-        for z in 66..HZ0 {
+        for z in layout::HUB_PATH_Z0..HZ0 {
             w.set(x, g - 1, z, GRAVEL);
             for y in g..g + 3 {
                 w.set(x, y, z, AIR);
@@ -98,7 +99,7 @@ pub fn build(w: &mut World) {
 
 /// Centro do arco (no chão) e normal pra dentro do corredor.
 fn slot(i: usize) -> (Vec3, Vec3) {
-    let x = 96.5 + 6.0 * (i % 4) as f32;
+    let x = 96.5 + HUB_D.x as f32 + 6.0 * (i % 4) as f32;
     if i < 4 { (vec3(x, G as f32, HZ0 as f32 + 1.5), Vec3::Z) } else { (vec3(x, G as f32, HZ1 as f32 - 0.5), -Vec3::Z) }
 }
 
@@ -329,7 +330,7 @@ impl Hub {
         let top = crate::shield::hub_center() + vec3(0.0, crate::shield::HUB_R.y, 0.0);
         let k = 0.6 + 0.4 * (time * 6.0).sin();
         for (j, z) in [84.0f32, 93.0].into_iter().enumerate() {
-            let base = vec3(92.6, G as f32, z);
+            let base = layout::hub(vec3(92.6, G as f32, z));
             let col = if j == 0 { Color::new(0.3, 1.0, 1.0, 1.0) } else { Color::new(1.0, 0.35, 0.95, 1.0) };
             b.cube(&Mat4::IDENTITY, base + vec3(0.0, 0.3, 0.0), vec3(1.4, 0.6, 1.4), stone);
             b.cube(&Mat4::IDENTITY, base + vec3(0.0, 2.0, 0.0), vec3(0.6, 3.0, 0.6), rgb(0.12, 0.12, 0.16));
@@ -343,11 +344,11 @@ impl Hub {
             crate::urna::beam(trans, em, top, 0.08, Color::new(1.0, 1.0, 1.0, 0.8));
         }
         trans.glow(&Mat4::from_translation(top), Vec3::ZERO, Vec3::splat(1.0 + k), Color::new(0.8, 0.5, 1.0, 0.5));
-        if eye.distance(vec3(92.6, G as f32, 88.5)) < 20.0 {
-            labels.push(Label { pos: vec3(92.6, G as f32 + 4.8, 88.5), text: "CUPULA DO HUB - NADA QUEBRA AQUI DENTRO".into(), size: 16.0, color: rgb(0.6, 1.0, 1.0) });
+        if eye.distance(layout::hub(vec3(92.6, G as f32, 88.5))) < 20.0 {
+            labels.push(Label { pos: layout::hub(vec3(92.6, G as f32 + 4.8, 88.5)), text: "CUPULA DO HUB - NADA QUEBRA AQUI DENTRO".into(), size: 16.0, color: rgb(0.6, 1.0, 1.0) });
         }
         // Totem na entrada do caminho (estrada leste)
-        let post = vec3(HX0 as f32 + 3.2, G as f32, 66.5);
+        let post = vec3(HX0 as f32 + 3.2, G as f32, layout::HUB_PATH_Z0 as f32 + 0.5);
         b.cube(&Mat4::IDENTITY, post + vec3(0.0, 1.5, 0.0), vec3(0.3, 3.0, 0.3), rgb(0.2, 0.15, 0.1));
         b.glow(&Mat4::IDENTITY, post + vec3(0.0, 3.2, 0.0), vec3(1.6, 0.6, 0.15), rgb(0.6, 0.35, 1.0));
         if eye.distance(post) < 30.0 {

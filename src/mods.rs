@@ -18,11 +18,13 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 
 pub const SITE: &str = "urna-mine-verine.wilianzilv.workers.dev";
-const ZX0: i32 = 95;
-const ZX1: i32 = 111;
-const ZZ0: i32 = 31;
-const ZZ1: i32 = 47;
-const PADS: [(f32, f32); 4] = [(99.5, 37.5), (107.5, 37.5), (99.5, 43.5), (107.5, 43.5)];
+const MDX: i32 = crate::layout::MODZ_D.x;
+const MDZ: i32 = crate::layout::MODZ_D.y;
+const ZX0: i32 = 95 + MDX;
+const ZX1: i32 = 111 + MDX;
+const ZZ0: i32 = 31 + MDZ;
+const ZZ1: i32 = 47 + MDZ;
+const PADS: [(f32, f32); 4] = [(99.5 + MDX as f32, 37.5 + MDZ as f32), (107.5 + MDX as f32, 37.5 + MDZ as f32), (99.5 + MDX as f32, 43.5 + MDZ as f32), (107.5 + MDX as f32, 43.5 + MDZ as f32)];
 const PANEL_Z: f32 = ZZ0 as f32 + 0.8;
 const GRAV: f32 = 20.0;
 
@@ -347,8 +349,9 @@ fn home(zone: bool, slot: usize, k: usize, id: &str) -> Vec3 {
     }
     let h = hash(id).wrapping_add(k as u32 * 7919);
     let a = (h % 360) as f32 * TAU / 360.0;
-    let r = 18.0 + ((h / 360) % 22) as f32;
-    vec3((64.0 + a.cos() * r).clamp(4.0, 123.0), G as f32, (64.0 + a.sin() * r).clamp(4.0, 123.0))
+    let r = 30.0 + ((h / 360) % 60) as f32;
+    let c = crate::layout::PLAZA;
+    vec3((c.x + a.cos() * r).clamp(4.0, WX as f32 - 5.0), G as f32, (c.y + a.sin() * r).clamp(4.0, WZ as f32 - 5.0))
 }
 
 fn sample(a: &Anim, t: f32, n: usize) -> Vec<(Vec3, Vec3)> {

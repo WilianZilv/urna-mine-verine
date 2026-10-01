@@ -35,8 +35,9 @@ const GRITOS: [&str; 5] = ["PEW PEW, TALKEY?", "TOMA LASER!", "E DAI?", "AVIOCIA
 
 /// Rota no céu: dois senos por eixo (vagueia pela vila toda) e um mergulho a cada 26s.
 pub fn pos(t: f32) -> Vec3 {
-    let x = 64.0 + 40.0 * (t * 0.11).sin() + 12.0 * (t * 0.27 + 1.0).sin();
-    let z = 64.0 + 38.0 * (t * 0.083 + 2.0).cos() + 12.0 * (t * 0.23).sin();
+    let c = crate::layout::PLAZA;
+    let x = c.x + 95.0 * (t * 0.07).sin() + 18.0 * (t * 0.27 + 1.0).sin();
+    let z = c.y + 90.0 * (t * 0.053 + 2.0).cos() + 18.0 * (t * 0.23).sin();
     let ph = t.rem_euclid(26.0);
     let dive = if ph < 5.0 { (ph / 5.0 * PI).sin().powi(2) } else { 0.0 };
     vec3(x, G as f32 + 20.0 + 2.5 * (t * 0.6).sin() - 13.0 * dive, z)

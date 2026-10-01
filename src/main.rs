@@ -16,6 +16,7 @@ mod hub;
 mod inventory;
 mod items;
 mod lab;
+mod layout;
 mod models;
 mod mods;
 mod mp;
@@ -1521,7 +1522,7 @@ async fn main() {
             fireworks_t -= dt;
             if fireworks_t <= 0.0 {
                 fireworks_t = gen_range(0.15, 0.4);
-                let c = vec3(gen_range(30.0, 100.0), G as f32 + gen_range(22.0, 38.0), gen_range(30.0, 80.0));
+                let c = layout::plaza_center() + vec3(gen_range(-50.0, 50.0), gen_range(22.0, 38.0), gen_range(-50.0, 30.0));
                 let hue = gen_range(0.0, 1.0);
                 for _ in 0..40 {
                     let d = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)).normalize_or_zero();
@@ -1643,10 +1644,11 @@ async fn main() {
         let id = Mat4::IDENTITY;
         let sun_dir = vec3(0.4, 0.75, 0.3).normalize();
         opaque.glow(&id, eye + sun_dir * 160.0, Vec3::splat(16.0), Color::new(day, 0.95 * day, 0.6 * day, 1.0));
-        for k in 0..22 {
-            let kx = atlas::hash2(k, 1, 900) * 260.0 - 66.0;
-            let kz = atlas::hash2(k, 2, 900) * 260.0 - 66.0;
-            let x = (kx + time * 1.5).rem_euclid(260.0) - 66.0;
+        let span = world::WX as f32 + 132.0;
+        for k in 0..60 {
+            let kx = atlas::hash2(k, 1, 900) * span - 66.0;
+            let kz = atlas::hash2(k, 2, 900) * span - 66.0;
+            let x = (kx + time * 1.5).rem_euclid(span) - 66.0;
             let s = vec3(8.0 + atlas::hash2(k, 3, 900) * 12.0, 1.5, 6.0 + atlas::hash2(k, 4, 900) * 10.0);
             opaque.glow(&id, vec3(x, 62.0, kz), s, Color::new(day, day, day, 1.0));
         }
@@ -1719,8 +1721,9 @@ async fn main() {
             labels.push(Label { pos: r.pos + up * 2.2, text: r.name.clone(), size: 22.0, color: Color::new(0.5, 1.0, 0.6, 1.0) });
         }
         // Telão: moldura presa na parede oeste do clube, virado pro leste
-        let (tx, tz0, tz1, ty0, ty1) = (9.21, 56.5, 72.5, G as f32 + 4.5, G as f32 + 13.5);
-        opaque.cube(&id, vec3(9.1, (ty0 + ty1) * 0.5, (tz0 + tz1) * 0.5), vec3(0.2, ty1 - ty0 + 0.4, tz1 - tz0 + 0.4), Color::new(0.05, 0.05, 0.06, 1.0));
+        let (cdx, cdz) = (layout::CLUB_D.x as f32, layout::CLUB_D.y as f32);
+        let (tx, tz0, tz1, ty0, ty1) = (9.21 + cdx, 56.5 + cdz, 72.5 + cdz, G as f32 + 4.5, G as f32 + 13.5);
+        opaque.cube(&id, vec3(9.1 + cdx, (ty0 + ty1) * 0.5, (tz0 + tz1) * 0.5), vec3(0.2, ty1 - ty0 + 0.4, tz1 - tz0 + 0.4), Color::new(0.05, 0.05, 0.06, 1.0));
         let driving = bandido.as_ref().is_some_and(|b| b.driving);
         car.draw(&mut opaque, driving);
         if !driving && car.pos.distance(eye) < 30.0 {
@@ -1806,7 +1809,8 @@ async fn main() {
             draw_rectangle(0.0, 0.0, w, h, Color::new(0.05, 0.0, 0.12, 0.5 * club_k));
             draw_rectangle(0.0, 0.0, w, h, Color::new(c.r, c.g, c.b, 0.12 * pulse * club_k));
         }
-        labels.push(Label { pos: vec3(36.5, G as f32 + 8.2, 64.5), text: "CLUB DO HOUSE - SO CURTINDO".into(), size: 30.0, color: Color::new(1.0, 0.4, 0.9, 1.0) });
+        labels.push(Label { pos: layout::club(vec3(36.5, G as f32 + 8.2, 64.5)), text: "CLUB DO HOUSE - SO CURTINDO".into(), size: 30.0, color: Color::new(1.0, 0.4, 0.9, 1.0) });
+        layout::labels(&mut labels, eye);
         labels.push(Label { pos: urna.matrix().transform_point3(vec3(0.0, 6.0, 0.0)), text: "URNA ELETRONICA".into(), size: 32.0, color: Color::new(1.0, 0.85, 0.3, 1.0) });
         labels.push(Label { pos: urna.matrix().transform_point3(vec3(5.2, -3.6, 1.8)), text: "CONFIRMA".into(), size: 20.0, color: GREEN });
         let (label_max, label_far) = quality::pick([(12, 45.0), (24, 80.0), (usize::MAX, f32::MAX)]);

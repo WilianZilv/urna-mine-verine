@@ -142,10 +142,11 @@ const UPPER: f32 = 4.3;
 const FORE: f32 = 4.3;
 const STAND: f32 = 8.4 + 3.3;
 
-/// Ponto aleatório do mapa pra urna ir quebrar, longe do escudo.
+/// Ponto aleatório da arena pra urna ir quebrar, longe do escudo.
 fn wander_point() -> Vec3 {
     loop {
-        let p = vec3(gen_range(40.0, 118.0), G as f32, gen_range(12.0, 116.0));
+        let a = crate::layout::arena_point(8.0);
+        let p = vec3(a.x, G as f32, a.y);
         if p.distance(shield_center()) > SHIELD_R + 10.0 && p.distance(crate::lab::dome_center()) > crate::lab::DOME_R + 8.0 && !in_box(vec2(p.x, p.z), panel_box()) {
             return p;
         }
@@ -176,7 +177,7 @@ pub fn limb(b: &mut Batch, a: Vec3, c: Vec3, w: f32, col: Color) {
 
 impl Urna {
     pub fn new() -> Self {
-        let root = vec3(56.0, G as f32, 64.0);
+        let root = crate::layout::URNA_SPAWN;
         let side = vec3(0.0, 0.0, 1.0);
         let foot = |s: f32| Foot { pos: root + side * s * HIP.x, from: root, to: root, t: 1.0 };
         Urna {

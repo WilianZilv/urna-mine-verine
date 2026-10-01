@@ -898,9 +898,14 @@ impl Portals {
 mod tests {
     use super::*;
 
+    /// Coordenada do desenho antigo da torre -> mapa atual.
+    fn t(x: i32, y: i32, z: i32) -> IVec3 {
+        ivec3(x + crate::layout::TOWER_D.x, y, z + crate::layout::TOWER_D.y)
+    }
+
     fn pair(w: &World) -> Vec<Portal> {
-        let a = Portal::new(0, 0, ivec3(63, G, 104), ivec3(0, 0, -1), IVec3::Y);
-        let b = Portal::new(0, 1, ivec3(73, G, 96), ivec3(0, 0, 1), IVec3::Y);
+        let a = Portal::new(0, 0, t(63, G, 104), ivec3(0, 0, -1), IVec3::Y);
+        let b = Portal::new(0, 1, t(73, G, 96), ivec3(0, 0, 1), IVec3::Y);
         assert!(a.valid(w) && b.valid(w));
         vec![a, b]
     }
@@ -922,7 +927,7 @@ mod tests {
     fn falling_into_floor_flings_out_of_wall() {
         let w = World::generate();
         let mut list = pair(&w);
-        list[0] = Portal::new(0, 0, ivec3(63, G - 1, 99), IVec3::Y, ivec3(0, 0, -1));
+        list[0] = Portal::new(0, 0, t(63, G - 1, 99), IVec3::Y, ivec3(0, 0, -1));
         assert!(list[0].valid(&w));
         let c = list[0].c + vec3(0.0, 0.92, 0.0);
         let v = vec3(0.0, -20.0, 0.0);
@@ -935,10 +940,11 @@ mod tests {
     #[test]
     fn aim_snaps_to_flat_area() {
         let w = World::generate();
-        let (cell, ni, ui) = aim(&w, vec3(63.5, G as f32 + 1.62, 101.0), vec3(0.0, -0.2, 1.0).normalize()).expect("parede da torre");
+        let eye = crate::layout::tower(vec3(63.5, G as f32 + 1.62, 101.0));
+        let (cell, ni, ui) = aim(&w, eye, vec3(0.0, -0.2, 1.0).normalize()).expect("parede da torre");
         assert_eq!((ni, ui), (ivec3(0, 0, -1), IVec3::Y));
-        assert_eq!((cell.x, cell.z), (63, 104));
-        assert!(aim(&w, vec3(63.5, G as f32 + 1.62, 101.0), vec3(0.0, 1.0, 0.0)).is_err());
+        assert_eq!((cell.x, cell.z), (t(63, 0, 104).x, t(63, 0, 104).z));
+        assert!(aim(&w, eye, vec3(0.0, 1.0, 0.0)).is_err());
     }
 
     #[test]

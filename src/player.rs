@@ -25,7 +25,7 @@ impl Player {
     }
 
     pub fn spawn() -> Vec3 {
-        vec3(64.0, G as f32 + 10.0, 105.5)
+        crate::layout::SPAWN
     }
 
     pub fn eye(&self) -> Vec3 {

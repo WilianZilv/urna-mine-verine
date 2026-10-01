@@ -2,414 +2,121 @@
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>Ilha do Por do Sol - demo do Urna Portal Protocol</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chuva de Votos - demo do Urna Portal Protocol</title>
     <style>
-        html, body { margin: 0; height: 100%; background: #f08a5a; color: #fff; font: 13px system-ui, sans-serif; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-        canvas { display: block; width: 100%; height: 100%; }
-        #hud { position: absolute; left: 12px; top: 10px; pointer-events: none; text-shadow: 0 1px 3px #0008; }
-        #hud b { font-size: 16px; letter-spacing: .5px; }
-        #hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none; background: #0004; padding: 6px 12px; border-radius: 14px; transition: opacity 1s; max-width: 86vw; text-align: center; }
-        #voltar { position: absolute; right: 12px; top: 10px; font: bold 13px system-ui, sans-serif; background: #ff4f8b; color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; cursor: pointer; box-shadow: 0 2px 6px #0005; }
-        #joy { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; background: #fff2; border: 2px solid #fff6; display: none; pointer-events: none; }
-        #knob { position: absolute; left: 35px; top: 35px; width: 40px; height: 40px; border-radius: 50%; background: #fffb; }
-        #pular { position: absolute; right: 22px; bottom: 34px; width: 76px; height: 76px; border-radius: 50%; border: 2px solid #fff8; background: #fff3; color: #fff; font: bold 13px system-ui, sans-serif; display: none; }
+        html, body { margin: 0; height: 100%; background: #0b0820; color: #fff; font: 14px monospace; overflow: hidden; }
+        canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+        #hud { position: absolute; left: 10px; top: 8px; pointer-events: none; text-shadow: 0 1px 2px #000; }
+        #sair { position: absolute; right: 10px; top: 8px; font: bold 13px monospace; background: #ff3d7f; color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+        #vida { position: absolute; right: 10px; top: 44px; font: bold 13px monospace; background: #2fa84f; color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; display: none; }
     </style>
-    <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
-    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js"></script>
-    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-three.js"></script>
 </head>
 <body>
-    <div id="hud"><b>Ilha do Por do Sol</b><br><span id="st">conectando ao Urna...</span></div>
-    <button id="voltar" type="button">VOLTAR</button>
-    <div id="hint"></div>
-    <div id="joy"><div id="knob"></div></div>
-    <button id="pular" type="button">PULAR</button>
-    <script type="module">
-        // Demo de jogo externo do Game Hub: ilha pequena no por do sol pra mostrar locomocao 3D.
-        // SDK UPP (tudo com feature-detect; standalone funciona sem o iframe do Urna):
-        //   UrnaPortal.connect -> nome/cor; UrnaPortal.avatar() + UrnaAvatarThree -> modelo do passaporte (senao boneco de blocos);
-        //   UrnaPortal.presence -> outros jogadores do Urna nesta ilha (interpolados); UrnaPortal.exit() no VOLTAR.
-        // Ganchos: window.Ilha = { THREE, scene, camera, player, others, ground, onFrame: [fn(dt, t)] }.
-        import * as THREE from "three";
-
-        const HOST = "https://urna-mine-verine.wilianzilv.workers.dev", PORTAL_ID = "chuva-de-votos";
-        const UP = window.UrnaPortal || null, UAT = () => window.UrnaAvatarThree || null;
-        const mobile = matchMedia("(pointer: coarse)").matches;
-        const $ = (id) => document.getElementById(id);
-
-        // ------------------------------------------------------------ ilha (mesma forma no JS e no shader)
-        const shoreR = (a) => 14 + 1.8 * Math.sin(3 * a) + 1.1 * Math.sin(5 * a + 1.3);
-        function ground(x, z) {
-            const t = Math.hypot(x, z) / shoreR(Math.atan2(z, x));
-            return t < 1 ? 1.7 * (1 - t * t) + 0.25 * Math.sin(x * 0.55) * Math.cos(z * 0.47) * (1 - t) : -Math.min(3, (t - 1) * 8);
-        }
-        const SUN = new THREE.Vector3(-0.8, 0.15, -0.6).normalize();
-        const GLSL = `
-            uniform vec3 uSun; uniform float uTime;
-            float shoreR(float a) { return 14.0 + 1.8 * sin(3.0 * a) + 1.1 * sin(5.0 * a + 1.3); }
-            float ground(vec2 p) {
-                float t = length(p) / shoreR(atan(p.y, p.x));
-                return t < 1.0 ? 1.7 * (1.0 - t * t) + 0.25 * sin(p.x * 0.55) * cos(p.y * 0.47) * (1.0 - t) : -min(3.0, (t - 1.0) * 8.0);
-            }
-            vec3 sky(vec3 d) {
-                float h = max(d.y, 0.0);
-                vec3 c = mix(vec3(1.0, 0.56, 0.3), vec3(0.95, 0.43, 0.52), smoothstep(0.0, 0.16, h));
-                c = mix(c, vec3(0.24, 0.2, 0.45), smoothstep(0.14, 0.75, h));
-                float s = max(dot(d, uSun), 0.0);
-                c += vec3(1.0, 0.55, 0.2) * (pow(s, 6.0) * 0.35 + pow(s, 80.0) * 0.6);
-                return mix(c, vec3(1.0, 0.94, 0.72), smoothstep(0.9988, 0.9993, s));
-            }
-            vec3 wv(vec2 p, vec2 d, float k, float w, float a) { float ph = dot(d, p) * k + uTime * w; return vec3(a * sin(ph), a * k * cos(ph) * d); }
-            vec3 waves(vec2 p) {
-                float amp = 0.35 + 0.65 * smoothstep(0.0, 2.5, -ground(p));
-                return amp * (wv(p, vec2(0.8, 0.6), 0.55, 1.1, 0.1) + wv(p, vec2(-0.47, 0.88), 1.1, 1.7, 0.05) + wv(p, vec2(0.2, -0.98), 2.1, 2.6, 0.025));
-            }`;
-
-        // ------------------------------------------------------------ render
-        const renderer = new THREE.WebGLRenderer({ antialias: !mobile, powerPreference: "high-performance" });
-        renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.25 : 1.5));
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        document.body.prepend(renderer.domElement);
-        const scene = new THREE.Scene();
-        scene.fog = new THREE.Fog(0xff9a60, 70, 320);
-        const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1000);
-        const resize = () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.fov = camera.aspect < 1 ? 78 : 62; camera.updateProjectionMatrix(); };
+    <canvas id="c"></canvas>
+    <div id="hud">conectando ao Urna...</div>
+    <button id="sair" type="button">SAIR PRO URNA</button>
+    <button id="vida" type="button">+1 VIDA (3 moedas)</button>
+    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js"></script>
+    <script src="https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-canvas2d.js"></script>
+    <script>
+        "use strict";
+        // Demo de jogo externo: pega os votos verdes (CONFIRMA), desvia dos vermelhos. Usa o SDK UPP:
+        // avatar do jogador (passaporte) desenhado com urna-avatar-canvas2d, outros jogadores do Urna via presenca,
+        // premio com grant() (o servidor limita) e vida extra com spend() (o jogador confirma na tela do Urna).
+        const HOST = "https://urna-mine-verine.wilianzilv.workers.dev";
+        const cv = document.getElementById("c"), g = cv.getContext("2d"), hud = document.getElementById("hud"), vida = document.getElementById("vida");
+        let W = 0, H = 0, x = 0.5, px = 0.5, keys = {}, items = [], score = 0, lives = 3, t = 0, last = performance.now();
+        let me = { name: "convidado", color: "#00e5ff", character: "?" }, online = false, sentScore = 0, got30 = false, msg = "", msgT = 0;
+        let av = null, speed = 0;
+        const others = new Map(), avCache = new Map();
+        const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; };
         addEventListener("resize", resize); resize();
-
-        const uni = { uSun: { value: SUN }, uTime: { value: 0 } };
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 32, 16), new THREE.ShaderMaterial({
-            uniforms: uni, side: THREE.BackSide, depthWrite: false, fog: false,
-            vertexShader: `varying vec3 vD; void main() { vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-            fragmentShader: `precision highp float; ${GLSL} varying vec3 vD; void main() { gl_FragColor = vec4(sky(normalize(vD)), 1.0); }`,
-        }));
-        sky.renderOrder = -1;
-        scene.add(sky);
-
-        const sunL = new THREE.DirectionalLight(0xffa565, 4.2);
-        sunL.position.copy(SUN).multiplyScalar(60);
-        sunL.castShadow = true;
-        sunL.shadow.mapSize.set(mobile ? 512 : 1024, mobile ? 512 : 1024);
-        Object.assign(sunL.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 140 });
-        sunL.shadow.bias = -0.0006; sunL.shadow.normalBias = 0.03;
-        scene.add(sunL, new THREE.HemisphereLight(0xffb0b0, 0xb08060, 1.0));
-
-        // terreno: grade polar low-poly com cor por altura (areia seca / molhada / fundo)
-        {
-            const RINGS = 34, SEG = 72, pos = [], col = [], idx = [], c = new THREE.Color();
-            const dry = new THREE.Color(0xf2d6a0), wet = new THREE.Color(0xc29d6a), sea = new THREE.Color(0x7a6e55);
-            for (let i = 0; i <= RINGS; i++) for (let j = 0; j < SEG; j++) {
-                const a = (j / SEG) * Math.PI * 2, t = Math.pow(i / RINGS, 0.9) * 2.3 + (i ? (Math.sin(i * 7.1 + j * 3.3) * 0.012) : 0);
-                const x = Math.cos(a) * t * shoreR(a), z = Math.sin(a) * t * shoreR(a), y = ground(x, z);
-                pos.push(x, y, z);
-                if (y > 0.3) c.copy(dry); else if (y > -0.2) c.copy(wet).lerp(dry, (y + 0.2) / 0.5); else c.copy(sea).lerp(wet, Math.max(0, 1 + y / 1.5));
-                const k = 1 + Math.sin(x * 3.7 + z * 2.1) * 0.04;
-                col.push(c.r * k, c.g * k, c.b * k);
-            }
-            for (let i = 0; i < RINGS; i++) for (let j = 0; j < SEG; j++) {
-                const a = i * SEG + j, b = i * SEG + ((j + 1) % SEG), d = a + SEG, e = b + SEG;
-                idx.push(a, b, d, b, e, d);
-            }
-            const g = new THREE.BufferGeometry();
-            g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-            g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-            g.setIndex(idx); g.computeVertexNormals();
-            const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
-            m.receiveShadow = true;
-            scene.add(m);
-        }
-
-        // agua: ondas no vertex, reflexo do ceu + especular dourado + espuma na beira, fade pro horizonte
-        const water = new THREE.Mesh(new THREE.PlaneGeometry(800, 800, mobile ? 64 : 96, mobile ? 64 : 96).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
-            uniforms: uni, transparent: true, depthWrite: false,
-            vertexShader: `precision highp float; ${GLSL} varying vec3 vW;
-                void main() { vec4 w = modelMatrix * vec4(position, 1.0); w.y += waves(w.xz).x; vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-            fragmentShader: `precision highp float; ${GLSL} varying vec3 vW;
-                void main() {
-                    vec2 p = vW.xz; float depth = vW.y - ground(p), dist = length(cameraPosition.xz - p);
-                    vec3 w = waves(p);
-                    vec2 rp = (vec2(sin(p.x * 3.1 + uTime * 2.3 + sin(p.y * 2.7)), cos(p.y * 3.4 - uTime * 1.9 + sin(p.x * 2.2))) * 0.06
-                        + vec2(sin((p.x + p.y) * 7.0 + uTime * 3.5), cos((p.x - p.y) * 6.3 - uTime * 3.1)) * 0.03) / (1.0 + dist * 0.04);
-                    vec3 n = normalize(vec3(-w.y - rp.x, 1.0, -w.z - rp.y));
-                    vec3 v = normalize(cameraPosition - vW), r = reflect(-v, n); r.y = abs(r.y);
-                    float fr = 0.03 + 0.97 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
-                    vec3 c = mix(mix(vec3(0.3, 0.62, 0.58), vec3(0.07, 0.16, 0.26), smoothstep(0.2, 3.0, depth)), sky(r), fr);
-                    float sd = max(dot(r, uSun), 0.0);
-                    c += vec3(1.0, 0.72, 0.38) * (pow(sd, 400.0) * 4.0 + pow(sd, 50.0) * 0.45);
-                    float foam = (1.0 - smoothstep(0.0, 0.35, depth + 0.07 * sin(uTime * 1.6 + length(p) * 2.5))) * 0.75;
-                    c = mix(c, vec3(1.0, 0.93, 0.86), foam);
-                    float a = max(mix(0.45, 1.0, smoothstep(0.0, 1.2, depth)), foam);
-                    float f = smoothstep(90.0, 330.0, dist);
-                    gl_FragColor = vec4(mix(c, sky(normalize(vec3(-v.x, 0.0001, -v.z))), f), mix(a, 1.0, f));
-                }`,
-        }));
-        scene.add(water);
-
-        // palmeiras + pedras (circulos de colisao)
-        const solids = [];
-        let seed = 7;
-        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-        const trunkM = new THREE.MeshLambertMaterial({ color: 0x8a6a45, flatShading: true });
-        const leafM = new THREE.MeshLambertMaterial({ color: 0x4f8f3a, flatShading: true, side: THREE.DoubleSide });
-        function leaves() {
-            const v = [], P = (s) => [s * 2.4, 0.25 * s - 0.95 * s * s];
-            for (let k = 0; k < 8; k++) {
-                const rot = new THREE.Matrix4().makeRotationY(k * Math.PI / 4 + rnd() * 0.4), tilt = new THREE.Matrix4().makeRotationZ(0.15 - rnd() * 0.3);
-                const pts = [];
-                for (let i = 0; i <= 5; i++) {
-                    const s = i / 5, [x, y] = P(s), wd = 0.38 * Math.sin(Math.PI * Math.min(1, s * 1.15)) + 0.02;
-                    pts.push([new THREE.Vector3(x, y + 0.07, 0), new THREE.Vector3(x, y - 0.04, -wd), new THREE.Vector3(x, y - 0.04, wd)].map((p) => p.applyMatrix4(tilt).applyMatrix4(rot)));
-                }
-                for (let i = 0; i < 5; i++) {
-                    const [c0, l0, r0] = pts[i], [c1, l1, r1] = pts[i + 1];
-                    for (const p of [c0, l0, c1, l0, l1, c1, c0, c1, r0, r0, c1, r1]) v.push(p.x, p.y, p.z);
-                }
-            }
-            const g = new THREE.BufferGeometry();
-            g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
-            g.computeVertexNormals();
-            return g;
-        }
-        for (const [px, pz] of [[-3, 2], [2.5, -4], [5.5, 3.5], [-7, -3.5], [-1, 8.5], [8.5, -6], [-9.5, 5]]) {
-            const h = 4 + rnd() * 1.8, la = rnd() * Math.PI * 2, lean = 0.8 + rnd() * 0.9, lx = Math.cos(la) * lean, lz = Math.sin(la) * lean;
-            const tg = new THREE.CylinderGeometry(0.13, 0.24, h, 6, 8).translate(0, h / 2, 0), p = tg.attributes.position;
-            for (let i = 0; i < p.count; i++) { const u = p.getY(i) / h; p.setX(i, p.getX(i) + lx * u * u); p.setZ(i, p.getZ(i) + lz * u * u); }
-            tg.computeVertexNormals();
-            const y0 = ground(px, pz) - 0.1, trunk = new THREE.Mesh(tg, trunkM), crown = new THREE.Mesh(leaves(), leafM);
-            trunk.position.set(px, y0, pz); crown.position.set(px + lx, y0 + h, pz + lz);
-            trunk.castShadow = crown.castShadow = true; trunk.receiveShadow = true;
-            scene.add(trunk, crown);
-            solids.push([px, pz, 0.38]);
-        }
-        const rockM = new THREE.MeshLambertMaterial({ color: 0x7d7470, flatShading: true });
-        for (const [px, pz, s] of [[10, 4, 1.1], [11.3, 5.6, 0.6], [-4, -9, 0.9], [-12.5, -1, 1.4], [3, 11, 0.7], [13.8, -6, 1.2], [-6, 12.5, 1]]) {
-            const r = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), rockM);
-            r.scale.set(s * (1 + rnd() * 0.4), s * (0.55 + rnd() * 0.3), s * (1 + rnd() * 0.3));
-            r.rotation.set(rnd(), rnd() * 6, rnd() * 0.5);
-            r.position.set(px, ground(px, pz) - s * 0.15, pz);
-            r.castShadow = r.receiveShadow = true;
-            scene.add(r);
-            solids.push([px, pz, s * 1.05]);
-        }
-
-        // ------------------------------------------------------------ avatares
-        function blocky(color) {
-            const group = new THREE.Group(), main = new THREE.Color(color || "#00e5ff");
-            const M = (c) => new THREE.MeshLambertMaterial({ color: c }), box = (w, h, d, m, x, y, z, parent) => {
-                const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); b.castShadow = true; parent.add(b); return b;
-            };
-            const shirt = M(main), pants = M(main.clone().multiplyScalar(0.45)), skin = M(0xe9b98f);
-            const joint = (x, y) => { const j = new THREE.Group(); j.position.set(x, y, 0); group.add(j); return j; };
-            const lL = joint(-0.13, 0.78), lR = joint(0.13, 0.78), aL = joint(-0.36, 1.45), aR = joint(0.36, 1.45);
-            box(0.22, 0.78, 0.24, pants, 0, -0.39, 0, lL); box(0.22, 0.78, 0.24, pants, 0, -0.39, 0, lR);
-            box(0.5, 0.7, 0.28, shirt, 0, 1.12, 0, group);
-            box(0.18, 0.68, 0.18, shirt, 0, -0.3, 0, aL); box(0.18, 0.68, 0.18, shirt, 0, -0.3, 0, aR);
-            box(0.42, 0.42, 0.42, skin, 0, 1.7, 0, group);
-            box(0.3, 0.08, 0.02, M(0x222222), 0, 1.74, 0.215, group);
-            let ph = 0;
-            return {
-                group, height: 1.95,
-                update(dt, st = {}) {
-                    const sp = st.speed || 0;
-                    ph += dt * (2 + sp * 2.2);
-                    const sw = st.air ? 0.5 : Math.sin(ph) * Math.min(1, sp / 4) * 0.8;
-                    lL.rotation.x = sw; lR.rotation.x = -sw;
-                    aL.rotation.x = st.air ? -2.6 : -sw; aR.rotation.x = st.air ? -2.6 : sw;
-                },
-            };
-        }
-        // avatar = pacote do passaporte (UrnaAvatarThree) quando existir; senao boneco de blocos na cor do jogador
-        const makeAvatar = (pkg, color) => (pkg && UAT() && UAT().build(pkg, THREE, { shadows: true })) || blocky(color);
-        function nameTag(text, color) {
-            const cv = document.createElement("canvas"), g = cv.getContext("2d");
-            cv.width = 256; cv.height = 64;
-            g.font = "bold 30px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
-            const w = Math.min(250, g.measureText(text).width + 28);
-            g.fillStyle = "#0007"; g.beginPath(); g.roundRect(128 - w / 2, 8, w, 48, 22); g.fill();
-            g.fillStyle = color || "#fff"; g.fillRect(128 - w / 2 + 14, 50, w - 28, 3);
-            g.fillStyle = "#fff"; g.fillText(text, 128, 31);
-            const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-            const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, fog: false }));
-            s.scale.set(1.6, 0.4, 1);
-            return s;
-        }
-        function actor(name, color, pkg) {
-            const root = new THREE.Group(), av = makeAvatar(pkg, color), tag = nameTag(name, color);
-            tag.position.y = (av.height || 1.9) + 0.35;
-            root.add(av.group, tag); scene.add(root);
-            return { root, av, tag, setAvatar(p) { const n = makeAvatar(p, color); if (n === this.av) return; root.remove(this.av.group); this.av.dispose?.(); this.av = n; root.add(n.group); tag.position.y = (n.height || 1.9) + 0.35; } };
-        }
-
-        // ------------------------------------------------------------ jogador
-        const PALETTE = ["#00e5ff", "#ff4f8b", "#ffd23d", "#7cff6b", "#b48cff", "#ff8a3d"];
-        let me = { name: `turista-${1000 + Math.floor(Math.random() * 9000)}`, color: PALETTE[Math.floor(Math.random() * PALETTE.length)] };
-        const player = { pos: new THREE.Vector3(6, 0, 6.5), vy: 0, yaw: 0, camYaw: Math.atan2(SUN.x, SUN.z) + 0.55, pitch: 0.28, ground: true, speed: 0 };
-        player.pos.y = ground(player.pos.x, player.pos.z);
-        player.yaw = player.camYaw;
-        let meA = actor(me.name, me.color, null);
-        let online = false;
-        const others = new Map(), pkgCache = new Map();
-        window.Ilha = { THREE, scene, camera, player, others, ground, onFrame: [] };
-
-        // ------------------------------------------------------------ input
-        const keys = {}, joy = { x: 0, y: 0, id: null, ox: 0, oy: 0 }, look = { id: null, x: 0, y: 0 };
-        let jumpQ = false;
-        const K = (c) => keys[c];
-        addEventListener("keydown", (e) => { keys[e.code] = true; if (e.code === "Space") { jumpQ = true; e.preventDefault(); } startAudio(); });
-        addEventListener("keyup", (e) => { keys[e.code] = false; });
-        addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
-        const cv = renderer.domElement;
-        const turn = (dx, dy, k) => { player.camYaw -= dx * k; player.pitch = Math.max(-0.15, Math.min(1.2, player.pitch + dy * k)); };
-        cv.addEventListener("click", () => { if (!mobile && !document.pointerLockElement) cv.requestPointerLock?.(); });
-        addEventListener("mousemove", (e) => { if (document.pointerLockElement === cv) turn(e.movementX, e.movementY, 0.0028); });
-        cv.addEventListener("pointerdown", (e) => {
-            startAudio();
-            if (e.pointerType === "mouse") return;
-            if (e.clientX < innerWidth * 0.45 && joy.id === null) {
-                Object.assign(joy, { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
-                Object.assign($("joy").style, { display: "block", left: e.clientX + "px", top: e.clientY + "px" });
-            } else if (look.id === null) Object.assign(look, { id: e.pointerId, x: e.clientX, y: e.clientY });
-        });
-        cv.addEventListener("pointermove", (e) => {
-            if (e.pointerId === joy.id) {
-                let dx = e.clientX - joy.ox, dy = e.clientY - joy.oy;
-                const l = Math.hypot(dx, dy), m = Math.min(l, 45) / (l || 1);
-                dx *= m; dy *= m;
-                joy.x = dx / 45; joy.y = dy / 45;
-                $("knob").style.transform = `translate(${dx}px, ${dy}px)`;
-            } else if (e.pointerId === look.id) { turn(e.clientX - look.x, e.clientY - look.y, 0.006); look.x = e.clientX; look.y = e.clientY; }
-        });
-        const up = (e) => {
-            if (e.pointerId === joy.id) { joy.id = null; joy.x = joy.y = 0; $("joy").style.display = "none"; $("knob").style.transform = ""; }
-            if (e.pointerId === look.id) look.id = null;
+        addEventListener("keydown", (e) => { keys[e.key] = true; });
+        addEventListener("keyup", (e) => { keys[e.key] = false; });
+        cv.addEventListener("pointermove", (e) => { x = e.clientX / W; });
+        const say = (s) => { msg = s; msgT = 4; };
+        document.getElementById("sair").onclick = () => (online ? UrnaPortal.exit("botao") : (location.href = `${HOST}/?hub=chuva-de-votos`));
+        vida.onclick = async () => {
+            const r = await UrnaPortal.spend({ coins: 3, reason: "vida extra na Chuva de Votos", key: `vida-${Date.now()}` });
+            if (r.ok) { lives++; say(`+1 vida! saldo no Urna: ${r.wallet.coins}`); } else say(`sem vida extra (${r.error})`);
         };
-        cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
-        if (mobile) { $("pular").style.display = "block"; $("pular").addEventListener("pointerdown", (e) => { e.preventDefault(); jumpQ = true; startAudio(); }); }
-        $("hint").textContent = mobile ? "esquerda: andar | direita: olhar | PULAR" : "clique pra olhar com o mouse | WASD/setas andar | espaco pular | shift correr";
-        setTimeout(() => ($("hint").style.opacity = 0), 9000);
-        $("voltar").onclick = () => (online ? UP.exit("botao") : (location.href = `${HOST}/?hub=${PORTAL_ID}`));
 
-        // som de ondas: ruido marrom filtrado com "respiracao" lenta (so depois de um gesto do usuario)
-        let actx = null;
-        function startAudio() {
-            if (actx || !window.AudioContext) return;
-            actx = new AudioContext();
-            const len = actx.sampleRate * 4, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0);
-            let last = 0;
-            for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
-            const src = actx.createBufferSource(), lp = actx.createBiquadFilter(), gain = actx.createGain(), lfo = actx.createOscillator(), lg = actx.createGain();
-            src.buffer = buf; src.loop = true; lp.type = "lowpass"; lp.frequency.value = 600;
-            gain.gain.value = 0.05; lfo.frequency.value = 0.11; lg.gain.value = 0.035;
-            lfo.connect(lg).connect(gain.gain);
-            src.connect(lp).connect(gain).connect(actx.destination);
-            src.start(); lfo.start();
-        }
-
-        // ------------------------------------------------------------ Urna: sessao, avatar do passaporte, presenca
-        function pkgOf(ref, cb) {
-            if (!ref || !UAT()) return;
-            if (pkgCache.has(ref)) return void (pkgCache.get(ref) && cb(pkgCache.get(ref)));
-            pkgCache.set(ref, null);
-            const [id, v] = String(ref).split("@");
-            fetch(`${HOST}/api/mods/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`).then((r) => r.json()).then((p) => { pkgCache.set(ref, p); cb(p); }).catch(() => { });
-        }
-        function onPresence(p) {
-            const s = p.s;
-            if (!s || s.g !== "ilha" || typeof s.x !== "number") return;
-            let o = others.get(p.sid);
-            if (!o) {
-                o = { a: actor(p.name || "?", p.color, null), tgt: { x: s.x, y: s.y, z: s.z, yaw: s.r || 0 } };
-                o.a.root.position.set(s.x, s.y, s.z);
-                others.set(p.sid, o);
-                pkgOf(p.avatar, (pkg) => o.a.setAvatar(pkg));
+        // Avatar de outro jogador: ref "id@versao" -> pacote publico do registro de mods (cache).
+        function avatarOf(ref) {
+            if (!ref) return null;
+            if (!avCache.has(ref)) {
+                avCache.set(ref, null);
+                const [id, v] = ref.split("@");
+                fetch(`${HOST}/api/mods/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`).then((r) => r.json()).then((pkg) => avCache.set(ref, UrnaAvatar2D.create(pkg, { view: "front", size: 128 }))).catch(() => { });
             }
-            Object.assign(o.tgt, { x: s.x, y: s.y, z: s.z, yaw: s.r || 0 });
-            o.spd = s.v || 0; o.air = !!s.j;
+            return avCache.get(ref);
         }
-        function dropOther(p) { const o = others.get(p.sid); if (o) { scene.remove(o.a.root); others.delete(p.sid); } }
-        const status = () => {
-            $("st").textContent = online ? `no Urna como ${me.name}${meA.av.nodes ? " (avatar do passaporte)" : ""} | ${others.size} do Urna na ilha` : UP && UP.state === "connecting" ? "conectando ao Urna..." : `modo convidado: ${me.name}`;
-        };
-        if (UP) UP.connect({ portalId: PORTAL_ID }).then(async (s) => {
-            if (!s) return;
+
+        UrnaPortal.connect({ portalId: "chuva-de-votos" }).then(async (s) => {
+            if (!s) return void (hud.dataset.off = "1");
             online = true;
             me = { ...me, ...s.player };
-            scene.remove(meA.root);
-            meA = actor(me.name, me.color, (UP.avatar && UP.avatar()) || s.avatar || null);
-            UP.event("chat", "cheguei na Ilha do Por do Sol!");
-            const pr = UP.presence;
-            if (pr && pr.join) {
-                pr.on("player", onPresence); pr.on("leave", dropOther);
-                pr.on("close", () => { for (const o of others.values()) scene.remove(o.a.root); others.clear(); });
-                await pr.join();
-            }
+            av = UrnaAvatar2D.create(s.avatar, { view: "front", size: 128 });
+            vida.style.display = "block";
+            UrnaPortal.event("chat", "entrei na Chuva de Votos!");
+            const pr = UrnaPortal.presence;
+            pr.on("player", (p) => others.set(p.sid, p));
+            pr.on("leave", (p) => others.delete(p.sid));
+            await pr.join();
         });
 
-        // ------------------------------------------------------------ loop
-        const fwd = new THREE.Vector3(), right = new THREE.Vector3(), mv = new THREE.Vector3(), tgt = new THREE.Vector3();
-        let last = performance.now(), time = 0, sent = "";
-        const angLerp = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
-        function step(dt) {
-            const P = player.pos;
-            fwd.set(Math.sin(player.camYaw), 0, Math.cos(player.camYaw));
-            right.set(-fwd.z, 0, fwd.x);
-            const ix = (K("KeyD") || K("ArrowRight") ? 1 : 0) - (K("KeyA") || K("ArrowLeft") ? 1 : 0) + joy.x;
-            const iz = (K("KeyW") || K("ArrowUp") ? 1 : 0) - (K("KeyS") || K("ArrowDown") ? 1 : 0) - joy.y;
-            mv.copy(fwd).multiplyScalar(iz).addScaledVector(right, ix);
-            const mag = Math.min(1, mv.length());
-            const depth = Math.max(0, -ground(P.x, P.z)), wade = 1 - Math.min(0.65, depth * 0.6);
-            const sp = (K("ShiftLeft") || K("ShiftRight") || Math.hypot(joy.x, joy.y) > 0.95 ? 7 : 4.5) * wade * mag;
-            if (mag > 0.05) { mv.normalize(); P.addScaledVector(mv, sp * dt); player.yaw = angLerp(player.yaw, Math.atan2(mv.x, mv.z), 1 - Math.exp(-12 * dt)); }
-            player.speed = mag > 0.05 ? sp : 0;
-            for (const [sx, sz, r] of solids) {
-                const dx = P.x - sx, dz = P.z - sz, d = Math.hypot(dx, dz);
-                if (d < r + 0.3 && d > 1e-4) { P.x = sx + (dx / d) * (r + 0.3); P.z = sz + (dz / d) * (r + 0.3); }
-            }
-            // mar empurra de volta: depois da beira a agua puxa pro centro e nao passa de ~cintura
-            const r = Math.hypot(P.x, P.z), sr = shoreR(Math.atan2(P.z, P.x)), t = r / sr;
-            if (t > 1.04) P.multiplyScalar(1 - ((t - 1.04) * 22 * dt) / t);
-            const rr = Math.hypot(P.x, P.z);
-            if (rr > sr * 1.14) { P.x *= (sr * 1.14) / rr; P.z *= (sr * 1.14) / rr; }
-            const gy = ground(P.x, P.z);
-            if (jumpQ && player.ground) { player.vy = depth > 0.6 ? 4 : 6.5; player.ground = false; }
-            jumpQ = false;
-            player.vy -= 18 * dt; P.y += player.vy * dt;
-            if (P.y <= gy) { P.y = gy; player.vy = 0; player.ground = true; } else if (P.y > gy + 0.05) player.ground = false;
-            meA.root.position.copy(P); meA.av.group.rotation.y = player.yaw;
-            meA.av.update(dt, { speed: player.speed, moving: player.speed > 0.2, air: !player.ground });
-
-            // camera 3a pessoa
-            tgt.set(P.x, P.y + 1.5, P.z);
-            const cp = Math.cos(player.pitch), D = 5.5;
-            camera.position.set(tgt.x - fwd.x * cp * D, tgt.y + Math.sin(player.pitch) * D, tgt.z - fwd.z * cp * D);
-            camera.position.y = Math.max(camera.position.y, ground(camera.position.x, camera.position.z) + 0.4, 0.6);
-            camera.lookAt(tgt);
-            sky.position.copy(camera.position);
-
-            for (const o of others.values()) {
-                const k = 1 - Math.exp(-10 * dt), R = o.a.root.position;
-                R.x += (o.tgt.x - R.x) * k; R.y += (o.tgt.y - R.y) * k; R.z += (o.tgt.z - R.z) * k;
-                o.a.av.group.rotation.y = angLerp(o.a.av.group.rotation.y, o.tgt.yaw, k);
-                o.a.av.update(dt, { speed: o.spd, moving: o.spd > 0.2, air: o.air });
-            }
-            if (online && UP.presence) {
-                const s = { g: "ilha", x: +P.x.toFixed(2), y: +P.y.toFixed(2), z: +P.z.toFixed(2), r: +player.yaw.toFixed(2), v: +player.speed.toFixed(1), j: !player.ground };
-                const k = JSON.stringify(s);
-                if (k !== sent) { sent = k; UP.presence.update(s); }
-            }
+        function drawPlayer(cx, name, color, sprite, moving, alpha) {
+            g.globalAlpha = alpha;
+            g.fillStyle = color || "#00e5ff";
+            g.fillRect(cx - 40, H * 0.9 - 8, 80, 16);
+            if (sprite) sprite.draw(g, cx, H * 0.9 - 8, Math.min(90, H * 0.14), { speed: moving ? 3 : 0 }, t);
+            g.fillStyle = "#fff"; g.font = "bold 13px monospace"; g.textAlign = "center";
+            g.fillText(name, cx, H * 0.9 - (sprite ? Math.min(90, H * 0.14) + 14 : 14));
+            g.globalAlpha = 1;
         }
+
         function frame(now) {
             const dt = Math.min(0.05, (now - last) / 1000);
-            last = now; time += dt;
-            uni.uTime.value = time % 2000;
-            step(dt);
-            for (const f of window.Ilha.onFrame) f(dt, time);
-            renderer.render(scene, camera);
-            if ((time * 4 | 0) !== ((time - dt) * 4 | 0)) status();
+            last = now; t += dt;
+            x += ((keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0)) * dt * 0.9;
+            x = Math.max(0.05, Math.min(0.95, x));
+            speed = speed * 0.8 + (Math.abs(x - px) / dt) * 0.2;
+            px = x;
+            if (Math.random() < dt * (2 + t * 0.05)) items.push({ x: Math.random() * 0.9 + 0.05, y: -0.05, good: Math.random() < 0.7, v: 0.25 + Math.random() * 0.25 });
+            for (const it of items) {
+                it.y += it.v * dt;
+                if (!it.hit && it.y > 0.86 && it.y < 0.93 && Math.abs(it.x - x) < 0.06) {
+                    it.hit = true;
+                    if (it.good) score++; else lives--;
+                }
+            }
+            items = items.filter((it) => !it.hit && it.y < 1.1);
+            if (lives <= 0) { score = 0; lives = 3; items = []; t = 0; }
+            if (online && score >= sentScore + 10) { sentScore = score; UrnaPortal.event("score", score * 100); }
+            if (online && score >= 30 && !got30) {
+                got30 = true;
+                UrnaPortal.event("achievement", "30 votos confirmados");
+                UrnaPortal.grant({ coins: 5, reason: "30 votos confirmados na Chuva de Votos", key: `chuva-30-${new Date().toISOString().slice(0, 10)}` })
+                    .then((r) => say(r.ok ? `+${r.granted.coins} moedas no Urna (grant)!` : `premio: ${r.message || r.error}`));
+            }
+            if (online) UrnaPortal.presence.update({ x: Math.round(x * 1000) / 1000, moving: speed > 0.05, score });
+
+            g.fillStyle = "#0b0820"; g.fillRect(0, 0, W, H);
+            for (let i = 0; i < 40; i++) { g.fillStyle = `hsla(${(i * 37 + t * 20) % 360},80%,60%,0.15)`; g.fillRect((i * 97) % W, ((i * 53 + t * 30) % H), 3, 3); }
+            for (const it of items) {
+                g.fillStyle = it.good ? "#3dff7a" : "#ff3d5a";
+                g.fillRect(it.x * W - 14, it.y * H - 10, 28, 20);
+                g.fillStyle = "#000"; g.font = "bold 10px monospace"; g.textAlign = "center";
+                g.fillText(it.good ? "OK" : "X", it.x * W, it.y * H + 4);
+            }
+            for (const o of others.values()) if (o.s && typeof o.s.x === "number") drawPlayer(o.s.x * W, `${o.name} (${o.s.score || 0})`, o.color, avatarOf(o.avatar), o.s.moving, 0.45);
+            drawPlayer(x * W, me.name, me.color, av, speed > 0.05, 1);
+            msgT -= dt;
+            const status = online ? `conectado ao Urna como ${me.name}${av ? " (avatar do passaporte)" : ""} | ${others.size} do Urna aqui` : hud.dataset.off ? "fora do Urna: modo convidado" : "conectando ao Urna...";
+            hud.textContent = `${status} | votos ${score} | vidas ${lives} | setas/mouse${msgT > 0 ? " | " + msg : ""}`;
             requestAnimationFrame(frame);
         }
-        status();
         requestAnimationFrame(frame);
     </script>
 </body>

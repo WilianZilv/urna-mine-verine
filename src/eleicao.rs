@@ -12,7 +12,7 @@ const ABERTO: f64 = 9.0 * 3600.0;
 pub const EVENTO: f64 = 120.0;
 
 /// Volume do placar (cabe o texto mais largo): obstáculo pra urna e NPCs.
-pub const PAINEL: (Vec3, Vec3) = (Vec3::new(24.0, G as f32 + 10.0, 35.3), Vec3::new(104.0, G as f32 + 28.0, 36.3));
+pub const PAINEL: (Vec3, Vec3) = (crate::layout::plaza(Vec3::new(24.0, G as f32 + 10.0, 35.3)), crate::layout::plaza(Vec3::new(104.0, G as f32 + 28.0, 36.3)));
 
 /// Segundos até a abertura (negativo = já abriu). ELEICAO_EM_SEGUNDOS antecipa pra teste.
 pub struct Relogio {
@@ -50,7 +50,8 @@ impl Relogio {
     /// Placar flutuando no norte da praça, virado pro sul (spawn).
     pub fn draw(&self, b: &mut Batch, time: f32) {
         let id = Mat4::IDENTITY;
-        let (cx, z, top) = (64.0, 36.0, G as f32 + 27.0);
+        let c = crate::layout::plaza(vec3(64.0, G as f32 + 27.0, 36.0));
+        let (cx, z, top) = (c.x, c.z, c.y);
         let px = 0.8;
         let linhas = self.linhas();
         let scale = |l: usize, t: &str| if l == 1 && t.len() <= 16 { 1.5 } else { 1.0 };

@@ -32,8 +32,8 @@ Objetivo: cada lugar do mapa **faz alguma coisa** e gera história pra contar. N
 - [x] Economia fictícia (cofre da IA, missões, loja, anúncios, ledger público)
 - [x] Zona de mods + Game Hub + passaporte de avatar
 - [x] Placar holográfico da arena
-- [ ] **5 lugares funcionais novos** (abaixo) — cada um ligado a economia/IA/hub/passaporte
-- [ ] Viagem rápida entre distritos (Terminal) pra mapa 320x320 não cansar ninguém
+- [x] **5 lugares funcionais novos** (abaixo) — cada um ligado a economia/IA/hub/passaporte
+- [x] Viagem rápida entre distritos (Terminal) pra mapa 320x320 não cansar ninguém
 
 ### Os 5 lugares novos (o "Distrito dos Poderes" e a "Avenida GTA Sul")
 
@@ -72,7 +72,7 @@ O que move: **Bolsa** (mods viram tickers: mod popular sobe), **Terminal** (todo
 O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (portões pra outros universos), shards da vila.
 
 - [ ] Shards: várias vilas (Durable Objects) com o mesmo mapa e Terminal entre elas
-- [ ] Carimbos no passaporte por lugar visitado (lugares e jogos do Hub)
+- [ ] Carimbos no passaporte por lugar visitado (lugares e jogos do Hub) — v0 local por sessão no Terminal
 - [ ] Parcerias com devs indie: jogo deles vira portão fixo no Terminal (contato só pelos canais oficiais deles, nada de spam)
 - [ ] Eventos ao vivo transmitidos pela TV URNA NEWS (eleição simulada, final de campeonato da arena)
 
@@ -96,3 +96,6 @@ O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (por
 ## Log de execução
 
 - 2026-10-01 — roadmap criado; scaffolding dos 5 lugares (layout, módulos, ganchos) no main.
+- 2026-10-01 — 5 lugares no ar (5 agentes em paralelo, 1 worktree cada) + 1 melhoria por lugar: emblemas das
+  leis sobre a praça, touro/urso + circuit breaker, plantão urgente na TV, estátua do magnata + chuva de moedas,
+  feixe de chegada + carimbos no Terminal.

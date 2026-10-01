@@ -224,6 +224,21 @@ sandbox** em tela cheia com token de sessão assinado (HMAC, 10 min, `GET /api/p
 `urna-hub-demo.wilianzilv.workers.dev` (`server/hub-demo/`). Segredo: `wrangler secret put HUB_SECRET` (sem ele, o DO
 gera e guarda um). Docs `docs/HUB.md`, schema `/hub.json`. Código: `server/hub.js`, `src/hub.rs`, `web/hub.js`.
 
+### Lugares dos poderes (`src/places/`, `server/places.js`) — moedas FICTÍCIAS
+Cinco prédios funcionais, cada um com painel/telão no mundo (render target, nada de HUD). Roadmap: `docs/ROADMAP.md`.
+- **Congresso da Vila** `(50..86, 80..116)`, oeste da **Avenida dos Poderes**: vota leis que mudam o jogo
+  (gravidade lunar, turbo, urna pacifista, festa, loja em promoção) por 5 min. `/leis`, `/lei id` ou pisa no púlpito.
+  Leis em vigor viram emblemas gigantes girando sobre a praça.
+- **Bolsa de Valores** `(234..270, 70..102)`, leste da avenida: ações fictícias (LULA, FLAV, URNA, GODZ...) mexidas
+  por socos da arena, pista do clube e cofre. `/bolsa`, `/investir T n`, `/vender T n`, `/carteira`. Touro vira urso
+  quando o mercado cai; circuit breaker com sirene.
+- **TV URNA NEWS** `(44..84, 266..292)`: telão com âncora IA, boletins (`/noticia`, 5), manchete patrocinada
+  (`/manchete texto n`), pad AO VIVO no estúdio e **PLANTÃO URGENTE** segundos depois de eventos grandes.
+- **Banco Central** `(184..214, 222..252)`: cofre da IA ao vivo, ranking dos mais ricos, poupança 2%/h paga pelo cofre
+  (`/poupar n`, `/sacar n|tudo`, `/ranking`), caixas eletrônicos e **estátua dourada do magnata** da vila.
+- **Terminal Interdimensional** `(184..220, 266..294)`: painel de partidas com destinos da vila + portais do Hub;
+  portões teleportam, `/viajar destino` (5). Todo mundo vê o feixe de chegada; passaporte com carimbos.
+
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).
 
@@ -338,6 +353,7 @@ src/
   net.rs      WebSocket nativo (tungstenite numa thread)
   mp.rs       protocolo multiplayer (snapshots do host, tiros, eventos)
   eleicao.rs  contagem regressiva gigante + evento da abertura das urnas
+  places/     Congresso, Bolsa, TV, Banco, Terminal (prédio + painel no mundo + estado do servidor)
   *_web.rs    versões navegador de audio/telao/net; web.rs = ponte com web/urna.js
 web/          site (index.html, urna.js, mq_js_bundle.js, urna.wasm)
 server/       worker.js: Cloudflare Worker + Durable Object (sala multiplayer)
@@ -373,10 +389,12 @@ tools/
 
 ```
             ARENA (urna x kaiju)
+  CONGRESSO ==== avenida dos poderes ==== BOLSA
                     |
   CLUBE ---- ( PRAÇA + anel ) ---- CIÊNCIA (mods/lab/hub)
-                    |
+                    |              BANCO
    CASAS ------ TORRE + avenida ---- SKATE
+   TV          TERMINAL
         floresta/colinas nas bordas
 ```
 - Yaw dos modelos: frente local `+Z`, `yaw = atan2(dir.x, dir.z)`.

@@ -1,7 +1,6 @@
 //! Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal). Cada um é um módulo com prédio
 //! (voxel, na geração do mundo), painel holográfico/telão no mundo (render target, nunca HUD) e estado
 //! que vem do servidor em {t:"pl", k:<lugar>} (server/places.js). O main só fala com `Places`.
-#![allow(dead_code)]
 
 use crate::batch::Batch;
 use crate::extras::Label;

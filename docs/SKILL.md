@@ -43,6 +43,10 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
   Shift run, F fly, C character/skin menu, E inventory, T or Enter chat, H help, Esc release mouse.
   Phone: open the link in the browser landscape; left half = joystick, drag right half = look, on-screen buttons.
   Places: mod zone north of the lab (east), Game Hub corridor south of the lab; https://urna-mine-verine.wilianzilv.workers.dev/?hub=<id> spawns at an arch.
+  Avenida dos Poderes (north of the plaza): CONGRESSO (west; vote laws that change the game: /leis, /lei <id>),
+  BOLSA (east; fictional stocks: /bolsa, /investir T n, /vender T n, /carteira). South: TV URNA NEWS (/tv,
+  /noticia, /manchete texto n), BANCO CENTRAL (/poupar n, /sacar n, /ranking), TERMINAL (/destinos, /viajar <dest>).
+  All coins are fictional; every place has an in-world panel, chat commands work from anywhere.
 
 ## Shared rules (all paths)
 - Creator token: get it once (POST /api/mods/register {"name":...}; shown ONCE). Save it to

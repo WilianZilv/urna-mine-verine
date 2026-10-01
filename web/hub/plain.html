@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bolhas - jogo 2D SEM o SDK do Urna</title>
+    <style>html, body { margin: 0; height: 100%; overflow: hidden; background: #123; } canvas { display: block; } p { position: absolute; left: 12px; top: 4px; color: #fff; font: 14px system-ui; }</style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <p>Bolhas: jogo canvas 2D sem nenhuma linha do Urna. Clique nas bolhas. (presenca vem do overlay do Urna)</p>
+    <script>
+        // Jogo de teste da presenca sem codigo: nenhum script/SDK do Urna aqui.
+        const c = document.getElementById("c"), g = c.getContext("2d");
+        let score = 0;
+        const bs = Array.from({ length: 14 }, () => ({ x: Math.random(), y: Math.random(), r: 18 + Math.random() * 30, h: Math.random() * 360, v: 0.02 + Math.random() * 0.05 }));
+        const fit = () => { c.width = innerWidth; c.height = innerHeight; };
+        addEventListener("resize", fit); fit();
+        c.addEventListener("pointerdown", (e) => {
+            for (const b of bs) if (Math.hypot(e.clientX - b.x * c.width, e.clientY - b.y * c.height) < b.r) { score++; b.y = 1.1; b.x = Math.random(); }
+        });
+        let t0 = performance.now();
+        (function loop(t) {
+            const dt = (t - t0) / 1000; t0 = t;
+            g.fillStyle = "#123"; g.fillRect(0, 0, c.width, c.height);
+            for (const b of bs) {
+                b.y -= b.v * dt; if (b.y < -0.1) { b.y = 1.1; b.x = Math.random(); }
+                g.fillStyle = `hsla(${b.h},80%,60%,.75)`; g.beginPath(); g.arc(b.x * c.width, b.y * c.height, b.r, 0, 7); g.fill();
+            }
+            g.fillStyle = "#fff"; g.font = "bold 28px system-ui"; g.fillText(`pontos: ${score}`, 14, c.height - 20);
+            requestAnimationFrame(loop);
+        })(t0);
+    </script>
+</body>
+</html>

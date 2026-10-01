@@ -1639,8 +1639,9 @@ async fn main() {
         let vp = cam.matrix();
         // Vista dos portais redesenha o batch de outro ângulo: sem culling enquanto houver portal visível
         let low = quality::tier() == quality::LOW;
-        let cull = (portals.list.is_empty() || low).then(|| batch::Cull { planes: chunks::frustum(&vp), eye: cam.position, min_ratio: quality::pick([1.5, 1.0, 0.6]) * 2.0 * (cam.fovy * 0.5).tan() / sh });
-        opaque.cull = cull;
+        let view_dist = quality::pick([72.0, 128.0, f32::INFINITY]);
+        let cull = (portals.list.is_empty() || low).then(|| batch::Cull { planes: chunks::frustum(&vp), eye: cam.position, min_ratio: quality::pick([1.5, 1.0, 0.6]) * 2.0 * (cam.fovy * 0.5).tan() / sh, max_dist: view_dist + 8.0 });
+        opaque.cull = cull.map(|c| batch::Cull { max_dist: f32::INFINITY, ..c });
         trans.cull = cull;
 
         // Céu: sol e nuvens
@@ -1655,8 +1656,9 @@ async fn main() {
             let s = vec3(8.0 + atlas::hash2(k, 3, 900) * 12.0, 1.5, 6.0 + atlas::hash2(k, 4, 900) * 10.0);
             opaque.glow(&id, vec3(x, 62.0, kz), s, Color::new(day, day, day, 1.0));
         }
+        opaque.cull = cull;
 
-        chunks.draw(&vp, None, eye, f32::MAX);
+        chunks.draw(&vp, None, eye, view_dist, sky);
         prof.mark(prof::WORLD);
 
         labels.clear();

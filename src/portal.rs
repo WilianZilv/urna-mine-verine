@@ -827,7 +827,7 @@ impl Portals {
             let p2 = if pv.w < 0.0 { oblique(proj, pv) } else { proj };
             set_camera(&ViewCam { m: p2 * v2, pass: self.rts[k].render_pass.clone() });
             clear_background(sky);
-            chunks.draw(&(p2 * v2), Some(&self.rts[k].render_pass), cam.position, f32::MAX);
+            chunks.draw(&(p2 * v2), Some(&self.rts[k].render_pass), cam.position, f32::MAX, sky);
             opaque.redraw(tex);
             bodies.redraw(tex);
             gl_use_material(&swirl_mat);

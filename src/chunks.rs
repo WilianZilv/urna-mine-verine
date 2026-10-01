@@ -40,20 +40,33 @@ attribute vec2 texcoord;
 attribute vec4 color0;
 varying mediump vec2 uv;
 varying lowp vec4 color;
+varying lowp vec4 fog;
 uniform mat4 Mvp;
+uniform vec4 Eye;
+uniform vec4 Fog;
 void main() {
     gl_Position = Mvp * vec4(position, 1.0);
     color = color0 / 255.0;
     uv = texcoord;
+    fog = vec4(Fog.rgb, clamp((distance(position.xz, Eye.xz) - Eye.w) * Fog.a, 0.0, 1.0));
 }"#;
 
 const FRAGMENT: &str = r#"#version 100
 varying mediump vec2 uv;
 varying lowp vec4 color;
+varying lowp vec4 fog;
 uniform sampler2D Texture;
 void main() {
-    gl_FragColor = color * texture2D(Texture, uv);
+    lowp vec4 c = color * texture2D(Texture, uv);
+    gl_FragColor = vec4(mix(c.rgb, fog.rgb, fog.a), c.a);
 }"#;
+
+#[repr(C)]
+struct Uniforms {
+    mvp: Mat4,
+    eye: Vec4,
+    fog: Vec4,
+}
 
 /// Planos do frustum (Gribb-Hartmann) de uma matriz view-projection estilo GL.
 pub fn frustum(m: &Mat4) -> [Vec4; 6] {
@@ -75,7 +88,8 @@ pub fn sphere_visible(planes: &[Vec4; 6], c: Vec3, r: f32) -> bool {
 impl Chunks {
     pub fn new(world: &mut World, tex: &Texture2D) -> Chunks {
         let ctx = unsafe { get_internal_gl() }.quad_context;
-        let meta = ShaderMeta { uniforms: UniformBlockLayout { uniforms: vec![UniformDesc::new("Mvp", UniformType::Mat4)] }, images: vec!["Texture".to_string()] };
+        let uniforms = vec![UniformDesc::new("Mvp", UniformType::Mat4), UniformDesc::new("Eye", UniformType::Float4), UniformDesc::new("Fog", UniformType::Float4)];
+        let meta = ShaderMeta { uniforms: UniformBlockLayout { uniforms }, images: vec!["Texture".to_string()] };
         let shader = ctx.new_shader(ShaderSource::Glsl { vertex: VERTEX, fragment: FRAGMENT }, meta).expect("shader do mundo");
         let pipeline = ctx.new_pipeline(
             &[BufferLayout::default()],
@@ -146,8 +160,8 @@ impl Chunks {
     }
 
     /// Desenha os chunks visíveis com a matriz `vp` no passe dado (None = tela).
-    /// `max_dist`: corta chunks mais longe que isso do olho (plano xz).
-    pub fn draw(&self, vp: &Mat4, pass: Option<&RenderPass>, eye: Vec3, max_dist: f32) {
+    /// `max_dist`: corta chunks mais longe que isso do olho (plano xz), com neblina na cor `sky` até lá.
+    pub fn draw(&self, vp: &Mat4, pass: Option<&RenderPass>, eye: Vec3, max_dist: f32, sky: Color) {
         let mut gl = unsafe { get_internal_gl() };
         gl.flush();
         let ctx = gl.quad_context;
@@ -156,7 +170,10 @@ impl Chunks {
             None => ctx.begin_default_pass(PassAction::Nothing),
         }
         ctx.apply_pipeline(&self.pipeline);
-        ctx.apply_uniforms(UniformsSource::table(vp));
+        let fog_start = max_dist * 0.6;
+        let inv = if max_dist.is_finite() { 1.0 / (max_dist - fog_start) } else { 0.0 };
+        let fog_start = if max_dist.is_finite() { fog_start } else { 0.0 };
+        ctx.apply_uniforms(UniformsSource::table(&Uniforms { mvp: *vp, eye: eye.extend(fog_start), fog: vec4(sky.r, sky.g, sky.b, inv) }));
         let planes = frustum(vp);
         for ch in &self.list {
             if ch.parts.is_empty() || !aabb_visible(&planes, ch.lo, ch.hi) {

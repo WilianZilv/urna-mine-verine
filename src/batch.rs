@@ -12,12 +12,13 @@ const FACES: [([usize; 4], [f32; 3]); 6] = [
     ([0, 2, 3, 1], [0.0, 0.0, -1.0]),
 ];
 
-/// Descarta cubos fora da câmera ou menores que `min_ratio` (raio / distância, ~fração de pixel).
+/// Descarta cubos fora da câmera, além de `max_dist` ou menores que `min_ratio` (raio / distância, ~fração de pixel).
 #[derive(Clone, Copy)]
 pub struct Cull {
     pub planes: [Vec4; 6],
     pub eye: Vec3,
     pub min_ratio: f32,
+    pub max_dist: f32,
 }
 
 pub struct Batch {
@@ -60,7 +61,8 @@ impl Batch {
         let axes = [m.x_axis.truncate(), m.y_axis.truncate(), m.z_axis.truncate()];
         if let Some(cull) = &self.cull {
             let r = h.length() * axes.iter().map(|a| a.length_squared()).fold(0.0, f32::max).sqrt();
-            if r < wc.distance(cull.eye) * cull.min_ratio || !crate::chunks::sphere_visible(&cull.planes, wc, r) {
+            let d = wc.distance(cull.eye);
+            if r < d * cull.min_ratio || d - r > cull.max_dist || !crate::chunks::sphere_visible(&cull.planes, wc, r) {
                 return;
             }
         }

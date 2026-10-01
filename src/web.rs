@@ -16,6 +16,7 @@ unsafe extern "C" {
     pub fn urna_yt_place(x0: f32, y0: f32, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, visible: i32, vol: f32);
     pub fn urna_prompt(msg: *const u8, msg_len: usize, ptr: *mut u8, cap: usize) -> i32;
     pub fn urna_query_name(ptr: *mut u8, cap: usize) -> i32;
+    pub fn urna_is_touch() -> i32;
 }
 
 /// Lê uma string do JS: f escreve em (ptr, cap) e retorna o tamanho, -tamanho se não coube, 0 se vazio.

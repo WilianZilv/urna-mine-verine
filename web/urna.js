@@ -160,6 +160,7 @@
                     const v = Math.round(vol * 100);
                     if (ytReady && Math.abs(v - lastVol) > 2) { player.setVolume(v); lastVol = v; }
                 },
+                urna_is_touch: () => (navigator.maxTouchPoints > 0 && matchMedia("(pointer: coarse)").matches) ? 1 : 0,
                 urna_query_name: (p, cap) => put(enc.encode((new URLSearchParams(location.search).get("nome") || "").trim()), p, cap),
                 urna_prompt: (mp, mn, p, cap) => {
                     if (pendingPrompt === null) {

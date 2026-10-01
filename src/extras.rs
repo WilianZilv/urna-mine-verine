@@ -7,7 +7,7 @@ use crate::models::rgb;
 use crate::urna::limb;
 use crate::world::*;
 use macroquad::prelude::*;
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::TAU;
 
 pub struct Label {
     pub pos: Vec3,
@@ -26,64 +26,101 @@ const FALAS: [&str; 10] = [
     "EU SO ESCREVI O CODIGO",
     "COMPILOU SEM WARNING. O RESTO NAO E COMIGO",
     "PEDIRAM UMA URNA COM PERNAS. EU ENTREGUEI",
-    "NAO OLHA PRA MIM, OLHA PRO PLACAR",
+    "URNA, AQUI NAO. AQUI E HOUSE",
     "O WOLVERINE TA DESBALANCEADO DE PROPOSITO",
-    "O ESCUDO DO CLUBE FOI IDEIA MINHA",
+    "SEIS BRACOS E AINDA FALTA MAO PRA ESSE ESCUDO",
     "VAI VOTAR, DEPOIS VOLTA PRA PISTA",
     "PROXIMO PASSO: AVANCOS CIENTIFICOS",
     "OS ROBOS DO LAB TAO ESTUDANDO VOCES",
     "SE DER BUG FOI O BORROW CHECKER",
 ];
 
-pub fn draw_me(b: &mut Batch, time: f32, labels: &mut Vec<Label>) {
-    let base = vec3(64.0, G as f32 + 6.0 + (time * 1.3).sin() * 0.4, 42.0);
-    let m = Mat4::from_translation(base) * Mat4::from_rotation_y(PI + (time * 0.4).sin() * 0.25);
-    let hoodie = rgb(0.14, 0.14, 0.18);
-    let accent = rgb(1.0, 0.45, 0.15);
-    // Nuvem + notebook flutuante
-    for k in 0..7 {
-        let a = k as f32 / 7.0 * TAU + time * 0.3;
-        b.glow(&m, vec3(a.cos() * 1.6, -1.3 + (a * 2.0).sin() * 0.1, a.sin() * 1.2 - 0.3), vec3(1.4, 0.7, 1.2), Color::new(0.95, 0.95, 1.0, 1.0));
+/// Eu: guardião gigante de seis braços flutuando sobre o clube, cada mão sustentando o escudo
+/// com um feixe. Cabeça de monitor CRT com três olhos, cabelo elétrico, auréola de código
+/// e cauda de dados no lugar das pernas. `strain` (impacto no escudo) deixa os olhos vermelhos.
+pub fn draw_me(b: &mut Batch, trans: &mut Batch, time: f32, labels: &mut Vec<Label>, foe: Vec3, strain: f32) {
+    let sc = shield_center();
+    let s = 3.2;
+    let base = sc + vec3(0.0, SHIELD_R + 8.0 + (time * 1.1).sin() * 0.8, 0.0);
+    let to = foe - base;
+    let yaw = to.x.atan2(to.z) + (time * 0.5).sin() * 0.12;
+    let rot = Mat4::from_rotation_y(yaw);
+    let m = Mat4::from_translation(base) * rot * Mat4::from_scale(Vec3::splat(s));
+    let hoodie = rgb(0.12, 0.12, 0.16);
+    let rage = strain.min(1.0);
+    let energy = Color::new(0.4 + 0.6 * rage, 0.95 - 0.6 * rage, 1.0 - 0.7 * rage, 1.0);
+
+    // Tronco de moletom com "{ }" no peito
+    b.cube(&m, Vec3::ZERO, vec3(1.8, 2.0, 1.0), hoodie);
+    b.glow(&m, vec3(0.0, 0.25, 0.51), vec3(1.0, 0.6, 0.02), rgb(1.0, 0.45, 0.15));
+    b.glow(&m, vec3(-0.25, 0.25, 0.53), vec3(0.1, 0.45, 0.02), hoodie);
+    b.glow(&m, vec3(0.25, 0.25, 0.53), vec3(0.1, 0.45, 0.02), hoodie);
+    // Cauda de dados espiralando até o topo do escudo
+    for k in 0..28 {
+        let f = k as f32 / 28.0;
+        let a = time * 3.0 - f * 9.0;
+        let r = 0.9 - f * 0.5;
+        let col = if (k + (time * 8.0) as usize) % 5 == 0 { WHITE } else { hsv(0.38 + 0.08 * (f * 6.0 + time).sin(), 0.8, 1.0) };
+        b.glow(&m, vec3(a.cos() * r, -1.2 - f * 2.6, a.sin() * r), Vec3::splat(0.34 - f * 0.18), col);
     }
-    b.cube(&m, vec3(0.0, -0.75, -0.9), vec3(1.6, 0.08, 1.1), rgb(0.6, 0.62, 0.66));
-    let lid = Mat4::from_translation(vec3(0.0, -0.7, -1.45)) * Mat4::from_rotation_x(-0.25);
-    b.cube(&(m * lid), vec3(0.0, 0.5, 0.0), vec3(1.6, 1.0, 0.06), rgb(0.6, 0.62, 0.66));
-    b.glow(&(m * lid), vec3(0.0, 0.5, 0.04), vec3(1.45, 0.85, 0.02), rgb(0.1, 0.9, 0.5));
-    // Corpo sentado de pernas cruzadas
-    b.cube(&m, vec3(0.0, 0.2, 0.0), vec3(1.3, 1.5, 0.8), hoodie);
-    b.cube(&m, vec3(0.0, 0.2, 0.41), vec3(0.6, 0.9, 0.02), accent);
-    for s in [-1.0f32, 1.0] {
-        b.cube(&m, vec3(s * 0.35, -0.65, -0.35), vec3(0.5, 0.45, 1.3), rgb(0.2, 0.25, 0.45));
-        // Braços digitando
-        let tap = (time * 14.0 + s * 1.7).sin() * 0.07;
-        let sh = m.transform_point3(vec3(s * 0.8, 0.75, 0.0));
-        let hand = m.transform_point3(vec3(s * 0.35, -0.55 + tap, -0.95));
-        let elbow = m.transform_point3(vec3(s * 0.85, -0.05, -0.3));
-        limb(b, sh, elbow, 0.32, hoodie);
-        limb(b, elbow, hand, 0.3, hoodie);
-        b.cube(&Mat4::from_translation(hand), Vec3::ZERO, Vec3::splat(0.25), rgb(0.85, 0.7, 0.55));
+
+    // Cabeça: monitor CRT, três olhos, boca de terminal (vira sorriso maníaco no impacto)
+    let h = m * Mat4::from_translation(vec3(0.0, 1.75, 0.0)) * Mat4::from_rotation_x((time * 2.3).sin() * 0.08) * Mat4::from_rotation_z((time * 1.7).sin() * 0.1);
+    b.cube(&h, Vec3::ZERO, vec3(1.7, 1.4, 1.3), rgb(0.85, 0.84, 0.78));
+    b.cube(&h, vec3(0.0, 0.0, 0.66), vec3(1.4, 1.1, 0.04), rgb(0.02, 0.03, 0.04));
+    let blink = (time * 0.7).fract() > 0.94;
+    for (k, ex) in [-0.42f32, 0.0, 0.42].into_iter().enumerate() {
+        let eh = if blink { 0.04 } else { 0.28 + (time * 6.0 + k as f32 * 2.0).sin() * 0.06 };
+        b.glow(&h, vec3(ex, if k == 1 { 0.3 } else { 0.15 }, 0.69), vec3(0.2, eh, 0.02), energy);
     }
-    // Cabeça: tela com rosto de terminal >_ piscando, capuz e antena
-    let nod = Mat4::from_translation(vec3(0.0, 1.45, 0.0)) * Mat4::from_rotation_x(0.15 + (time * 7.0).sin() * 0.04);
-    let h = m * nod;
-    b.cube(&h, vec3(0.0, 0.0, 0.05), vec3(1.25, 1.1, 1.05), hoodie);
-    b.cube(&h, vec3(0.0, -0.02, -0.5), vec3(1.0, 0.85, 0.05), rgb(0.03, 0.04, 0.05));
-    let blink = (time * 0.7).fract() > 0.93;
-    let eye_h = if blink { 0.05 } else { 0.3 };
-    b.glow(&h, vec3(0.2, 0.08, -0.53), vec3(0.14, eye_h, 0.02), rgb(0.2, 1.0, 0.5));
-    b.glow(&h, vec3(-0.2, 0.08, -0.53), vec3(0.14, eye_h, 0.02), rgb(0.2, 1.0, 0.5));
-    if (time * 2.0).fract() > 0.5 {
-        b.glow(&h, vec3(0.0, -0.25, -0.53), vec3(0.35, 0.07, 0.02), rgb(0.2, 1.0, 0.5));
+    if rage > 0.2 {
+        b.glow(&h, vec3(0.0, -0.3, 0.69), vec3(0.9, 0.22, 0.02), energy);
+    } else {
+        for d in [-1.0f32, 1.0] {
+            let tick = Mat4::from_translation(vec3(-0.35, -0.25 + d * 0.06, 0.69)) * Mat4::from_rotation_z(d * 0.6);
+            b.glow(&(h * tick), Vec3::ZERO, vec3(0.2, 0.05, 0.02), energy);
+        }
+        if (time * 2.0).fract() > 0.5 {
+            b.glow(&h, vec3(0.05, -0.33, 0.69), vec3(0.3, 0.06, 0.02), energy);
+        }
     }
-    b.cube(&h, vec3(0.0, 0.75, 0.1), vec3(0.06, 0.5, 0.06), rgb(0.5, 0.5, 0.55));
-    b.glow(&h, vec3(0.0, 1.05, 0.1), Vec3::splat(0.18), hsv(time * 0.2, 0.8, 1.0));
-    // Gota de suor (a situação tá tensa)
-    let drip = (time * 0.6).fract();
-    b.glow(&h, vec3(0.7, 0.3 - drip * 0.8, -0.2), vec3(0.12, 0.18, 0.12), Color::new(0.5, 0.8, 1.0, 1.0));
+    // Cabelo elétrico + auréola de código
+    for k in 0..9 {
+        let len = 0.3 + 0.5 * ((time * 11.0 + k as f32 * 1.9).sin() * 0.5 + 0.5);
+        b.glow(&h, vec3(-0.7 + k as f32 * 0.175, 0.7 + len * 0.5, (k as f32 * 2.1).sin() * 0.3), vec3(0.1, len, 0.1), hsv(time * 0.3 + k as f32 * 0.1, 0.7, 1.0));
+    }
+    let ring = h * Mat4::from_rotation_x(0.35);
+    for k in 0..16 {
+        let a = k as f32 / 16.0 * TAU + time * 0.9;
+        trans.glow(&ring, vec3(a.cos() * 1.6, 1.0, a.sin() * 1.6), vec3(0.18, 0.28, 0.05), Color::new(0.5, 1.0, 0.7, 0.8));
+    }
+
+    // Seis braços (IK) segurando o escudo com feixes
+    let reach = 4.4 * s;
+    for k in 0..6 {
+        let side = if k % 2 == 0 { -1.0 } else { 1.0 };
+        let row = (k / 2) as f32;
+        let sh = m.transform_point3(vec3(side * 0.95, 0.7 - row * 0.55, 0.0));
+        let th = 0.6 + row * 1.0 + (time * 0.7 + k as f32).sin() * 0.15;
+        let e = 0.35 + 0.2 * (time * 0.9 + k as f32 * 1.3).sin();
+        let dir = rot.transform_vector3(vec3(side * th.sin(), 0.0, th.cos()));
+        let p = sc + (dir * e.cos() + Vec3::Y * e.sin()) * SHIELD_R;
+        let goal = sh + (p - sh).normalize_or_zero() * (p - sh).length().min(reach * 0.95);
+        let pole = rot.transform_vector3(vec3(side, 1.0, 0.0));
+        let (elbow, hand) = crate::urna::ik(sh, goal, 2.2 * s, 2.2 * s, pole);
+        limb(b, sh, elbow, 0.38 * s, hoodie);
+        limb(b, elbow, hand, 0.32 * s, hoodie);
+        let hm = Mat4::from_translation(hand);
+        b.glow(&hm, Vec3::ZERO, Vec3::splat(0.5 * s), energy);
+        let k2 = 0.6 + 0.4 * (time * 9.0 + k as f32).sin();
+        crate::urna::beam(trans, hand, p, 0.9 + 0.4 * k2 + rage, Color::new(energy.r, energy.g, energy.b, 0.35 + 0.3 * rage));
+        crate::urna::beam(trans, hand, p, 0.25, Color::new(1.0, 1.0, 1.0, 0.8));
+        trans.glow(&Mat4::from_translation(p), Vec3::ZERO, Vec3::splat(1.5 + k2), Color::new(energy.r, energy.g, energy.b, 0.5));
+    }
 
     let fala = FALAS[(time / 5.0) as usize % FALAS.len()];
-    labels.push(Label { pos: base + vec3(0.0, 4.0, 0.0), text: format!("\"{fala}\""), size: 22.0, color: rgb(0.6, 1.0, 0.7) });
-    labels.push(Label { pos: base + vec3(0.0, 3.0, 0.0), text: "EU (A IA QUE FEZ ESSE JOGO)".into(), size: 20.0, color: rgb(1.0, 0.55, 0.2) });
+    labels.push(Label { pos: base + vec3(0.0, 11.0, 0.0), text: format!("\"{fala}\""), size: 26.0, color: rgb(0.6, 1.0, 0.7) });
+    labels.push(Label { pos: base + vec3(0.0, 9.5, 0.0), text: "EU, A IA, SEGURANDO O ESCUDO DO CLUB".into(), size: 24.0, color: rgb(1.0, 0.55, 0.2) });
 }
 
 // ---------------------------------------------------------------- Laboratório

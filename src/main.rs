@@ -294,7 +294,11 @@ async fn main() {
     let guests = actors::spawn_guests();
     let relogio = eleicao::Relogio::new();
     let lab = extras::Lab::new();
+    let mut club_k = 0.0f32;
     // Celular
+    #[cfg(target_arch = "wasm32")]
+    let mut mobile = unsafe { web::urna_is_touch() } != 0;
+    #[cfg(not(target_arch = "wasm32"))]
     let mut mobile = false;
     let mut stick: Option<(u64, Vec2)> = None;
     let mut look_touch: Option<(u64, Vec2)> = None;
@@ -329,7 +333,7 @@ async fn main() {
 
     let mut grabbed = false;
     let mut last_mouse: Vec2 = mouse_position().into();
-    let mut show_help = true;
+    let mut show_help = !mobile;
     let mut muted = false;
     let mut banner: Option<(String, f32)> = Some(("BEM-VINDO A VILA. O HOUSE TA TOCANDO.".into(), 4.0));
     let mut wolverine_called = false;
@@ -868,7 +872,9 @@ async fn main() {
         telao.set_volume(target_vol);
 
         // ------------------------------------------------ Render 3D
-        clear_background(Color::new(0.53, 0.75, 1.0, 1.0));
+        club_k += ((in_club as i32 as f32) - club_k) * (dt * 2.0).min(1.0);
+        let day = 1.0 - club_k * 0.9;
+        clear_background(Color::new(0.53 * day + 0.06 * club_k, 0.75 * day, 1.0 * day + 0.1 * club_k, 1.0));
         let shake = vec3(gen_range(-1.0, 1.0), gen_range(-1.0, 1.0), gen_range(-1.0, 1.0)) * fx.shake * 0.35;
         let cam = Camera3D {
             position: eye + shake,
@@ -883,13 +889,13 @@ async fn main() {
         // Céu: sol e nuvens
         let id = Mat4::IDENTITY;
         let sun_dir = vec3(0.4, 0.75, 0.3).normalize();
-        opaque.glow(&id, eye + sun_dir * 160.0, Vec3::splat(16.0), Color::new(1.0, 0.95, 0.6, 1.0));
+        opaque.glow(&id, eye + sun_dir * 160.0, Vec3::splat(16.0), Color::new(day, 0.95 * day, 0.6 * day, 1.0));
         for k in 0..22 {
             let kx = atlas::hash2(k, 1, 900) * 260.0 - 66.0;
             let kz = atlas::hash2(k, 2, 900) * 260.0 - 66.0;
             let x = (kx + time * 1.5).rem_euclid(260.0) - 66.0;
             let s = vec3(8.0 + atlas::hash2(k, 3, 900) * 12.0, 1.5, 6.0 + atlas::hash2(k, 4, 900) * 10.0);
-            opaque.glow(&id, vec3(x, 62.0, kz), s, Color::new(1.0, 1.0, 1.0, 1.0));
+            opaque.glow(&id, vec3(x, 62.0, kz), s, Color::new(day, day, day, 1.0));
         }
 
         for list in &chunks {
@@ -946,7 +952,7 @@ async fn main() {
         let (tx, tz0, tz1, ty0, ty1) = (9.21, 56.5, 72.5, G as f32 + 4.5, G as f32 + 13.5);
         opaque.cube(&id, vec3(9.1, (ty0 + ty1) * 0.5, (tz0 + tz1) * 0.5), vec3(0.2, ty1 - ty0 + 0.4, tz1 - tz0 + 0.4), Color::new(0.05, 0.05, 0.06, 1.0));
         urna.draw(&mut opaque, &mut trans, time);
-        extras::draw_me(&mut opaque, time, &mut labels);
+        extras::draw_me(&mut opaque, &mut trans, time, &mut labels, urna.pos, fx.shield_flash);
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye);
         fx.draw_opaque(&mut opaque);
         opaque.flush(&atlas.tex);
@@ -986,6 +992,13 @@ async fn main() {
 
         // ------------------------------------------------ Render 2D
         set_default_camera();
+        if club_k > 0.01 {
+            let (w, h) = (screen_width(), screen_height());
+            let pulse = (1.0 - beat.fract()).powi(3);
+            let c = club::hsv(beat * 0.125, 0.85, 1.0);
+            draw_rectangle(0.0, 0.0, w, h, Color::new(0.05, 0.0, 0.12, 0.5 * club_k));
+            draw_rectangle(0.0, 0.0, w, h, Color::new(c.r, c.g, c.b, 0.12 * pulse * club_k));
+        }
         labels.push(Label { pos: vec3(36.5, G as f32 + 8.2, 64.5), text: "CLUB DO HOUSE - SO CURTINDO".into(), size: 30.0, color: Color::new(1.0, 0.4, 0.9, 1.0) });
         labels.push(Label { pos: urna.matrix().transform_point3(vec3(0.0, 6.0, 0.0)), text: "URNA ELETRONICA".into(), size: 32.0, color: Color::new(1.0, 0.85, 0.3, 1.0) });
         labels.push(Label { pos: urna.matrix().transform_point3(vec3(5.2, -3.6, 1.8)), text: "CONFIRMA".into(), size: 20.0, color: GREEN });

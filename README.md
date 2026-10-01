@@ -77,6 +77,10 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
 | `H` | mostrar/esconder ajuda |
 | `Tab` / `Esc` | soltar mouse |
 
+**Celular** (abre o link no navegador, deita o celular): metade esquerda = joystick, arrastar na
+direita = olhar, botões `PULA` / `BATE` / `POE` / `VOA`, `CHAT` e `TELAO` no canto, toque na
+hotbar escolhe bloco. Entra em tela cheia no primeiro toque.
+
 ---
 
 ## O que tem na tela
@@ -103,7 +107,15 @@ Enquanto carrega, toca um house sintetizado (124 BPM) de fallback.
   **Vorcaro** e **Lulinha** no palco ao lado do DJ (`actors::spawn_guests`).
 - Volume da música aumenta conforme você se aproxima do clube.
 - **Dentro do clube a guerra some**: sons de fora do escudo (explosões, laser, socos) não tocam
-  e a tela não treme.
+  e a tela não treme. A luz faz transição de dia pra balada (escuro roxo + pulso colorido no beat).
+- **Guardião do escudo (eu, a IA que fez o jogo)**: figura gigante flutuando sobre o clube,
+  cabeça de monitor CRT com três olhos, cabelo elétrico, auréola de código, cauda de dados e
+  **seis braços** sustentando o escudo com feixes. Encara a urna; quando um laser bate no
+  escudo os olhos ficam vermelhos e abre um sorriso maníaco. Solta falas rotativas.
+
+### Laboratório (leste)
+Prédio de vidro onde 5 **robôs cientistas** circulam entre estações estudando um **cérebro
+humano holográfico** girando (neurônios disparando), com painéis de hologramas e leituras.
 
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).
@@ -118,9 +130,13 @@ Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (v
 Os três humanos têm **atributos idênticos** (100 HP, mesma velocidade e dano). Só o
 Wolverine é diferente.
 
-### Urna eletrônica (leste)
-- Modelo gigante: corpo bege, tela (fica vermelha ao carregar), teclado numérico,
-  `BRANCO` / `CORRIGE` / `CONFIRMA`, faixa superior, propulsores mágicos flutuando.
+### Urna eletrônica (anda pelo mapa inteiro)
+- Caricata: corpo bege, tela vira **rosto** (olhos seguem o alvo, sobrancelha brava, boca
+  abre ao carregar), teclado numérico, `BRANCO` / `CORRIGE` / `CONFIRMA`, faixa JUSTIÇA ELEITORAL.
+- **Braços e pernas procedurais com peso**: IK de dois ossos, pé plantado no terreno a cada
+  passo (tremor + som de pisada), corpo em mola amortecida (balança, inclina, coice no tiro),
+  luvas de boxe socando o ar e apontando pro alvo quando carrega.
+- Anda pra pontos aleatórios do mapa (fora do escudo) destruindo tudo.
 - Ciclo: escolhe alvo → gira → carrega (olho vermelho cresce) → dispara.
 - Alvos: lutadores, pontos aleatórios da vila, o clube (sempre refletido pelo escudo),
   villagers andando e, depois de 30s, ocasionalmente o jogador.

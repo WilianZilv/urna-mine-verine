@@ -65,8 +65,7 @@ pub struct Urna {
     pub target: Vec3,
     pub barrage: u32,
     pub shots: u32,
-    orbit: f32,
-    orbit_goal: f32,
+    goal: Vec3,
     feet: [Foot; 2],
     hands: [Vec3; 2],
     hand_vel: [Vec3; 2],
@@ -85,15 +84,19 @@ const SHIN: f32 = 4.6;
 const UPPER: f32 = 4.3;
 const FORE: f32 = 4.3;
 const STAND: f32 = 8.4 + 3.3;
-const ORBIT_R: f32 = 28.0;
 
-fn orbit_point(a: f32) -> Vec3 {
-    let c = shield_center();
-    vec3(c.x + ORBIT_R * a.cos(), G as f32, c.z + ORBIT_R * a.sin())
+/// Ponto aleatório do mapa pra urna ir quebrar, longe do escudo.
+fn wander_point() -> Vec3 {
+    loop {
+        let p = vec3(gen_range(40.0, 118.0), G as f32, gen_range(12.0, 116.0));
+        if p.distance(shield_center()) > SHIELD_R + 10.0 {
+            return p;
+        }
+    }
 }
 
 /// IK de dois ossos: retorna (joelho/cotovelo, ponta alcançável).
-fn ik(a: Vec3, t: Vec3, l1: f32, l2: f32, pole: Vec3) -> (Vec3, Vec3) {
+pub fn ik(a: Vec3, t: Vec3, l1: f32, l2: f32, pole: Vec3) -> (Vec3, Vec3) {
     let d = t - a;
     let dist = d.length().clamp(0.05, l1 + l2 - 0.01);
     let dir = d.normalize_or(Vec3::NEG_Y);
@@ -116,7 +119,7 @@ pub fn limb(b: &mut Batch, a: Vec3, c: Vec3, w: f32, col: Color) {
 
 impl Urna {
     pub fn new() -> Self {
-        let root = orbit_point(0.0);
+        let root = vec3(56.0, G as f32, 64.0);
         let side = vec3(0.0, 0.0, 1.0);
         let foot = |s: f32| Foot { pos: root + side * s * HIP.x, from: root, to: root, t: 1.0 };
         Urna {
@@ -131,8 +134,7 @@ impl Urna {
             target: arena_center(),
             barrage: 0,
             shots: 0,
-            orbit: 0.0,
-            orbit_goal: 0.0,
+            goal: root,
             feet: [foot(-1.0), foot(1.0)],
             hands: [root; 2],
             hand_vel: [Vec3::ZERO; 2],
@@ -163,14 +165,15 @@ impl Urna {
         self.vel += -self.fwd() * 7.0 + vec3(0.0, 3.0, 0.0);
     }
 
-    /// IA do host: patrulha em volta do clube e mira. Retorna Some(alvo) quando dispara.
+    /// IA do host: anda pelo mapa inteiro destruindo tudo e mira. Retorna Some(alvo) quando dispara.
     pub fn update(&mut self, dt: f32, _time: f32, mut pick: impl FnMut() -> Vec3) -> Option<Vec3> {
-        if (self.orbit - self.orbit_goal).abs() < 0.02 {
-            self.orbit_goal = gen_range(-0.85, 0.85);
+        let to_goal = self.goal - self.root;
+        if to_goal.length() < 1.0 {
+            self.goal = wander_point();
         }
-        self.orbit += (self.orbit_goal - self.orbit).clamp(-dt * 0.075, dt * 0.075);
-        self.root = orbit_point(self.orbit);
-        let look = if self.charging || self.charge > 0.2 { self.target } else { shield_center() };
+        let speed = if self.charging { 0.6 } else { 2.4 };
+        self.root += to_goal.normalize_or_zero() * (speed * dt).min(to_goal.length());
+        let look = if self.charging || self.charge > 0.2 { self.target } else { self.goal };
         let to = look - self.root;
         self.yaw = crate::actors::angle_lerp(self.yaw, to.x.atan2(to.z), dt * 2.5);
         self.timer -= dt;
@@ -202,7 +205,7 @@ impl Urna {
         Some(self.target)
     }
 
-    /// Física procedural: passos com pé plantado no terreno, corpo em mola, mãos segurando o escudo.
+    /// Física procedural: passos com pé plantado no terreno, corpo em mola, braços socando/mirando.
     pub fn animate(&mut self, world: &World, dt: f32, time: f32) {
         let dt = dt.max(1e-4);
         let rv = (self.root - self.last_root) / dt;
@@ -248,16 +251,18 @@ impl Urna {
         let sway = (time * 3.2).sin() * 0.03 * self.root_vel.length().min(2.0);
         self.tilt = self.tilt.lerp(vec2(off.dot(fwd) * -0.06 + self.vel.dot(fwd) * 0.02, off.dot(side) * 0.06 + sway), (dt * 8.0).min(1.0));
 
-        // Mãos: empurrando o escudo do clube
+        // Mãos: carregando = apontando pro alvo; senão socando o ar alternado
         let m = self.matrix();
-        let sc = shield_center();
-        let toward = (self.pos - sc).normalize_or(Vec3::X);
-        let surf = sc + toward * (SHIELD_R + 0.5);
+        let reach = UPPER + FORE - 0.3;
         for i in 0..2 {
             let s = if i == 0 { -1.0 } else { 1.0 };
             let sh = m.transform_point3(vec3(SHOULDER.x * s, SHOULDER.y, 0.0));
-            let mut goal = surf + side * s * 4.0 + up * (2.5 + (time * 1.7 + i as f32 * 2.0).sin() * 0.7);
-            let reach = UPPER + FORE - 0.3;
+            let mut goal = if self.charging {
+                sh + (self.target - sh).normalize_or(fwd) * reach + up * (time * 30.0 + i as f32).sin() * 0.2
+            } else {
+                let punch = (time * 4.0 + i as f32 * std::f32::consts::PI).sin().max(0.0);
+                m.transform_point3(vec3(s * 3.5, 1.5 + punch, 2.5 + punch * 5.0))
+            };
             if goal.distance(sh) > reach {
                 goal = sh + (goal - sh).normalize() * reach;
             }
@@ -334,8 +339,7 @@ impl Urna {
             b.cube(&shoe, vec3(0.0, -0.4, 0.5), vec3(1.9, 0.25, 3.1), rgb(0.85, 0.15, 0.15));
         }
 
-        // Braços (IK) com luvas de desenho animado + feixes mágicos até o escudo
-        let sc = shield_center();
+        // Braços (IK) com luvas de boxe; carregando, as luvas ficam em brasa
         for i in 0..2 {
             let s = if i == 0 { -1.0 } else { 1.0 };
             let sh = m.transform_point3(vec3(SHOULDER.x * s, SHOULDER.y, 0.0));
@@ -343,11 +347,11 @@ impl Urna {
             b.cube(&id_at(sh), Vec3::ZERO, Vec3::splat(1.5), beige);
             limb(b, sh, elbow, 1.0, beige);
             limb(b, elbow, hand, 0.9, beige);
-            b.cube(&id_at(hand), Vec3::ZERO, Vec3::splat(1.6), WHITE);
-            let k = 0.6 + 0.4 * (time * 9.0 + i as f32).sin();
-            trans.glow(&id_at(hand), Vec3::ZERO, Vec3::splat(2.4 + 0.5 * k), Color::new(0.4, 0.85, 1.0, 0.35 * k));
-            let surf = sc + (hand - sc).normalize_or(Vec3::X) * SHIELD_R;
-            crate::urna::beam(trans, hand, surf, 0.5 + 0.2 * k, Color::new(0.5, 0.9, 1.0, 0.45));
+            b.cube(&id_at(hand), Vec3::ZERO, Vec3::splat(1.9), rgb(0.85, 0.1, 0.1));
+            if self.charge > 0.0 {
+                let k = self.charge * (0.7 + 0.3 * (time * 20.0 + i as f32).sin());
+                trans.glow(&id_at(hand), Vec3::ZERO, Vec3::splat(2.6 + k), Color::new(1.0, 0.3, 0.1, 0.4 * k));
+            }
         }
 
         // Olhos do laser carregando

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://urna-mine-verine.wilianzilv.workers.dev/modding.json",
+  "manifest": {
+    "id": "astronauta",
+    "kind": "avatar",
+    "name": "Astronauta da Urna",
+    "version": "1.0.0",
+    "author": "urna-universe",
+    "description": "Skin de astronauta: capacete com visor dourado, mochila de oxigenio e antena que pisca.",
+    "license": "CC0-1.0"
+  },
+  "model": {
+    "parts": [
+      {
+        "name": "body",
+        "pivot": [0, 0.75, 0],
+        "boxes": [
+          { "pos": [0, 1.05, 0], "size": [0.52, 0.66, 0.32], "color": "#eeeeee" },
+          { "pos": [0, 0.76, 0], "size": [0.54, 0.1, 0.34], "color": "#5c5c5c" },
+          { "pos": [0, 1.1, -0.26], "size": [0.44, 0.54, 0.2], "color": "#a8a8a8" },
+          { "pos": [0.12, 1.3, -0.37], "size": [0.08, 0.16, 0.05], "color": "#d83a2e" },
+          { "pos": [0, 1.15, 0.17], "size": [0.22, 0.14, 0.05], "color": "#2ec4c4", "glow": true },
+          { "pos": [-0.15, 1.28, 0.17], "size": [0.1, 0.07, 0.05], "color": "#2e4ad8" }
+        ]
+      },
+      {
+        "name": "head",
+        "parent": "body",
+        "pivot": [0, 1.4, 0],
+        "boxes": [
+          { "pos": [0, 1.66, 0], "size": [0.52, 0.5, 0.52], "color": "#f2f2f2" },
+          { "pos": [0, 1.66, 0.25], "size": [0.4, 0.28, 0.05], "color": "#f0a020", "glow": true },
+          { "pos": [0, 1.66, 0.27], "size": [0.32, 0.2, 0.05], "color": "#1c2a4a" },
+          { "pos": [0.19, 1.98, 0], "size": [0.05, 0.16, 0.05], "color": "#5c5c5c" },
+          { "pos": [0.19, 2.08, 0], "size": [0.08, 0.08, 0.08], "color": "#ff3030", "glow": true }
+        ]
+      },
+      {
+        "name": "arm_l",
+        "parent": "body",
+        "pivot": [0.34, 1.34, 0],
+        "boxes": [
+          { "pos": [0.34, 1.06, 0], "size": [0.18, 0.6, 0.2], "color": "#eeeeee" },
+          { "pos": [0.34, 0.72, 0], "size": [0.2, 0.12, 0.22], "color": "#f08a24" }
+        ]
+      },
+      {
+        "name": "arm_r",
+        "parent": "body",
+        "pivot": [-0.34, 1.34, 0],
+        "boxes": [
+          { "pos": [-0.34, 1.06, 0], "size": [0.18, 0.6, 0.2], "color": "#eeeeee" },
+          { "pos": [-0.34, 0.72, 0], "size": [0.2, 0.12, 0.22], "color": "#f08a24" }
+        ]
+      },
+      {
+        "name": "leg_l",
+        "pivot": [0.13, 0.72, 0],
+        "boxes": [
+          { "pos": [0.13, 0.4, 0], "size": [0.22, 0.6, 0.26], "color": "#e6e6e6" },
+          { "pos": [0.13, 0.06, 0.03], "size": [0.25, 0.12, 0.32], "color": "#5c5c5c" }
+        ]
+      },
+      {
+        "name": "leg_r",
+        "pivot": [-0.13, 0.72, 0],
+        "boxes": [
+          { "pos": [-0.13, 0.4, 0], "size": [0.22, 0.6, 0.26], "color": "#e6e6e6" },
+          { "pos": [-0.13, 0.06, 0.03], "size": [0.25, 0.12, 0.32], "color": "#5c5c5c" }
+        ]
+      }
+    ]
+  },
+  "animations": {
+    "idle": {
+      "duration": 2.4,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "arm_l": { "rot": [0, 0, -4] }, "arm_r": { "rot": [0, 0, 4] } } },
+        { "t": 1.2, "parts": { "arm_l": { "rot": [0, 0, -9] }, "arm_r": { "rot": [0, 0, 9] }, "head": { "rot": [6, 0, 0] }, "body": { "offset": [0, 0.02, 0] } } },
+        { "t": 2.4, "parts": { "arm_l": { "rot": [0, 0, -4] }, "arm_r": { "rot": [0, 0, 4] } } }
+      ]
+    },
+    "walk": {
+      "duration": 0.8,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "leg_l": { "rot": [30, 0, 0] }, "leg_r": { "rot": [-30, 0, 0] }, "arm_l": { "rot": [-25, 0, 0] }, "arm_r": { "rot": [25, 0, 0] } } },
+        { "t": 0.4, "parts": { "leg_l": { "rot": [-30, 0, 0] }, "leg_r": { "rot": [30, 0, 0] }, "arm_l": { "rot": [25, 0, 0] }, "arm_r": { "rot": [-25, 0, 0] } } },
+        { "t": 0.8, "parts": { "leg_l": { "rot": [30, 0, 0] }, "leg_r": { "rot": [-30, 0, 0] }, "arm_l": { "rot": [-25, 0, 0] }, "arm_r": { "rot": [25, 0, 0] } } }
+      ]
+    },
+    "run": {
+      "duration": 0.5,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "body": { "rot": [12, 0, 0] }, "leg_l": { "rot": [55, 0, 0] }, "leg_r": { "rot": [-55, 0, 0] }, "arm_l": { "rot": [-50, 0, 0] }, "arm_r": { "rot": [50, 0, 0] } } },
+        { "t": 0.25, "parts": { "body": { "rot": [12, 0, 0] }, "leg_l": { "rot": [-55, 0, 0] }, "leg_r": { "rot": [55, 0, 0] }, "arm_l": { "rot": [50, 0, 0] }, "arm_r": { "rot": [-50, 0, 0] } } },
+        { "t": 0.5, "parts": { "body": { "rot": [12, 0, 0] }, "leg_l": { "rot": [55, 0, 0] }, "leg_r": { "rot": [-55, 0, 0] }, "arm_l": { "rot": [-50, 0, 0] }, "arm_r": { "rot": [50, 0, 0] } } }
+      ]
+    },
+    "jump": {
+      "duration": 0.6,
+      "keyframes": [
+        { "t": 0, "parts": { "arm_l": { "rot": [0, 0, -20] }, "arm_r": { "rot": [0, 0, 20] } } },
+        { "t": 0.25, "parts": { "arm_l": { "rot": [-160, 0, -10] }, "arm_r": { "rot": [-160, 0, 10] }, "leg_l": { "rot": [-25, 0, 0] }, "leg_r": { "rot": [15, 0, 0] } } },
+        { "t": 0.6, "parts": { "arm_l": { "rot": [-120, 0, -20] }, "arm_r": { "rot": [-120, 0, 20] } } }
+      ]
+    },
+    "attack": {
+      "duration": 0.4,
+      "keyframes": [
+        { "t": 0, "parts": {} },
+        { "t": 0.12, "parts": { "arm_r": { "rot": [-110, 0, 0] }, "body": { "rot": [0, -15, 0] } } },
+        { "t": 0.4, "parts": {} }
+      ]
+    },
+    "emote1": {
+      "duration": 1,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "arm_l": { "rot": [0, 0, -150] } } },
+        { "t": 0.5, "parts": { "arm_l": { "rot": [0, 0, -115] }, "head": { "rot": [0, 10, 0] } } },
+        { "t": 1, "parts": { "arm_l": { "rot": [0, 0, -150] } } }
+      ]
+    },
+    "emote2": {
+      "duration": 3,
+      "loop": true,
+      "keyframes": [
+        { "t": 0, "parts": { "body": { "offset": [0, 0, 0] }, "arm_l": { "rot": [0, 0, -60] }, "arm_r": { "rot": [0, 0, 60] } } },
+        { "t": 1.5, "parts": { "body": { "offset": [0, 0.35, 0], "rot": [0, 180, 0] }, "arm_l": { "rot": [0, 0, -80] }, "arm_r": { "rot": [0, 0, 80] }, "leg_l": { "rot": [20, 0, 0] }, "leg_r": { "rot": [-20, 0, 0] } } },
+        { "t": 3, "parts": { "body": { "offset": [0, 0, 0], "rot": [0, 360, 0] }, "arm_l": { "rot": [0, 0, -60] }, "arm_r": { "rot": [0, 0, 60] } } }
+      ]
+    }
+  },
+  "avatar": {
+    "scale": 1,
+    "emotes": [
+      { "anim": "emote1", "name": "Acenar" },
+      { "anim": "emote2", "name": "Gravidade zero" }
+    ]
+  }
+}

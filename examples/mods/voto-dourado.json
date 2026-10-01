@@ -1,0 +1,25 @@
+{
+  "$schema": "https://urna-mine-verine.wilianzilv.workers.dev/modding.json",
+  "manifest": {
+    "id": "voto-dourado",
+    "kind": "item",
+    "name": "Voto Dourado",
+    "version": "1.0.0",
+    "author": "urna-universe",
+    "description": "Cedula dourada ficticia: vem dos jogos do Game Hub e vale como trofeu no inventario.",
+    "license": "CC0-1.0"
+  },
+  "item": { "color": "yellow", "color2": "orange", "pattern": "border", "stack": 16, "daily_cap": 3 },
+  "model": {
+    "parts": [
+      {
+        "name": "cedula",
+        "boxes": [
+          { "pos": [0, 0.3, 0], "size": [0.5, 0.6, 0.08], "color": "#f5d63a" },
+          { "pos": [0, 0.38, 0.05], "size": [0.3, 0.08, 0.05], "color": "#3a8a2e", "glow": true },
+          { "pos": [0, 0.2, 0.05], "size": [0.2, 0.06, 0.05], "color": "#7a5030" }
+        ]
+      }
+    ]
+  }
+}

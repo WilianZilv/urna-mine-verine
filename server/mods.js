@@ -5,6 +5,8 @@
 
 import { safe } from "./economy.js";
 import KONG from "../examples/mods/king-kong.json" with { type: "json" };
+import ASTRO from "../examples/mods/astronauta.json" with { type: "json" };
+import VOTO from "../examples/mods/voto-dourado.json" with { type: "json" };
 
 export const SITE = "https://urna-mine-verine.wilianzilv.workers.dev";
 
@@ -28,6 +30,17 @@ export const LIMITS = {
     active_per_creator: 3,
     mods_per_creator: 20,
 };
+// Limites por tipo (manifest.kind). npc = o de sempre; avatar = skin de jogador; item = item transferivel.
+export const KINDS = {
+    npc: { parts: LIMITS.parts, boxes: LIMITS.boxes, coord: LIMITS.coord, active: LIMITS.active_total, per_creator: LIMITS.active_per_creator },
+    avatar: { parts: 16, boxes: 160, coord: 4, active: 40, per_creator: 6 },
+    item: { parts: 4, boxes: 48, coord: 2, active: 60, per_creator: 12 },
+};
+export const RIG = ["head", "body", "arm_l", "arm_r", "leg_l", "leg_r"];
+const AV_ANIMS = ["idle", "walk", "run", "jump", "attack", "fly", "death", "emote1", "emote2", "emote3", "emote4"];
+const AV_SIZE = { height: [1.2, 2.4], width: 1.6 };
+const ITEM = { stack: [1, 64, 16], daily_cap: [1, 20, 3] };
+export const kindOf = (pkg) => pkg?.manifest?.kind || "npc";
 const ANIMS = ["idle", "walk", "attack", "death", "roar", "jump", "fly"];
 const SOUNDS = ["roar", "attack", "hurt", "death", "spawn", "beam", "say"];
 const WAVES = ["sine", "square", "saw", "triangle", "noise"];
@@ -91,6 +104,8 @@ export function validate(raw) {
         }
         return r3(v);
     };
+    const kind = isObj(raw) && isObj(raw.manifest) && raw.manifest.kind !== undefined ? raw.manifest.kind : "npc";
+    const K = KINDS[kind] || KINDS.npc;
     const vec = (v, path, lim) => {
         if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === "number" && Number.isFinite(x))) return err(path, "must be [x, y, z] numbers"), [0, 0, 0];
         if (v.some((x) => Math.abs(x) > lim)) warn(path, `clamped to +-${lim}`);
@@ -133,11 +148,17 @@ export function validate(raw) {
     };
 
     const pkg = {};
-    if (!keys(raw, "$", ["$schema", "manifest", "model", "animations", "behavior", "sounds", "items", "blocks"], ["manifest", "model", "behavior"])) return { pkg: null, errors, warnings };
+    if (!KINDS[kind]) return err("manifest.kind", `must be one of: ${Object.keys(KINDS).join(", ")}`), { pkg: null, errors, warnings };
+    const TOP = {
+        npc: [["$schema", "manifest", "model", "animations", "behavior", "sounds", "items", "blocks"], ["manifest", "model", "behavior"]],
+        avatar: [["$schema", "manifest", "model", "animations", "avatar"], ["manifest", "model", "animations"]],
+        item: [["$schema", "manifest", "item", "model"], ["manifest", "item"]],
+    }[kind];
+    if (!keys(raw, "$", ...TOP)) return { pkg: null, errors, warnings };
 
     // manifest
     const m = raw.manifest;
-    if (keys(m, "manifest", ["id", "name", "version", "author", "description", "license"], ["id", "name", "version", "author", "license"])) {
+    if (keys(m, "manifest", ["id", "name", "version", "author", "description", "license", "kind"], ["id", "name", "version", "author", "license"])) {
         if (typeof m.id !== "string" || !SLUG.test(m.id) || RESERVED.includes(m.id)) err("manifest.id", "slug: 3-32 chars [a-z0-9-], starts/ends alphanumeric, not reserved");
         if (typeof m.version !== "string" || !SEMVER.test(m.version)) err("manifest.version", 'semver "MAJOR.MINOR.PATCH" (each 0-999)');
         pkg.manifest = {
@@ -148,13 +169,14 @@ export function validate(raw) {
             description: m.description === undefined ? "" : text(m.description, "manifest.description", 300, 0),
             license: text(m.license, "manifest.license", 40),
         };
+        if (kind !== "npc") pkg.manifest.kind = kind;
     }
 
     // model
     const names = new Set();
-    if (keys(raw.model, "model", ["parts"], ["parts"])) {
+    if (raw.model !== undefined && keys(raw.model, "model", ["parts"], ["parts"])) {
         const parts = raw.model.parts;
-        if (!Array.isArray(parts) || parts.length < 1 || parts.length > LIMITS.parts) err("model.parts", `must be an array of 1..${LIMITS.parts} parts`);
+        if (!Array.isArray(parts) || parts.length < 1 || parts.length > K.parts) err("model.parts", `must be an array of 1..${K.parts} parts (kind ${kind})`);
         else {
             let boxes = 0;
             pkg.model = {
@@ -170,31 +192,33 @@ export function validate(raw) {
                     return {
                         name: String(p.name),
                         parent: p.parent ?? null,
-                        pivot: p.pivot === undefined ? [0, 0, 0] : vec(p.pivot, `${path}.pivot`, LIMITS.coord),
-                        boxes: bx.slice(0, LIMITS.boxes).map((b, j) => {
+                        pivot: p.pivot === undefined ? [0, 0, 0] : vec(p.pivot, `${path}.pivot`, K.coord),
+                        boxes: bx.slice(0, K.boxes).map((b, j) => {
                             const bp = `${path}.boxes[${j}]`;
                             if (!keys(b, bp, ["pos", "size", "color", "glow"], ["pos", "size", "color"])) return null;
                             const size = vec(b.size, `${bp}.size`, LIMITS.size[1]).map((s) => Math.max(LIMITS.size[0], s));
                             if (Array.isArray(b.size) && b.size.some((s) => s < LIMITS.size[0])) warn(`${bp}.size`, `each size >= ${LIMITS.size[0]}`);
                             if (b.glow !== undefined && typeof b.glow !== "boolean") err(`${bp}.glow`, "must be boolean");
-                            const out = { pos: vec(b.pos, `${bp}.pos`, LIMITS.coord), size, color: color(b.color, `${bp}.color`) };
+                            const out = { pos: vec(b.pos, `${bp}.pos`, K.coord), size, color: color(b.color, `${bp}.color`) };
                             if (b.glow) out.glow = true;
                             return out;
                         }),
                     };
                 }),
             };
-            if (boxes > LIMITS.boxes) err("model.parts", `too many boxes in total (${boxes} > ${LIMITS.boxes})`);
+            if (boxes > K.boxes) err("model.parts", `too many boxes in total (${boxes} > ${K.boxes}, kind ${kind})`);
             if (boxes === 0) err("model.parts", "model needs at least 1 box");
+            if (kind === "avatar") for (const r of RIG) if (!names.has(r)) err("model.parts", `avatar needs the standard rig parts: ${RIG.join(", ")} (missing "${r}")`);
         }
     }
 
     // animations
-    if (raw.animations !== undefined && keys(raw.animations, "animations", ANIMS)) {
+    const anims = kind === "avatar" ? AV_ANIMS : ANIMS;
+    if (raw.animations !== undefined && keys(raw.animations, "animations", anims)) {
         pkg.animations = {};
         for (const [name, a] of Object.entries(raw.animations)) {
             const path = `animations.${name}`;
-            if (!ANIMS.includes(name) || !keys(a, path, ["duration", "loop", "keyframes"], ["duration", "keyframes"])) continue;
+            if (!anims.includes(name) || !keys(a, path, ["duration", "loop", "keyframes"], ["duration", "keyframes"])) continue;
             const duration = num(a.duration, `${path}.duration`, [0.1, 10, 1]);
             if (a.loop !== undefined && typeof a.loop !== "boolean") err(`${path}.loop`, "must be boolean");
             if (!Array.isArray(a.keyframes) || a.keyframes.length < 1 || a.keyframes.length > LIMITS.keyframes) {
@@ -221,9 +245,49 @@ export function validate(raw) {
         }
     }
 
+    // avatar: escala cosmetica (hitbox do jogador nao muda) ajustada pra altura 1.2..2.4 e largura <= 1.6
+    if (kind === "avatar" && pkg.model) {
+        const av = raw.avatar === undefined ? {} : raw.avatar;
+        if (keys(av, "avatar", ["scale", "emotes"])) {
+            let scale = num(av.scale, "avatar.scale", [0.5, 1.5, 1]);
+            let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+            for (const p of pkg.model.parts) for (const bx of p?.boxes || []) if (bx) for (let i = 0; i < 3; i++) {
+                lo[i] = Math.min(lo[i], bx.pos[i] - bx.size[i] / 2);
+                hi[i] = Math.max(hi[i], bx.pos[i] + bx.size[i] / 2);
+            }
+            const h = Math.max(0.1, hi[1]), w = Math.max(hi[0] - lo[0], hi[2] - lo[2], 0.1);
+            const fit = Math.min(Math.max(scale, AV_SIZE.height[0] / h), AV_SIZE.height[1] / h, AV_SIZE.width / w);
+            if (Math.abs(fit - scale) > 1e-3) warn("avatar.scale", `adjusted ${scale} -> ${r3(fit)} so the body is ${AV_SIZE.height[0]}..${AV_SIZE.height[1]} blocks tall and <= ${AV_SIZE.width} wide (model is ${r3(h)} x ${r3(w)})`);
+            scale = r3(fit);
+            const emotes = av.emotes === undefined ? [] : av.emotes;
+            if (!Array.isArray(emotes) || emotes.length > 4) err("avatar.emotes", "must be an array of 0..4 {anim, name}");
+            pkg.avatar = {
+                scale,
+                height: r3(h * scale),
+                emotes: (Array.isArray(emotes) ? emotes.slice(0, 4) : []).map((e, i) => {
+                    const p = `avatar.emotes[${i}]`;
+                    if (!keys(e, p, ["anim", "name"], ["anim", "name"])) return null;
+                    if (!/^emote[1-4]$/.test(e.anim) || !pkg.animations?.[e.anim]) err(`${p}.anim`, 'must name a defined animation "emote1".."emote4"');
+                    return { anim: String(e.anim), name: text(e.name, `${p}.name`, 24) };
+                }).filter(Boolean),
+            };
+        }
+        if (!pkg.animations?.idle || !pkg.animations?.walk) warn("animations", "avatars should define at least idle and walk (missing = rest pose)");
+    }
+
+    // item: item transferivel entre jogos (inventario do jogador)
+    if (kind === "item" && keys(raw.item, "item", ["color", "color2", "pattern", ...Object.keys(ITEM)], ["color"])) {
+        const it = raw.item;
+        if (it.pattern !== undefined && !PATTERNS.includes(it.pattern)) err("item.pattern", `must be one of ${PATTERNS.join(", ")}`);
+        const c = pal(it.color, "item.color");
+        pkg.item = { color: c, color2: it.color2 === undefined ? c : pal(it.color2, "item.color2"), pattern: PATTERNS.includes(it.pattern) ? it.pattern : "solid", ...params(it, "item", ITEM, ["color", "color2", "pattern"]) };
+        pkg.item.stack = Math.round(pkg.item.stack);
+        pkg.item.daily_cap = Math.round(pkg.item.daily_cap);
+    }
+
     // behavior
     const b = raw.behavior;
-    if (keys(b, "behavior", ["stats", "primitives", "spawn"], ["primitives"])) {
+    if (kind === "npc" && keys(b, "behavior", ["stats", "primitives", "spawn"], ["primitives"])) {
         const stats = b.stats === undefined ? {} : b.stats;
         if (keys(stats, "behavior.stats", Object.keys(STATS))) pkg.behavior = { stats: params(stats, "behavior.stats", STATS, []) };
         else pkg.behavior = { stats: params({}, "behavior.stats", STATS, []) };
@@ -328,9 +392,12 @@ export function schema() {
                         author: { type: "string", minLength: 1, maxLength: 32 },
                         description: { type: "string", maxLength: 300 },
                         license: { type: "string", minLength: 1, maxLength: 40 },
+                        kind: { enum: Object.keys(KINDS), default: "npc", description: 'npc (default): creature in the mod zone, needs "behavior". avatar: player skin, needs "animations" and rig parts. item: transferable item, needs "item".' },
                     },
                     ["id", "name", "version", "author", "license"],
                 ),
+                avatar: strict({ scale: { type: "number", minimum: 0.5, maximum: 1.5, default: 1 }, emotes: { type: "array", maxItems: 4, items: strict({ anim: { enum: ["emote1", "emote2", "emote3", "emote4"] }, name: { type: "string", minLength: 1, maxLength: 24 } }, ["anim", "name"]) } }),
+                item: strict({ color: { enum: Object.keys(PALETTE) }, color2: { enum: Object.keys(PALETTE) }, pattern: { enum: PATTERNS }, ...paramsS(ITEM) }, ["color"]),
                 model: strict(
                     {
                         parts: {
@@ -350,7 +417,7 @@ export function schema() {
                     },
                     ["parts"],
                 ),
-                animations: { type: "object", additionalProperties: false, properties: Object.fromEntries(ANIMS.map((a) => [a, anim])) },
+                animations: { type: "object", additionalProperties: false, description: `npc: ${ANIMS.join(", ")}. avatar: ${AV_ANIMS.join(", ")}`, properties: Object.fromEntries([...new Set([...ANIMS, ...AV_ANIMS])].map((a) => [a, anim])) },
                 behavior: strict(
                     {
                         stats: strict(paramsS(STATS)),
@@ -363,8 +430,9 @@ export function schema() {
                 items: { type: "array", maxItems: LIMITS.items, items: def({}) },
                 blocks: { type: "array", maxItems: LIMITS.blocks, items: def({ color2: { enum: Object.keys(PALETTE) } }) },
             },
-            ["manifest", "model", "behavior"],
+            ["manifest"],
         ),
+        "x-kinds": { ...Object.fromEntries(Object.entries(KINDS).map(([k, v]) => [k, { ...v }])), rig: RIG, avatar_size: AV_SIZE, required: { npc: ["manifest", "model", "behavior"], avatar: ["manifest", "model", "animations"], item: ["manifest", "item"] } },
     };
 }
 
@@ -512,6 +580,39 @@ cubes. drop_coins drops FICTIONAL game coins on death (players pick them up; ser
 - colors from the palette only: ${Object.keys(PALETTE).join(", ")}
 - patterns: ${PATTERNS.join(", ")}
 
+## Mod kinds: npc (default), avatar (player skin), item (transferable item)
+Set manifest.kind. Omitted = "npc" (everything above). Same endpoints, versions, auth, moderation, activate/rollback.
+Active limits per kind: ${Object.entries(KINDS).map(([k, v]) => `${k} ${v.active} server-wide / ${v.per_creator} per creator`).join("; ")}.
+Model limits per kind: ${Object.entries(KINDS).map(([k, v]) => `${k} <= ${v.parts} parts, <= ${v.boxes} boxes, coords +-${v.coord}`).join("; ")}.
+
+### kind "avatar" — a skin players wear (village + every connected game via the passport)
+Top-level keys: manifest, model, animations (required), avatar (optional). No behavior/sounds/items.
+- model MUST contain the standard humanoid rig parts: ${RIG.join(", ")}. Optional extras: tail, wing_l, wing_r, cape, extra_*.
+  Same box/pivot rules as npc models: faces +Z, feet at y=0, ~1.8 blocks tall, character's LEFT is +X (arm_l at +x).
+  Parent head and arms to body; legs usually have no parent.
+- animations: ${AV_ANIMS.join(", ")}. Engines pick: death > attack > jump/fly (airborne) > run (fast) > walk > idle.
+  emote1..emote4 are played on demand (list them in avatar.emotes so games can show names).
+- avatar: {"scale":0.5..1.5, "emotes":[{"anim":"emote1","name":"Acenar"}]}. The server computes avatar.height and
+  ADJUSTS scale (warning) so the body is ${AV_SIZE.height[0]}..${AV_SIZE.height[1]} blocks tall and <= ${AV_SIZE.width} wide. Avatars are cosmetic:
+  the gameplay hitbox never changes.
+- Players choose it in the village: C (character menu) -> SKIN row. It is saved per player name and shown to everyone,
+  and external games receive it through GET /api/passport (see ${SITE}/universe.txt).
+Complete avatar example (valid):
+${fence}json
+${JSON.stringify(ASTRO)}
+${fence}
+
+### kind "item" — transferable item (fictional; lives in the player's inventory, moves between games)
+Top-level keys: manifest, item (required), model (optional tiny 3D model, <= ${KINDS.item.boxes} boxes, coords +-${KINDS.item.coord}).
+- item: {"color":palette, "color2":palette, "pattern":${PATTERNS.join("|")}, "stack":${ITEM.stack[0]}..${ITEM.stack[1]}, "daily_cap":${ITEM.daily_cap[0]}..${ITEM.daily_cap[1]}}
+  daily_cap = max units one player can receive from one game per day. Players see items in the Steve inventory (E).
+- A game (portal) can GRANT an item only if the portal owner put it on the portal allowlist and the item mod is active
+  and owned by the same creator (see ${SITE}/universe.txt). Players can SPEND items inside games with an on-screen confirm.
+Complete item example (valid):
+${fence}json
+${JSON.stringify(VOTO)}
+${fence}
+
 ## Tips for agents
 - Validate first (/api/mods/validate); fix every error path; read the warnings (clamped values).
 - Make it readable from far away: chunky boxes, contrasting colors, glowing eyes. 20-120 boxes is plenty.
@@ -597,18 +698,22 @@ export class Mods {
     msgSet(a) {
         return { t: "mod", op: "set", id: a.id, v: a.v, creator: a.creator, pkg: a.pkg };
     }
-    ids() {
-        return { t: "mods", ids: [...this.active.values()].sort((a, b) => a.at - b.at).map((a) => a.id) };
+    /// Ativos de um tipo, em ordem de ativacao: [{id, v, creator, pkg, at}].
+    list(kind) {
+        return [...this.active.values()].filter((a) => kindOf(a.pkg) === kind).sort((a, b) => a.at - b.at);
     }
-    /// Join: lista + um pacote por mensagem (cada msg WebSocket <= 1 MiB).
+    ids() {
+        return { t: "mods", ids: this.list("npc").map((a) => a.id) };
+    }
+    /// Join: lista + um pacote por mensagem (cada msg WebSocket <= 1 MiB). Avatares/itens vao sob demanda (universe.js).
     join(c) {
         this.room.send(c, this.ids());
-        for (const a of this.active.values()) this.room.send(c, this.msgSet(a));
+        for (const a of this.list("npc")) this.room.send(c, this.msgSet(a));
     }
     /// {t:"mk", m:id}: jogador pegou as moedas que o mod derrubou (moeda ficticia, limitado por tempo).
     onKill(c, m) {
         const a = this.active.get(String(m.m || ""));
-        const drop = a?.pkg.behavior.primitives.find((p) => p.type === "drop_coins");
+        const drop = a?.pkg.behavior?.primitives.find((p) => p.type === "drop_coins");
         if (!drop || !c.name) return;
         const key = `${c.name.toLowerCase()}|${a.id}`;
         const now = Date.now();
@@ -681,7 +786,7 @@ export class Mods {
     async check(raw) {
         const { pkg, errors, warnings } = validate(raw);
         if (!pkg) return { res: fail(422, "invalid", `package failed validation (${errors.length} error(s))`, { details: errors, warnings }) };
-        const texts = [pkg.manifest.name, pkg.manifest.description, pkg.manifest.author, ...(pkg.behavior.primitives.find((p) => p.type === "say")?.phrases || []), ...(pkg.items || []).map((x) => x.name), ...(pkg.blocks || []).map((x) => x.name)].filter(Boolean);
+        const texts = [pkg.manifest.name, pkg.manifest.description, pkg.manifest.author, ...(pkg.behavior?.primitives.find((p) => p.type === "say")?.phrases || []), ...(pkg.items || []).map((x) => x.name), ...(pkg.blocks || []).map((x) => x.name), ...(pkg.avatar?.emotes || []).map((x) => x.name)].filter(Boolean);
         const ai = this.room.brain.ask(MOD_SYS, `<<<${texts.join("\n").slice(0, 3000)}>>>`, 2, "small").catch(() => null);
         const out = await Promise.race([ai, new Promise((r) => setTimeout(() => r(null), 8000))]);
         if (out && out.ok === false) return { res: fail(422, "moderation", `rejected by moderation: ${String(out.reason || "content not allowed").slice(0, 160)}`) };
@@ -689,7 +794,7 @@ export class Mods {
     }
 
     meta(x, full = false) {
-        const o = { id: x.id, name: x.name, owner: x.ownerName, latest: x.versions[x.versions.length - 1]?.v, active: x.active || null, created: x.created, updated: x.updated };
+        const o = { id: x.id, kind: x.kind || "npc", name: x.name, owner: x.ownerName, latest: x.versions[x.versions.length - 1]?.v, active: x.active || null, created: x.created, updated: x.updated };
         if (full) o.versions = x.versions.map((v) => ({ v: v.v, size: v.size, created: v.created }));
         return o;
     }
@@ -697,10 +802,13 @@ export class Mods {
     async activate(meta, v, pushHist = true) {
         const pkg = await this.loadPkg(meta.id, v);
         if (!pkg) return fail(404, "not_found", `version ${v} not found`);
-        if (!this.active.has(meta.id)) {
-            if (this.active.size >= LIMITS.active_total) return fail(409, "conflict", `server already has ${LIMITS.active_total} active mods`);
-            const mine = [...this.active.values()].filter((a) => a.creator === meta.ownerName).length;
-            if (mine >= LIMITS.active_per_creator) return fail(409, "conflict", `max ${LIMITS.active_per_creator} active mods per creator`);
+        const kind = kindOf(pkg);
+        const was = this.active.get(meta.id);
+        if (was && kindOf(was.pkg) !== kind) return fail(409, "conflict", `active version is kind "${kindOf(was.pkg)}"; deactivate before switching to "${kind}"`);
+        if (!was) {
+            const same = this.list(kind);
+            if (same.length >= KINDS[kind].active) return fail(409, "conflict", `server already has ${KINDS[kind].active} active ${kind} mods`);
+            if (same.filter((a) => a.creator === meta.ownerName).length >= KINDS[kind].per_creator) return fail(409, "conflict", `max ${KINDS[kind].per_creator} active ${kind} mods per creator`);
         }
         if (pushHist && meta.active && meta.active !== v) {
             meta.hist = [...(meta.hist || []), meta.active].slice(-LIMITS.versions);
@@ -711,17 +819,24 @@ export class Mods {
         const a = { id: meta.id, v, creator: meta.ownerName, pkg, at: meta.activeAt };
         this.active.set(meta.id, a);
         await this.saveActive();
-        this.room.broadcast(this.msgSet(a));
-        this.room.broadcast(this.ids());
-        this.room.sys(`MOD AO VIVO: ${pkg.manifest.name} v${v} por ${meta.ownerName} (zona de mods do lado do lab)`);
-        return J(200, { ok: true, id: meta.id, active: v, live_in_rooms: true });
+        if (kind === "npc") {
+            this.room.broadcast(this.msgSet(a));
+            this.room.broadcast(this.ids());
+            this.room.sys(`MOD AO VIVO: ${pkg.manifest.name} v${v} por ${meta.ownerName} (zona de mods do lado do lab)`);
+        } else {
+            this.room.uni?.modsChanged();
+            this.room.sys(kind === "avatar" ? `SKIN NOVA: ${pkg.manifest.name} v${v} por ${meta.ownerName} (C -> SKIN)` : `ITEM NOVO: ${pkg.manifest.name} v${v} por ${meta.ownerName}`);
+        }
+        return J(200, { ok: true, id: meta.id, kind, active: v, live_in_rooms: true });
     }
 
     async deactivate(meta) {
         meta.active = null;
         await this.st.put(`mod:${meta.id}`, meta);
+        const a = this.active.get(meta.id);
         if (this.active.delete(meta.id)) {
             await this.saveActive();
+            if (kindOf(a.pkg) !== "npc") return this.room.uni?.modsChanged();
             this.room.broadcast({ t: "mod", op: "del", id: meta.id });
             this.room.broadcast(this.ids());
         }
@@ -752,7 +867,7 @@ export class Mods {
                     const x = await this.st.get(`mod:${id}`);
                     if (x) list.push(this.meta(x));
                 }
-                return J(200, { ok: true, mods: list, active: this.ids().ids, docs: `${SITE}/modding.txt` });
+                return J(200, { ok: true, mods: list, active: [...this.active.keys()], docs: `${SITE}/modding.txt` });
             }
             if (seg[0] === "me") {
                 const c = await this.auth(req);
@@ -823,7 +938,7 @@ export class Mods {
             if ((c.mods || []).length >= LIMITS.mods_per_creator) return fail(409, "conflict", `max ${LIMITS.mods_per_creator} mods per creator`);
             const saved = await this.savePkg(id, pkg.manifest.version, pkg);
             const now = Date.now();
-            const meta = { id, name: pkg.manifest.name, owner: c.id, ownerName: c.name, created: now, updated: now, active: null, hist: [], versions: [{ v: pkg.manifest.version, created: now, ...saved }] };
+            const meta = { id, kind: kindOf(pkg), name: pkg.manifest.name, owner: c.id, ownerName: c.name, created: now, updated: now, active: null, hist: [], versions: [{ v: pkg.manifest.version, created: now, ...saved }] };
             await this.st.put(`mod:${id}`, meta);
             await this.st.put("mods:index", [...(await this.index()), id]);
             c.mods = [...(c.mods || []), id];
@@ -853,6 +968,7 @@ export class Mods {
                 meta.hist = (meta.hist || []).filter((h) => h !== old.v);
             }
             meta.name = pkg.manifest.name;
+            meta.kind = kindOf(pkg);
             meta.updated = Date.now();
             await this.st.put(`mod:${meta.id}`, meta);
             return J(201, { ok: true, mod: this.meta(meta, true), warnings, next: `POST /api/mods/${meta.id}/activate {"version":"${pkg.manifest.version}"}` });

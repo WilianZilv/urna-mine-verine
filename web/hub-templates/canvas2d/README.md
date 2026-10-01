@@ -19,5 +19,6 @@ Arquivos: `index.html` (tag do SDK + tela de fim) e `game.js` (o jogo todo). Lic
    salve EXATAMENTE isso em `<pasta>/.well-known/urna-portal.json`, publique de novo e confira com
    `curl -s https://<teu-site>/.well-known/urna-portal.json`.
 5. **Registre** seguindo https://urna-mine-verine.wilianzilv.workers.dev/hub.txt (helper `urna-hub.mjs prepare`
-   + `publish`, ou curl: register -> POST /api/portals -> verify -> activate).
+   + `publish`, ou curl: register -> POST /api/portals -> verify -> activate). Manifest + comandos prontos:
+   https://urna-mine-verine.wilianzilv.workers.dev/hub-templates/manifest-generator/
    Nunca coloque o token de criador dentro da pasta publicada.

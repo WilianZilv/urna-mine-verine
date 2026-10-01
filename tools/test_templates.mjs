@@ -168,7 +168,7 @@ await test("index lista os dois templates", async () => {
     await open(`${local}/`);
     await waitFor("document.readyState === 'complete'", 5000);
     const hrefs = await ev("[...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))");
-    for (const h of ["canvas2d/", "threejs/"]) assert.ok(hrefs.includes(h), "sem link " + h);
+    for (const h of ["canvas2d/", "threejs/", "manifest-generator/"]) assert.ok(hrefs.includes(h), "sem link " + h);
     assert.deepEqual(relevant(), []);
 });
 
@@ -249,6 +249,40 @@ await test("threejs no Urna: sessao, carteira, modo auto, score, exit", async ()
     await waitFor(`__msgs.some((m) => m.type === "upp:exit")`, 3000);
     // presenca abre WebSocket de verdade com token falso: erro esperado aqui, ignorado
     assert.deepEqual(relevant(true), []);
+});
+
+await test("manifest-generator: valida com /hub.json, gera comandos, sem token", async () => {
+    await open(`${local}/manifest-generator/`);
+    const set = (fields) => ev(`(() => { for (const [k, v] of Object.entries(${JSON.stringify(fields)})) {
+        const el = document.getElementById(k); el.value = v; el.dispatchEvent(new Event("input")); } })()`);
+    const status = () => ev("({ text: document.getElementById('status').textContent, valid: document.getElementById('status').dataset.valid })");
+    await set({ name: "Space Goose", url: "https://space-goose.pages.dev/", desc: "goose shooter" });
+    await waitFor("document.getElementById('status').textContent === 'manifest valido'", 5000);
+    const m = JSON.parse(await ev("document.getElementById('out-manifest').textContent"));
+    assert.deepEqual(m, { id: "space-goose", name: "Space Goose", version: "1.0.0", url: "https://space-goose.pages.dev/", description: "goose shooter", thumbnail: { colors: ["#ff3d7f", "#ffd23d"] } });
+    const bash = await ev("document.getElementById('out-bash').textContent");
+    assert.ok(bash.includes(`-d '${JSON.stringify(m)}'`), "curl sem o manifest");
+    assert.ok(bash.includes("TOKEN=$(cat ~/.urna-creator-token)"));
+    assert.ok(bash.includes("/api/portals/space-goose/activate"));
+    const ps = await ev("document.getElementById('out-ps').textContent");
+    assert.ok(ps.includes(`-Body '${JSON.stringify(m)}'`) && ps.includes("Invoke-RestMethod -Method Post \"$S/api/portals/space-goose/verify\""));
+    assert.ok((await ev("document.getElementById('out-helper').textContent")).includes("node urna-hub.mjs prepare --id space-goose"));
+    assert.equal(await ev("document.querySelectorAll('input[type=password], [name*=token i], [id*=token i]').length"), 0);
+    assert.ok(!/umv_/.test(await ev("document.body.innerHTML")));
+    await set({ name: "It's Goose" });
+    assert.ok((await ev("document.getElementById('out-bash').textContent")).includes(`"name":"It'\\''s Goose"`), "aspas simples nao escapadas no bash");
+    assert.ok((await ev("document.getElementById('out-ps').textContent")).includes(`"name":"It''s Goose"`), "aspas simples nao escapadas no PowerShell");
+    await set({ name: "Space Goose", url: "http://localhost:8080/" });
+    let st = await status();
+    assert.equal(st.valid, "0");
+    assert.ok(/https/.test(st.text) && /host invalido/.test(st.text), st.text);
+    await set({ url: "https://space-goose.pages.dev/", desc: "veja www.goose.com", version: "1.0" });
+    st = await status();
+    assert.ok(/description/.test(st.text) && /version/.test(st.text), st.text);
+    await set({ desc: "goose shooter", version: "1.0.0" });
+    assert.equal((await status()).valid, "1");
+    await shot("generator");
+    assert.deepEqual(relevant(), []);
 });
 
 ws.close();

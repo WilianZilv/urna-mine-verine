@@ -3,6 +3,7 @@
 // Poupanca: this.s.sv[nome normalizado] = {n, c, at}. Juros simples 2%/h, calculados na hora de qualquer operacao,
 // pagos DO cofre da IA so acima da reserva (nunca cria moeda). Patrimonio = carteira + poupanca + acoes (Bolsa).
 // Ranking de criadores (/criadores): IMPACTO = o que cada criador trouxe pra vila (mods, portais, visitas), nunca moeda.
+// OFENSIVA (/diario, /ofensiva): this.s.of[nome normalizado] = {n, d, last}; o cliente recebe {k:"banco", ofx, pay} so pra si.
 import { norm, amount } from "./places.js";
 
 const RATE = 0.02; // por hora
@@ -18,6 +19,14 @@ const MAX_CR = 100;
 const VISIT_MS = HOUR; // mesma pessoa no mesmo portal conta 1 visita por hora
 const HIT_MS = 2000;
 const MODS = 8; // npc::MODS no cliente: i = indice achatado das instancias dos mods npc em ordem de ativacao
+// OFENSIVA DIARIA: /diario (ou pisar no caixa) 1x por dia local (UTC-3); pula um dia e zera; paga do cofre por dia do ciclo.
+const PAY = [3, 4, 5, 6, 8, 10, 15];
+const DAY = 24 * HOUR;
+const TZ = 3 * HOUR;
+const MAX_OF = 500;
+
+/// Dia local (UTC-3) como inteiro.
+export const today = (now = Date.now()) => Math.floor((now - TZ) / DAY);
 
 export class Banco {
     constructor(places, s) {
@@ -26,6 +35,7 @@ export class Banco {
         this.s.sv ??= {};
         this.s.cr ??= {}; // criador normalizado -> {n, e: visitas, p: amostras de presenca, h: golpes em mods}
         this.s.cri ??= []; // top 10 [nome, impacto]
+        this.s.of ??= {}; // jogador normalizado -> {n, d: dias seguidos, last: dia local do ultimo check-in}
         this.last = "";
         this.atm = new Map();
         this.seen = new Map(); // "jogador|portal" -> ultima visita contada
@@ -156,8 +166,51 @@ export class Banco {
         return null;
     }
 
+    /// Ofensiva viva de `k` (0 se pulou um dia).
+    streak(k, day = today()) {
+        const o = this.s.of[k];
+        return o && o.last >= day - 1 ? o.d : 0;
+    }
+
+    /// Ofensivas vivas, da maior pra menor: [{k, n, d}].
+    streaks(day = today()) {
+        return Object.entries(this.s.of)
+            .map(([k, o]) => ({ k, n: o.n, d: this.streak(k, day) }))
+            .filter((r) => r.d > 0)
+            .sort((a, b) => b.d - a.d || a.n.localeCompare(b.n));
+    }
+
+    /// Check-in do dia: paga PAY[dia do ciclo] do cofre (so se sobrar a reserva). false = ja pegou hoje.
+    claim(c) {
+        const k = norm(c.name);
+        const day = today();
+        const o = this.s.of[k];
+        if (o?.last === day) return false;
+        const d = this.streak(k, day) + 1;
+        this.s.of[k] = { n: c.name, d, last: day };
+        const cyc = ((d - 1) % 7) + 1;
+        const due = PAY[cyc - 1];
+        const pay = this.eco.s.tr - due >= RESERVE ? due : 0;
+        if (pay) {
+            this.eco.s.tr -= pay;
+            this.eco.wallet(c.name).c += pay;
+            this.eco.entry(c.name, `ofensiva diaria: ${d} dia${d > 1 ? "s" : ""}`, pay, `dia ${cyc}/7 do ciclo, pago pelo cofre da IA`);
+        }
+        const ks = Object.keys(this.s.of);
+        if (ks.length > MAX_OF) for (const x of ks) if (!this.streak(x, day)) delete this.s.of[x];
+        const fire = d >= 7 ? " FOGO NO PARQUINHO" : d >= 3 ? " ta pegando fogo" : "";
+        const next = PAY[cyc % 7];
+        const msg = pay
+            ? `OFENSIVA ${d} DIA${d > 1 ? "S" : ""}!${fire} +${pay} moedas (dia ${cyc}/7). volta amanha pra ganhar ${next}, falta um dia e zera`
+            : `OFENSIVA ${d} DIA${d > 1 ? "S" : ""} registrada, mas o cofre ta na reserva (${RESERVE}): a IA te deve ${due} e nunca vai pagar. /doar ajuda`;
+        this.pl.room.send(c, { t: "pl", k: "banco", ofx: d, pay });
+        this.done(c, msg);
+        return true;
+    }
+
     snap() {
         const sv = Object.values(this.s.sv);
+        const of = this.streaks();
         return {
             t: "pl",
             k: "banco",
@@ -168,6 +221,8 @@ export class Banco {
             nsv: sv.length,
             rate: RATE * 100,
             cri: this.creators().slice(0, 8).map((r) => [r.n, r.score, r.mods, r.portals, r.e]),
+            of: of.slice(0, 5).map((r) => [r.n, r.d]),
+            ofs: of.reduce((s, r) => s + r.d, 0),
         };
     }
 
@@ -209,6 +264,9 @@ export class Banco {
 
     join(c) {
         this.pl.room.send(c, this.snap());
+        if (!c.name || this.s.of[norm(c.name)]?.last === today()) return;
+        const d = this.streak(norm(c.name));
+        this.pl.priv(c, "BANCO", d ? `tua OFENSIVA de ${d} dia${d > 1 ? "s" : ""} ta esperando: /diario ou pisa no caixa eletronico antes que apague` : "check-in do dia disponivel: /diario ou pisa no caixa eletronico do Banco Central e comeca tua OFENSIVA");
     }
 
     tick(now, online) {
@@ -247,8 +305,22 @@ export class Banco {
     }
 
     command(id, c, head, args) {
-        if (!["poupar", "sacar", "ranking", "criadores"].includes(head) || !c.name) return false;
+        if (!["poupar", "sacar", "ranking", "criadores", "diario", "ofensiva"].includes(head) || !c.name) return false;
         const k = norm(c.name);
+        if (head === "diario") {
+            if (!this.claim(c)) this.pl.priv(c, "BANCO", `ja pegou o de hoje (OFENSIVA ${this.streak(k)}). ganancia nao acelera o relogio, volta amanha (dia vira 00h de Brasilia)`);
+            return true;
+        }
+        if (head === "ofensiva") {
+            const d = this.streak(k);
+            const done = this.s.of[k]?.last === today();
+            const all = this.streaks();
+            const me = all.findIndex((r) => r.k === k);
+            const cyc = done ? ((d - 1) % 7) + 1 : (d % 7) + 1;
+            const tail = done ? `hoje ja foi. amanha paga ${PAY[cyc % 7]}` : `check-in de hoje disponivel: /diario paga ${PAY[cyc - 1]}`;
+            this.pl.priv(c, "BANCO", d ? `tua OFENSIVA: ${d} dia${d > 1 ? "s seguidos" : ""}${me >= 0 ? ` (#${me + 1} da vila)` : ""} | ${tail}` : `tu nao tem OFENSIVA, ta frio que nem cofre de IA. ${tail}`);
+            return true;
+        }
         if (head === "criadores") {
             const all = this.creators();
             const me = all.findIndex((r) => r.k === k);
@@ -292,6 +364,7 @@ export class Banco {
         const now = Date.now();
         if (now - (this.atm.get(k) || 0) < ATM_MS) return;
         this.atm.set(k, now);
+        this.claim(c);
         const w = this.eco.wallet(c.name);
         const { due, pay } = this.pending(k);
         const sv = this.s.sv[k]?.c || 0;

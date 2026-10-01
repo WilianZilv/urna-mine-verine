@@ -143,8 +143,8 @@ fn lit_msg(p: IVec3, t: f32) -> Value {
 impl Steve {
     pub fn new() -> Self {
         Steve {
-            creative: true,
-            inv: Inv::creative(),
+            creative: false,
+            inv: Inv::survival(),
             inv_open: false,
             hp: MAX_HP,
             active: true,

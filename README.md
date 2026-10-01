@@ -247,6 +247,11 @@ Cinco prédios funcionais, cada um com painel/telão no mundo (render target, na
 - **Passaporte** (`/passaporte`): carimbos persistentes dos 10 lugares (também em `/api/passport`), cabine no Terminal.
 - **Mundo vivo aberto**: `/api/world` (JSON, CORS) + widgets embedáveis em `/embed/` (Bolsa, TV, leis).
 - **Templates do Hub** em `/hub-templates/` (canvas2d, three.js, SDK já plugado) + gerador de manifesto.
+- **Escola de Agentes** `(100..130, 266..292)`: quadro com a aula de 4 passos pra criar mod via `/skill.md`, contador
+  de leituras do `/skill.md` e mural dos formados (`/escola`).
+- **O roadmap vira lei** (`/roadmap`, `/proposta n`, criador vale 2 votos), **campeonato da arena** na TV
+  (`/campeonato`, replay do lance) e **ofensiva diária** no banco (`/diario`, fogueira das ofensivas).
+- Kit de imprensa em `/press/` e preview de link (`og.png`) pra quem compartilhar a vila.
 
 ### A briga (praça central)
 Todos com bandeira nas costas, nome e barra de vida flutuando, placar no topo (vida + KOs).

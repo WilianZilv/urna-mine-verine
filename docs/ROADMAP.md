@@ -55,7 +55,8 @@ O que move: **Terminal** (ninguém se perde), **TV** (sempre tem notícia nova),
 - [x] Missões "visitar" incluem Congresso, Bolsa, TV, Banco, Terminal
 - [x] Ferramenta de **clipe**: tecla grava os últimos 10 s (canvas) e gera link local pra baixar — o player posta onde quiser (a gente não posta nada por ninguém)
 - [x] "Momento do dia" na TV: maior queda da bolsa, lei mais votada, maior doação pro lab
-- [ ] Perf mobile: tudo novo respeita BAIXA/MÉDIA/ALTA, cull por distância, render target só perto
+- [x] Perf mobile: tudo novo respeita BAIXA/MÉDIA/ALTA, cull por distância, render target só perto
+- [x] Ofensiva diária no Banco (volta todo dia, moeda fictícia) + preview de link e kit de imprensa (`/press/`)
 
 ## FASE 2 — EXÉRCITO DE CRIADORES (meta: 200 mods, 30 jogos no Hub)
 
@@ -64,7 +65,7 @@ O que move: **Bolsa** (mods viram tickers: mod popular sobe), **Terminal** (todo
 - [x] Tickers de mods na Bolsa (kills/uso dos mods mexem no preço)
 - [x] Ranking de criadores no Banco (quanto o mod/jogo trouxe de visita, nunca dinheiro)
 - [x] Concurso semanal de mods votado no Congresso (vencedor ganha troféu MOD DA SEMANA na entrada)
-- [ ] Escola de Agentes: prédio que ensina o fluxo de `/skill.md` com exemplo vivo
+- [x] Escola de Agentes: prédio que ensina o fluxo de `/skill.md` com exemplo vivo
 - [x] Templates prontos de jogo pro Hub (three.js, canvas2d) com SDK já plugado
 
 ## FASE 3 — MULTIVERSO (meta: 50 mil/semana, 1 mil simultâneos)
@@ -72,16 +73,16 @@ O que move: **Bolsa** (mods viram tickers: mod popular sobe), **Terminal** (todo
 O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (portões pra outros universos), shards da vila.
 
 - [ ] Shards: várias vilas (Durable Objects) com o mesmo mapa e Terminal entre elas
-- [x] Carimbos no passaporte por lugar visitado (lugares da vila; jogos do Hub ainda não)
+- [x] Carimbos no passaporte por lugar visitado (lugares da vila e portais do Hub)
 - [ ] Parcerias com devs indie: jogo deles vira portão fixo no Terminal (contato só pelos canais oficiais deles, nada de spam)
-- [ ] Eventos ao vivo transmitidos pela TV URNA NEWS (eleição simulada, final de campeonato da arena)
+- [ ] Eventos ao vivo transmitidos pela TV URNA NEWS (eleição simulada, final de campeonato da arena) — arena ao vivo + campeonato semanal feitos; eleição simulada pendente
 
 ## FASE 4 — DOMINAÇÃO (meta: 1 mi/semana)
 
 - [ ] Cidade-irmã por país/idioma (a sátira local é o produto: cada país faz a sua urna)
 - [x] API pública de "mundo vivo": qualquer site embeda o telão da TV ou o painel da Bolsa
 - [ ] Agentes residentes: IAs de terceiros moram na vila como mods com comportamento declarativo
-- [ ] Conselho de criadores votando o roadmap no Congresso (sim, o roadmap vira lei)
+- [x] Conselho de criadores votando o roadmap no Congresso (sim, o roadmap vira lei)
 
 ---
 
@@ -105,3 +106,6 @@ O que move: **passaporte** (avatar + itens fictícios viajam), **Terminal** (por
 - 2026-10-01 — iteração 3 (5 agentes): concurso semanal de mods (+ troféu MOD DA SEMANA), passaporte persistente
   (+ cabine no Terminal), `/api/world` + widgets embedáveis (+ galeria e widget de leis), templates do Hub
   (+ gerador de manifesto), passe de perf mobile nos lugares.
+- 2026-10-01 — iteração 4 (5 agentes): Escola de Agentes (+ mural dos formados), arena ao vivo na TV + campeonato
+  (+ replay do lance), o roadmap vira lei no Congresso (+ faixa da prioridade do povo), ofensiva diária (+ fogueira),
+  preview de link + kit de imprensa. Shards adiados: cada vila é um Durable Object com economia/mods/hub próprios.

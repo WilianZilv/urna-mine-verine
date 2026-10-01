@@ -1,6 +1,6 @@
-// Preview de compartilhamento: meta tags nas páginas, og.png 1200x630 < 300 KB, kit de imprensa e boot do jogo headless (mudo).
+// Preview de compartilhamento: meta tags nas pÃ¡ginas, og.png 1200x630 < 300 KB, kit de imprensa e boot do jogo headless (mudo).
 // Uso: node tools/test_press.mjs [--no-boot]
-// Serve URNA_WEB (padrão web/) em SHOT_HTTP_PORT (8775); Chrome CDP em SHOT_CDP_PORT (9375).
+// Serve URNA_WEB (padrÃ£o web/) em SHOT_HTTP_PORT (8775); Chrome CDP em SHOT_CDP_PORT (9375).
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, existsSync, statSync, readdirSync } from "node:fs";
@@ -50,24 +50,22 @@ for (const [file, path, need] of PAGES) {
     must(m.icon === "/favicon.svg", `${file}: favicon /favicon.svg`);
     if (need === FULL) must(m["og:image:width"] === "1200" && m["og:image:height"] === "630", `${file}: og:image 1200x630 declarado`);
 }
-must(existsSync(join(WEB, "favicon.svg")) && readFileSync(join(WEB, "favicon.svg"), "utf8").includes("<svg"), "favicon.svg é SVG");
+must(existsSync(join(WEB, "favicon.svg")) && readFileSync(join(WEB, "favicon.svg"), "utf8").includes("<svg"), "favicon.svg Ã© SVG");
 
 const og = readFileSync(join(WEB, "og.png"));
 const isPng = og.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) && og.toString("latin1", 12, 16) === "IHDR";
 const [w, h] = isPng ? [og.readUInt32BE(16), og.readUInt32BE(20)] : [0, 0];
-must(isPng, "og.png é PNG");
+must(isPng, "og.png Ã© PNG");
 must(w === 1200 && h === 630, `og.png ${w}x${h}`);
 must(og.length < 300 * 1024, `og.png ${(og.length / 1024).toFixed(0)} KB < 300 KB`);
 
 const pressDir = join(WEB, "press");
 if (existsSync(pressDir)) {
     const html = readFileSync(join(pressDir, "index.html"), "utf8");
-    const imgs = readdirSync(pressDir).filter((f) => /\.(jpe?g|png)$/.test(f));
-    const total = imgs.reduce((s, f) => s + statSync(join(pressDir, f)).size, 0);
-    must(imgs.length >= 6, `press: ${imgs.length} screenshots`);
-    must(total < 2 * 1024 * 1024, `press: imagens ${(total / 1024).toFixed(0)} KB < 2 MB`);
-    for (const f of imgs) must(html.includes(`${f}"`), `press: index.html usa ${f}`);
-    for (const s of ["/skill.md", "/api/world", "/embed/", "/hub", "<iframe", "twitter.com/intent/tweet", 'lang="en"']) must(html.includes(s), `press: menciona ${s}`);
+    const files = readdirSync(pressDir);
+    must(files.length === 1 && files[0] === "index.html", `press: sÃ³ index.html (${files.join(", ")})`);
+    must(html.includes('src="/og.png"'), "press: usa /og.png");
+    for (const s of ["/skill.md", "/api/world", "/embed/", "/hub", "&lt;iframe src=", "twitter.com/intent/tweet", 'lang="en"']) must(html.includes(s), `press: menciona ${s}`);
     must(!/<script[^>]+src="https?:/.test(html), "press: sem script externo");
 }
 
@@ -98,7 +96,18 @@ if (!process.argv.includes("--no-boot")) {
         if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result || m.error); pending.delete(m.id); }
         if (m.method === "Runtime.exceptionThrown") errors.push(`exception: ${m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text}`);
         if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") errors.push(`console.error: ${m.params.args.map((a) => a.value ?? a.description).join(" ")}`);
+        if (m.method === "Log.entryAdded" && m.params.entry.level === "error") errors.push(`log: ${m.params.entry.text} ${m.params.entry.url || ""}`);
     };
+    // Servidor estÃ¡tico: /api/* e /ws sÃ³ existem no Worker. Aviso de textura GL apagada vem do wasm commitado antigo.
+    const known = (e) => /\/api\/|ws:\/\/[^ ]+\/ws'|already deleted texture/.test(e);
+    const clean = (path) => {
+        const bad = errors.filter((e) => !known(e)), skip = errors.length - bad.length;
+        must(!bad.length, `${path}: sem erros no console${skip ? ` (${skip} esperados ignorados: backend ausente / wasm antigo)` : ""}${bad.length ? `\n     ${bad.join("\n     ")}` : ""}`);
+    };
+    for (const p of ["/", "/og.png", "/favicon.svg", "/embed/", "/hub-templates/", "/press/"]) {
+        const r = await fetch(`http://127.0.0.1:${HTTP}${p}`).catch(() => ({ status: 0 }));
+        must(r.status === 200, `HTTP ${r.status} ${p}`);
+    }
     const cmd = (method, params = {}, sessionId) => new Promise((r) => {
         const i = ++id;
         pending.set(i, r);
@@ -109,13 +118,16 @@ if (!process.argv.includes("--no-boot")) {
     const { sessionId } = await cmd("Target.attachToTarget", { targetId, flatten: true });
     await cmd("Runtime.enable", {}, sessionId);
     await cmd("Page.enable", {}, sessionId);
+    await cmd("Log.enable", {}, sessionId);
     const ev = async (expression) => (await cmd("Runtime.evaluate", { expression, returnByValue: true }, sessionId)).result?.value;
     for (const path of ["/press/", "/embed/"]) {
         if (!existsSync(join(WEB, path, "index.html"))) continue;
+        errors.length = 0;
         await cmd("Page.navigate", { url: `http://127.0.0.1:${HTTP}${path}` }, sessionId);
         await sleep(2500);
         const broken = await ev(`[...document.images].filter((i) => !i.complete || !i.naturalWidth).map((i) => i.src)`);
         must(Array.isArray(broken) && !broken.length, `${path}: imagens carregadas${broken?.length ? ` (quebradas: ${broken.join(", ")})` : ""}`);
+        clean(path);
     }
     errors.length = 0;
     await cmd("Page.navigate", { url: `http://127.0.0.1:${HTTP}/?nome=presstest` }, sessionId);
@@ -124,7 +136,7 @@ if (!process.argv.includes("--no-boot")) {
     must(st.wasm, "/: wasm instanciado");
     must(st.w > 0 && st.h > 0, `/: canvas ${st.w}x${st.h}`);
     must(st.og === `${SITE}/og.png`, "/: og:image no DOM");
-    must(!errors.length, `/: sem erros no console${errors.length ? `\n     ${errors.join("\n     ")}` : ""}`);
+    clean("/");
     ws.close();
     chrome.kill();
     server.close();

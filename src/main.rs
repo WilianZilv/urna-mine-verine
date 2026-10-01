@@ -1522,10 +1522,10 @@ async fn main() {
         if show_help {
             let lines = match ch {
                 1 => [
-                    "SKATE: W rema | S freia (rapido = POWERSLIDE) | A/D curva (no ar: gira 180/360)",
-                    "MOUSE = analogico: baixo->cima OLLIE | baixo->cima-esq KICKFLIP | baixo->cima-dir HEELFLIP",
-                    "baixo->lado SHOVE-IT | cima->baixo NOLLIE | Q/E GRAB | SHIFT MANUAL | cai em muro fino = GRIND",
-                    "ESPACO ollie rapido | C troca personagem | T chat | H ajuda",
+                    "SKATE: W rema (segura = remada continua) | S freia/POWERSLIDE | A/D carve, no ar gira, no grind equilibra",
+                    "MOUSE flick (rapido = pop alto): baixo>cima OLLIE | baixo>cima-esq/dir KICK/HEEL | baixo>lado SHOVE-IT",
+                    "baixo>lado>cima 360 SHOVE | baixo>lado>diag VARIAL | esq>baixo>cima-dir 360 FLIP | inverta = NOLLIE",
+                    "Q/E GRAB (+mouse escolhe) | SHIFT MANUAL (W/S equilibra) | cai alinhado na quina = GRIND, de lado = BOARDSLIDE",
                 ],
                 4 => [
                     "NIKO: WASD anda | MOUSE olha | ESPACO pula | SHIFT corre",

@@ -51,10 +51,7 @@ bot.onmessage = (e) => {
         page = (m.players || []).find((p) => p[1] === name)?.[0] || 0;
     }
     if (m.t === "p" && m.id === page) pagePos = m.p;
-    if (m.t === "pl" && m.k === "ringue" && !m.a) {
-        snaps.push(m);
-        if (process.env.TRACE) console.log(Date.now() % 100000, "snap", m.ph, m.round, JSON.stringify(m.f));
-    }
+    if (m.t === "pl" && m.k === "ringue" && !m.a) snaps.push(m);
     if (m.t === "chat" && m.n === "RINGUE") said.push(m.m);
 };
 bot.send(JSON.stringify({ t: "hello", n: "cdpringbot" }));

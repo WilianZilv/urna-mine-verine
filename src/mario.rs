@@ -759,6 +759,8 @@ const P_TRIPLE: u8 = 3;
 const P_SIDEFLIP: u8 = 4;
 const P_BACKFLIP: u8 = 5;
 const P_POUND: u8 = 6;
+/// Chave de `Foe` a partir da qual o alvo é presa (COGUMAU), não lutador.
+const PREY: u32 = 1000;
 
 impl Mario {
     pub fn new(sr: u32) -> Self {
@@ -885,8 +887,8 @@ impl Mario {
         self.last_hp = npcs.get(npc::MARIO, 0).map_or(0.0, |v| v.hp);
     }
 
-    /// IA: escolhe lutador, corre com curva e usa o repertório conforme a distância.
-    fn ai(&mut self, dt: f32, fighters: &[Fighter]) -> Intent {
+    /// IA: escolhe lutador (ou COGUMAU perto pra pisar), corre com curva e usa o repertório conforme a distância.
+    fn ai(&mut self, dt: f32, fighters: &[Fighter], prey: &[crate::gta::Target]) -> Intent {
         let b = &self.body;
         let mut inp = Intent::default();
         self.retarget -= dt;
@@ -897,12 +899,16 @@ impl Mario {
             self.retarget = gen_range(3.0, 6.0);
             self.target = fighters.iter().enumerate().filter(|(_, f)| f.active()).map(|(j, f)| (j, f.pos.distance(b.pos) * gen_range(0.6, 1.5))).min_by(|a, c| a.1.total_cmp(&c.1)).map(|x| x.0);
         }
-        let Some(j) = self.target else {
-            let to = arena_center() - b.pos;
-            inp.mv = vec3(to.x, 0.0, to.z).clamp_length_max(1.0) * 0.6;
-            return inp;
+        let near = prey.iter().map(|t| t.0 - Vec3::Y * 0.4).filter(|p| p.distance(b.pos) < 10.0).min_by(|p, q| p.distance(b.pos).total_cmp(&q.distance(b.pos)));
+        let (tp, small) = match (near, self.target.map(|j| fighters[j].pos)) {
+            (Some(p), f) if f.is_none_or(|f| f.distance(b.pos) > p.distance(b.pos)) => (p, true),
+            (_, Some(f)) => (f, false),
+            _ => {
+                let to = arena_center() - b.pos;
+                inp.mv = vec3(to.x, 0.0, to.z).clamp_length_max(1.0) * 0.6;
+                return inp;
+            }
         };
-        let tp = fighters[j].pos;
         let to = tp - b.pos;
         let flat = vec3(to.x, 0.0, to.z);
         let d = flat.length();
@@ -1049,7 +1055,7 @@ impl Mario {
         if !b.ground {
             // No ar: mira em cima da cabeça; caindo por cima vira sentada
             inp.mv = if d < 0.35 { Vec3::ZERO } else { dir * (d * 0.6).min(1.0) };
-            let head = tp.y + 1.85;
+            let head = tp.y + if small { 0.85 } else { 1.85 };
             if b.vy < 0.0 && d < 0.8 && b.pos.y > head + 0.7 && matches!(b.act, JUMP | BACKFLIP | SIDEFLIP | WALLKICK | FALL) {
                 inp.crouch = true;
             } else if d < 1.5 && (b.pos.y - tp.y).abs() < 1.0 && matches!(b.act, JUMP | FALL) && gen_range(0.0, 1.0) < dt * 2.5 {
@@ -1138,8 +1144,9 @@ impl Mario {
         }
     }
 
-    /// Host: vida, IA, golpes nos lutadores e revide deles.
-    pub fn think(&mut self, world: &World, dt: f32, time: f32, fighters: &mut [Fighter], npcs: &mut Npcs, events: &mut Vec<Ev>) {
+    /// Host: vida, IA, golpes nos lutadores (e nos COGUMAUs de `prey`) e revide deles.
+    #[allow(clippy::too_many_arguments)]
+    pub fn think(&mut self, world: &World, dt: f32, time: f32, fighters: &mut [Fighter], prey: &[crate::gta::Target], npcs: &mut Npcs, events: &mut Vec<Ev>) {
         let Some(life) = npcs.get(npc::MARIO, 0).copied() else { return };
         if !self.spawned {
             if time > 6.0 {
@@ -1159,11 +1166,20 @@ impl Mario {
         }
         self.last_hp = life.hp;
 
-        let inp = if self.body.act == DEAD { Intent::default() } else { self.ai(dt, fighters) };
-        let foes: Vec<Foe> = fighters.iter().enumerate().filter(|(_, f)| f.active()).map(|(j, f)| Foe { key: j as u32, c: f.pos + Vec3::Y, r: 0.85 }).collect();
+        let inp = if self.body.act == DEAD { Intent::default() } else { self.ai(dt, fighters, prey) };
+        let mut foes: Vec<Foe> = fighters.iter().enumerate().filter(|(_, f)| f.active()).map(|(j, f)| Foe { key: j as u32, c: f.pos + Vec3::Y, r: 0.85 }).collect();
+        foes.extend(prey.iter().enumerate().map(|(k, t)| Foe { key: PREY + k as u32, c: t.0, r: t.1 }));
         let strikes = self.body.update(world, dt, &inp, &foes);
         let up = Vec3::Y;
         for s in strikes {
+            if let Some(&(c, _, i, g)) = s.key.checked_sub(PREY).and_then(|k| prey.get(k as usize)) {
+                events.push(Ev::Hit { pos: s.at, claws: false });
+                if npcs.hit(g, i, s.dmg) == Some(true) {
+                    events.push(Ev::Text { pos: c + up * 1.2, text: format!("{}! COGUMAU AMASSADO", s.w), color: rgb(1.0, 0.85, 0.2), big: false });
+                }
+                self.emit(E_COIN, s.at);
+                continue;
+            }
             let j = s.key as usize;
             let f = &mut fighters[j];
             if !f.active() {

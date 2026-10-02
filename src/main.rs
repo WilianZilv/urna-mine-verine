@@ -13,6 +13,7 @@ mod economy;
 mod eleicao;
 mod extras;
 mod gta;
+mod gumba;
 mod hub;
 mod inventory;
 mod items;
@@ -481,6 +482,7 @@ async fn main() {
     let mut kaiju = kaiju::Kaiju::new(audio.rate);
     let mut zeppelin = zeppelin::Zeppelin::new(audio.rate);
     let mut mario = mario::Mario::new(audio.rate);
+    let mut gumbas = gumba::Gumbas::new();
     let mut wolvie = wolvie::Wolvie::new(audio.rate);
     let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
@@ -670,7 +672,7 @@ async fn main() {
                                     actors::blast_fighters(&mut fighters, p, r, time, &mut events);
                                     actors::blast_villagers(&mut villagers, p, r);
                                     let by_player = !m["by"].is_null();
-                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time) {
+                                    for (c, rad, i, g) in npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time).into_iter().chain(gumbas.targets(&npcs)) {
                                         let reach = r * 1.8 + rad * 0.5;
                                         let d = c.distance(p);
                                         if g == npc::FIGHTER || d >= reach || (g >= npc::URNA && !by_player && g != npc::KAIJU) || (g == npc::KAIJU && m["by"] == kaiju::BY) || (g == npc::ZEPPELIN && m["by"] == zeppelin::BY) {
@@ -806,6 +808,7 @@ async fn main() {
                     mods.apply(&m["md"]);
                     kaiju.apply(&m["kj"]);
                     mario.apply(&m["mr"]);
+                    gumbas.apply(&m["gb"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
@@ -1221,6 +1224,7 @@ async fn main() {
             };
             let mut tg = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
             tg.extend(mario.target(&npcs));
+            tg.extend(gumbas.targets(&npcs));
             let before = player.pos;
             for v in mario.play(&world, dt, &inp, std::mem::take(&mut player.knock), &tg) {
                 send(v, &mut loopback);
@@ -1234,6 +1238,7 @@ async fn main() {
             let inp = wolvie::Intent::read(active, active && grabbed && !just_grabbed, player.stick, w_tap, [btn(0), btn(1), btn(2), btn(3)], wolvie.rage_full());
             let mut tg = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
             tg.extend(mario.target(&npcs));
+            tg.extend(gumbas.targets(&npcs));
             let others: Vec<(u64, Vec3)> = remotes.iter().map(|(id, r)| (*id, r.pos)).collect();
             let before = player.pos;
             for v in wolvie.play(&world, dt, &inp, &mut player, &tg, &others, &mut fx) {
@@ -1277,6 +1282,30 @@ async fn main() {
                 let pv = n.pelvis();
                 player.pos = vec3(pv.x, world.floor_at(pv.x, pv.y, pv.z), pv.z);
                 player.knock = Vec3::ZERO;
+            }
+        }
+        // COGUMAU: pisão (quem anda pelo player; o ENCANADOR pisa pelos próprios golpes) ou mordida de lado
+        let feet = match ch {
+            0 | 2 | 4 | 5 => Some((player.pos, player.vel.y, true)),
+            6 => mario.me.as_ref().map(|b| (b.pos, 0.0, false)),
+            7 => Some((player.pos, 0.0, false)),
+            _ => None,
+        };
+        if let Some((p, vy, can_stomp)) = feet {
+            let t = gumbas.touch(&npcs, p, vy, can_stomp);
+            if t.bounce {
+                player.vel.y = 9.0;
+                play_at(&audio, &sfx.punch, p, p, 0.7, muted, false);
+            }
+            if t.hurt > 0.0 {
+                player.knock += (t.dir * 5.0 + up * 3.0) * wolvie.damage(10.0, t.dir);
+                steve.hurt(3.0);
+                if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
+                    b.hurt(15.0);
+                }
+            }
+            for v in t.out {
+                send(v, &mut loopback);
             }
         }
         let (hub_msg, hub_release) = hub.update(&mut player, dt, online, remote_look(my_id).shirt, ch);
@@ -1381,6 +1410,7 @@ async fn main() {
 
         let mut targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
         targets.extend(mario.target(&npcs));
+        targets.extend(gumbas.targets(&npcs));
         if let Some(b) = bandido.as_mut() {
             let mut outs = Vec::new();
             if b.driving {
@@ -1560,7 +1590,8 @@ async fn main() {
         if is_host {
             actors::update_villagers(&mut villagers, &world, dt, time, |i| !npcs.alive(npc::VILLAGER, i));
             actors::update_fighters(&mut fighters, &world, dt, time, &mut events);
-            mario.think(&world, dt, time, &mut fighters, &mut npcs, &mut events);
+            gumbas.think(&world, dt, &npcs);
+            mario.think(&world, dt, time, &mut fighters, &gumbas.targets(&npcs), &mut npcs, &mut events);
             if (evento || ai_rage > 0.0) && !urna.charging {
                 urna.timer = urna.timer.min(0.35);
             }
@@ -1633,6 +1664,7 @@ async fn main() {
         }
         zeppelin.tick(&world, &audio, dt, time, npcs.zeppelin(), eye, muted, in_club, &mut fx);
         mario.animate(&world, dt, is_host, &mut fx);
+        gumbas.animate(dt, is_host);
         for (c, p, v) in mario.sfx.drain(..) {
             play_at(&audio, &c, p, eye, v, muted, in_club);
         }
@@ -1727,6 +1759,7 @@ async fn main() {
                 s["md"] = mods.snapshot();
                 s["kj"] = kaiju.snapshot();
                 s["mr"] = mario.snapshot();
+                s["gb"] = gumbas.snapshot();
                 net.send(s.to_string());
                 ev_out.clear();
             }
@@ -1927,6 +1960,7 @@ async fn main() {
         kaiju.draw(&mut opaque, &mut trans, &world, &mut labels, time, npcs.kaiju());
         zeppelin.draw(&mut opaque, &mut trans, &world, &mut labels, time, eye, npcs.zeppelin());
         mario.draw(&mut opaque, &mut trans, &mut labels, time, npcs.get(npc::MARIO, 0));
+        gumbas.draw(&mut opaque, &npcs, eye);
         wolvie.draw(&mut opaque, &mut trans, time);
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
@@ -2358,9 +2392,10 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::KAIJU => ("GODZILHA ABATIDO!!!", ORANGE),
         npc::ZEPPELIN => ("ZEPELIM ABATIDO!!!", ORANGE),
         npc::MARIO => ("ENCANADOR ABATIDO!", ORANGE),
+        npc::GUMBA => ("COGUMAU AMASSADO!", YELLOW),
         _ => ("A IA CAIU!!!", ORANGE),
     };
-    events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA });
+    events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA && g != npc::GUMBA });
     match g {
         npc::URNA => {
             events.push(Ev::Banner("A URNA CAIU! APURACAO SUSPENSA".into()));

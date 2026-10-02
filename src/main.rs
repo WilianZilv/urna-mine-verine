@@ -1356,10 +1356,17 @@ async fn main() {
         if let Some(b) = hub.msg.take() {
             banner = Some(b);
         }
+        places.ringue.jab = (grabbed && !just_grabbed && active && is_mouse_button_pressed(MouseButton::Left)) || ts.iter().any(|t| t.phase == TouchPhase::Started && buttons.get(1).is_some_and(|b| t.position.distance(b.0) < b.1));
         for m in places.update(&mut player, dt, time, online) {
             if online {
                 net.send(m.to_string());
             }
+        }
+        if let Some(b) = places.ringue.msg.take() {
+            banner = Some((b, 2.0));
+        }
+        if std::mem::take(&mut places.ringue.heal) {
+            steve.hp = steve::MAX_HP;
         }
         let laws = places.laws();
         (player.grav, player.speed_mul) = (if laws.lua { 0.35 } else { 1.0 }, if laws.turbo { 1.6 } else { 1.0 });

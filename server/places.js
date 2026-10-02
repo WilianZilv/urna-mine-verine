@@ -1,10 +1,12 @@
-// Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal, Escola) + Tour dos Poderes (tour.js), que passa
+// Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal, Escola, Ringue) + Tour dos Poderes (tour.js), que passa
 // por todos. Cada lugar e uma classe no seu
 // arquivo com a mesma interface (todos os metodos opcionais):
 //   join(c)                      jogador entrou: manda snapshot {t:"pl", k:<lugar>, ...}
 //   command(id, c, head, args)   /comando no chat; true = era desse lugar
 //   onMsg(id, c, m)              mensagem {t:"pl", k:<acao>} do cliente (pisar em pulpito, portao...)
 //   onHit(c, m)                  golpe/tiro ("a") num NPC: g, i, dmg
+//   onPos(id, c, m)              mensagem "p" (posicao, personagem, dano PvP "pv")
+//   leave(id)                    jogador saiu
 //   tick(now, online)            a cada TICK_MS com gente online (e 1x quando esvazia)
 //   priceFactor()                multiplicador de preco da /loja (lei de promocao)
 // Estado de cada lugar mora em storage "pl_<lugar>" (load/save daqui). Moeda e sempre a FICTICIA do economy.js.
@@ -15,6 +17,7 @@ import { Banco } from "./banco.js";
 import { Terminal } from "./terminal.js";
 import { Tour } from "./tour.js";
 import { Escola } from "./escola.js";
+import { Ring } from "./ring.js";
 
 const TICK_MS = 20 * 1000;
 
@@ -38,7 +41,8 @@ export class Places {
             this.terminal = new Terminal(this, await load("terminal"));
             this.tour = new Tour(this, await load("tour"));
             this.escola = new Escola(this, await load("escola"));
-            this.list = [this.congresso, this.bolsa, this.tv, this.banco, this.terminal, this.tour, this.escola];
+            this.ring = new Ring(this, await load("ringue"));
+            this.list = [this.congresso, this.bolsa, this.tv, this.banco, this.terminal, this.tour, this.escola, this.ring];
         });
     }
 
@@ -96,6 +100,14 @@ export class Places {
 
     onHit(c, m) {
         for (const p of this.list) p.onHit?.(c, m);
+    }
+
+    onPos(id, c, m) {
+        for (const p of this.list) p.onPos?.(id, c, m);
+    }
+
+    leave(id) {
+        for (const p of this.list) p.leave?.(id);
     }
 
     priceFactor() {

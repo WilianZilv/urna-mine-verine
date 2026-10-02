@@ -1,4 +1,4 @@
-//! Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal, Escola). Cada um é um módulo com prédio
+//! Lugares funcionais da vila (Congresso, Bolsa, TV, Banco, Terminal, Escola, Ringue). Cada um é um módulo com prédio
 //! (voxel, na geração do mundo), painel holográfico/telão no mundo (render target, nunca HUD) e estado
 //! que vem do servidor em {t:"pl", k:<lugar>} (server/places.js). O main só fala com `Places`.
 
@@ -13,6 +13,7 @@ pub mod banco;
 pub mod bolsa;
 pub mod congresso;
 pub mod escola;
+pub mod ringue;
 pub mod terminal;
 pub mod tour;
 pub mod tv;
@@ -58,19 +59,20 @@ pub struct Places {
     pub terminal: terminal::Terminal,
     pub tour: tour::Tour,
     pub escola: escola::Escola,
+    pub ringue: ringue::Ringue,
 }
 
 impl Places {
     pub fn new() -> Self {
-        Places { congresso: congresso::Congresso::new(), bolsa: bolsa::Bolsa::new(), tv: tv::Tv::new(), banco: banco::Banco::new(), terminal: terminal::Terminal::new(), tour: tour::Tour::new(), escola: escola::Escola::new() }
+        Places { congresso: congresso::Congresso::new(), bolsa: bolsa::Bolsa::new(), tv: tv::Tv::new(), banco: banco::Banco::new(), terminal: terminal::Terminal::new(), tour: tour::Tour::new(), escola: escola::Escola::new(), ringue: ringue::Ringue::new() }
     }
 
-    fn all(&mut self) -> [&mut dyn Place; 7] {
-        [&mut self.congresso, &mut self.bolsa, &mut self.tv, &mut self.banco, &mut self.terminal, &mut self.tour, &mut self.escola]
+    fn all(&mut self) -> [&mut dyn Place; 8] {
+        [&mut self.congresso, &mut self.bolsa, &mut self.tv, &mut self.banco, &mut self.terminal, &mut self.tour, &mut self.escola, &mut self.ringue]
     }
 
-    fn each(&self) -> [&dyn Place; 7] {
-        [&self.congresso, &self.bolsa, &self.tv, &self.banco, &self.terminal, &self.tour, &self.escola]
+    fn each(&self) -> [&dyn Place; 8] {
+        [&self.congresso, &self.bolsa, &self.tv, &self.banco, &self.terminal, &self.tour, &self.escola, &self.ringue]
     }
 
     pub fn on_msg(&mut self, m: &Value) {
@@ -81,6 +83,7 @@ impl Places {
             "tv" => &mut self.tv,
             "banco" => &mut self.banco,
             "escola" => &mut self.escola,
+            "ringue" => &mut self.ringue,
             "term" | "go" => &mut self.terminal,
             "tour" => {
                 self.tour.on_msg(m);
@@ -139,6 +142,7 @@ pub fn build(w: &mut World) {
     banco::build(w);
     terminal::build(w);
     escola::build(w);
+    ringue::build(w);
 }
 
 // ---------------------------------------------------------------- ajudas compartilhadas
@@ -189,7 +193,8 @@ pub struct Screen {
     last: f32,
     key: u64,
     warming: bool,
-    warmed: bool,
+    /// Chave do último passe descartado: conteúdo que mudou entre ele e o passe de verdade esquenta de novo.
+    warmed: Option<u64>,
 }
 
 impl Default for Screen {
@@ -200,7 +205,7 @@ impl Default for Screen {
 
 impl Screen {
     pub fn new() -> Self {
-        Screen { rt: None, last: -100.0, key: u64::MAX, warming: false, warmed: false }
+        Screen { rt: None, last: -100.0, key: u64::MAX, warming: false, warmed: None }
     }
 
     /// Prepara a câmera na render target se precisar repintar. `key` = hash do conteúdo; `animated` repinta
@@ -232,13 +237,14 @@ impl Screen {
         }
         // Conteúdo novo: um passe descartado antes, pra fonte cachear os glifos. Se o atlas da fonte crescer, o
         // macroquad apaga a textura velha na hora e os glifos já enfileirados bindariam uma textura apagada.
-        if (!fresh || key != self.key) && !self.warmed {
+        if (!fresh || key != self.key) && self.warmed != Some(key) {
             let mut gl = unsafe { get_internal_gl() };
             gl.flush();
             self.warming = true;
+            self.warmed = Some(key);
             return true;
         }
-        self.warmed = false;
+        self.warmed = None;
         if !fresh {
             self.rt = None;
         }
@@ -262,7 +268,6 @@ impl Screen {
     pub fn end(&mut self) {
         if std::mem::take(&mut self.warming) {
             unsafe { get_internal_gl() }.quad_gl.clear_draw_calls();
-            self.warmed = true;
             return;
         }
         set_default_camera();

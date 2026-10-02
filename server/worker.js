@@ -285,6 +285,7 @@ export class Room extends DurableObject {
                 this.uni.stamp(c, m);
                 this.broadcast(m, id);
                 this.eco.onPos(c);
+                this.places.onPos(id, c, m);
                 break;
             case "s":
                 if (id === this.host) this.broadcast(m, id);
@@ -338,6 +339,7 @@ export class Room extends DurableObject {
     leave(id) {
         this.hub.leave(id);
         if (!this.clients.delete(id)) return;
+        this.places.leave(id);
         this.broadcast({ t: "leave", id });
         if (id === this.host) {
             this.host = this.clients.keys().next().value || 0;

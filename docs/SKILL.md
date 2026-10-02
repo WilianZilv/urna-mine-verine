@@ -54,6 +54,9 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
   /concurso + /votarmod n (weekly MOD DA SEMANA vote), /passaporte (persistent stamps, also in /api/passport).
   ESCOLA DE AGENTES (south of the houses; /escola: the 4-step mod lesson), /roadmap + /proposta n (vote what the
   devs build next), /campeonato (weekly arena championship on TV), /diario (daily streak, fictional coins).
+  RINGUE DA VILA (northwest, trail north from Avenida dos Poderes): player-vs-player boxing. Step on the canvas or
+  /ringue to queue (/ringue sair leaves); best of 3, 60 s rounds, KO or points, 3 s outside the ropes loses the round,
+  winner stays (king of the ring). Scoreboard panel beside the ring; the whole lot is build-protected.
 
 ## Shared rules (all paths)
 - Creator token: get it once (POST /api/mods/register {"name":...}; shown ONCE). Save it to

@@ -1,5 +1,6 @@
 //! Escudos de energia do lab e do Game Hub: nenhum bloco some nem aparece dentro deles (World::set
-//! recusa) e tiro/laser para na superfície. Ficam ligados mesmo com a guardiã caída.
+//! recusa) e tiro/laser para na superfície. Ficam ligados mesmo com a guardiã caída. O lote do ringue
+//! também é protegido (só blocos, sem domo).
 
 use crate::hub::{HX0, HX1, HZ0, HZ1};
 use crate::world::*;
@@ -19,7 +20,7 @@ pub fn domes() -> [(Vec3, Vec3); 2] {
 
 /// Bloco dentro de um escudo (domo + cilindro até o fundo, ou piso do corredor do hub).
 pub fn protected(p: IVec3) -> bool {
-    if (HX0..=HX1).contains(&p.x) && (HZ0..=HZ1).contains(&p.z) {
+    if (HX0..=HX1).contains(&p.x) && (HZ0..=HZ1).contains(&p.z) || crate::places::ringue::in_lot(p.x, p.z) {
         return true;
     }
     let bc = p.as_vec3() + Vec3::splat(0.5);

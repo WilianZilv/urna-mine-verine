@@ -7,6 +7,7 @@ mod atlas;
 #[cfg_attr(target_arch = "wasm32", path = "audio_web.rs")]
 mod audio;
 mod batch;
+mod bomba;
 mod chunks;
 mod club;
 mod economy;
@@ -104,7 +105,7 @@ struct Remote {
     yaw: f32,
     walk: f32,
     look: Look,
-    /// Personagem: 0 Steve, 1 skatista, 2 bandido, 3 bandido dirigindo, 4 niko, 5 portal, 6 encanador, 7 wolverine.
+    /// Personagem: 0 Steve, 1 skatista, 2 bandido, 3 bandido dirigindo, 4 niko, 5 portal, 6 encanador, 7 wolverine, 8 bombadinho.
     ch: u8,
     /// Skin de mod ("id@versao", carimbada pelo servidor) e velocidade estimada pros quadros do avatar.
     av: Option<String>,
@@ -243,6 +244,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 9] {
         5 => ["PULA", "AZUL", "LARANJA", "CUBO"],
         6 => ["PULA", "SOCO", "AGACHA", "-"],
         7 => ["PULA", "GARRA", "BOTE", "DEFESA"],
+        8 => ["PULA", "BOMBA", "TIPO", "DETONA"],
         _ => ["PULA", "BATE", "POE", "VOA"],
     };
     [
@@ -259,7 +261,7 @@ fn touch_buttons(sw: f32, sh: f32, ch: u8) -> [(Vec2, f32, &'static str); 9] {
 }
 
 /// Cards do menu: (nome, descrição, código do personagem escolhido).
-const CHARS: [(&str, &str, u8); 7] = [
+const CHARS: [(&str, &str, u8); 8] = [
     ("STEVE SURVIVAL", "vida, ferramentas, arco, TNT", 0),
     ("STEVE CRIATIVO", "voa, blocos infinitos, sem dano", 1),
     ("SKATISTA", "SKATE 3: flick-it, grind, manual", 2),
@@ -267,6 +269,7 @@ const CHARS: [(&str, &str, u8); 7] = [
     ("ARMA DE PORTAL", "portais azul/laranja + cubo", 5),
     ("ENCANADOR", "pulo triplo, mortal, sentada", 6),
     ("WOLVERINE", "garras, bote, furia, fator de cura", 7),
+    ("BOMBADINHO", "bombas: fogo, perfura, remota, linha", 8),
 ];
 
 fn char_cards(sw: f32, sh: f32) -> [Rect; CHARS.len()] {
@@ -336,6 +339,10 @@ fn apply_world(world: &mut World, m: &Value, fx: &mut Fx, avg: &[Color]) -> Opti
             let plan = mp::get_shot(m);
             let s = urna::apply(world, &plan, fx, avg);
             Some((plan, s))
+        }
+        "bomb" => {
+            bomba::apply(world, m, fx, avg);
+            None
         }
         "reset" => {
             *world = mods::generate();
@@ -483,6 +490,7 @@ async fn main() {
     let mut zeppelin = zeppelin::Zeppelin::new(audio.rate);
     let mut mario = mario::Mario::new(audio.rate);
     let mut gumbas = gumba::Gumbas::new();
+    let mut bomba = bomba::Bomba::new();
     let mut wolvie = wolvie::Wolvie::new(audio.rate);
     let mut portals = portal::Portals::new(audio.rate);
     let mut cam_smooth: Option<Vec3> = None;
@@ -516,7 +524,7 @@ async fn main() {
     prof.on = debug;
 
     loop {
-        prof.frame(&quality.label());
+        prof.frame(&if prof.on { format!("{} {} grab={}", quality.label(), bomba.debug(), grabbed as u8) } else { quality.label() });
         let dt = get_frame_time().min(0.05);
         let online = welcomed && net.state() == net::OPEN;
         if was_online && !online {
@@ -640,7 +648,7 @@ async fn main() {
                     banner = Some((format!("{} TROCOU O TELAO", m["n"].as_str().map(String::from).unwrap_or_else(|| who(id, online, my_id, &my_name, &remotes))), 2.5));
                 }
                 "w" => match {
-                    let fresh = steve.before_world(&world, &m);
+                    let fresh = steve.before_world(&world, &m) && bomba.before_world(&world, &m, &mut steve.tnt);
                     portals.on_world(&m);
                     if fresh { apply_world(&mut world, &m, &mut fx, &atlas.avg) } else { None }
                 } {
@@ -669,6 +677,7 @@ async fn main() {
                                     fx.shake = fx.shake.max((1.0 - p.distance(eye) / 70.0).max(0.0) * 1.2);
                                 }
                                 if is_host {
+                                    bomba.bombs.blast(p, r);
                                     actors::blast_fighters(&mut fighters, p, r, time, &mut events);
                                     actors::blast_villagers(&mut villagers, p, r);
                                     let by_player = !m["by"].is_null();
@@ -696,6 +705,7 @@ async fn main() {
                                     if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
                                         b.hurt(90.0 * k);
                                     }
+                                    bomba.hurt_me(90.0 * k);
                                 }
                                 let dc = car.pos.distance(p);
                                 if dc < r * 2.2 {
@@ -797,6 +807,7 @@ async fn main() {
                             fighters[3].spawn_wolverine();
                             wolverine_called = true;
                         }
+                        "bomb" | "bombx" | "kick" => bomba.on_action(&world, id, &m),
                         _ => {}
                     }
                 }
@@ -809,6 +820,7 @@ async fn main() {
                     kaiju.apply(&m["kj"]);
                     mario.apply(&m["mr"]);
                     gumbas.apply(&m["gb"]);
+                    bomba.apply(&m["bb"]);
                 }
                 "eco" => eco.on_msg(&m, &mut chat),
                 "lab" => lab_info.on_msg(&m),
@@ -833,6 +845,7 @@ async fn main() {
             _ if portals.active => 5,
             _ if mario.me.is_some() => 6,
             _ if wolvie.me.is_some() => 7,
+            _ if bomba.me.is_some() => 8,
             _ => 0,
         };
         let mut buttons = touch_buttons(sw, sh, ch);
@@ -848,6 +861,7 @@ async fn main() {
         let mut clip_tap = false;
         let mut m_tap = [false; 3];
         let mut w_tap = [false; 4];
+        let mut b_tap = [false; 4];
         let ts = touches();
         if !ts.is_empty() && !mobile {
             mobile = true;
@@ -894,6 +908,7 @@ async fn main() {
                             (1..=3, 5) => portals.tap(b),
                             (0..=2, 6) => m_tap[b] = true,
                             (0..=3, 7) => w_tap[b] = true,
+                            (1..=3, 8) => b_tap[b] = true,
                             (1, 0) => tap_hit = true,
                             (2, 0) => tap_place = true,
                             (2, 2) => cycle_weapon = 1,
@@ -1110,6 +1125,7 @@ async fn main() {
             niko = None;
             mario.me = None;
             wolvie.me = None;
+            bomba.me = None;
             portals.active = c == 5;
             player.vel = Vec3::ZERO;
             player.fly = false;
@@ -1121,6 +1137,7 @@ async fn main() {
                 5 => {}
                 6 => mario.me = Some(mario::Body::new(player.pos, fw.x.atan2(fw.z))),
                 7 => wolvie.me = Some(wolvie::Body::new(player.pos, fw.x.atan2(fw.z))),
+                8 => bomba.start_me(),
                 _ => steve.set_mode(c == 1, &mut player),
             }
             banner = Some((format!("PERSONAGEM: {}", CHARS[m].0), 2.0));
@@ -1156,9 +1173,9 @@ async fn main() {
         let wheel = mouse_wheel().1;
         if let Some(b) = bandido.as_mut() {
             b.cycle(-(wheel.signum() as i32) * (wheel != 0.0) as i32);
-        } else if wheel > 0.0 {
+        } else if wheel > 0.0 && ch != 8 {
             player.sel = (player.sel + 8) % 9;
-        } else if wheel < 0.0 {
+        } else if wheel < 0.0 && ch != 8 {
             player.sel = (player.sel + 1) % 9;
         }
 
@@ -1225,6 +1242,7 @@ async fn main() {
             let mut tg = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
             tg.extend(mario.target(&npcs));
             tg.extend(gumbas.targets(&npcs));
+            tg.extend(bomba.target(&npcs));
             let before = player.pos;
             for v in mario.play(&world, dt, &inp, std::mem::take(&mut player.knock), &tg) {
                 send(v, &mut loopback);
@@ -1239,6 +1257,7 @@ async fn main() {
             let mut tg = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
             tg.extend(mario.target(&npcs));
             tg.extend(gumbas.targets(&npcs));
+            tg.extend(bomba.target(&npcs));
             let others: Vec<(u64, Vec3)> = remotes.iter().map(|(id, r)| (*id, r.pos)).collect();
             let before = player.pos;
             for v in wolvie.play(&world, dt, &inp, &mut player, &tg, &others, &mut fx) {
@@ -1248,7 +1267,7 @@ async fn main() {
             moving = d > 0.001;
             gta_walk += d * 3.0;
         } else if niko.as_ref().is_none_or(|n| n.controlled()) {
-            player.can_fly = bandido.is_none() && niko.is_none() && steve.creative && !portals.active;
+            player.can_fly = bandido.is_none() && niko.is_none() && steve.creative && !portals.active && bomba.me.is_none();
             player.mc = ch == 0;
             let (before, vy) = (player.pos, player.vel.y);
             if let Some(n) = niko.as_mut() {
@@ -1283,6 +1302,23 @@ async fn main() {
                 player.pos = vec3(pv.x, world.floor_at(pv.x, pv.y, pv.z), pv.z);
                 player.knock = Vec3::ZERO;
             }
+        }
+        if ch == 8 {
+            let mouse_ok = grabbed && !just_grabbed && active;
+            let keys = if active { is_key_pressed(KeyCode::E) as i32 - is_key_pressed(KeyCode::Q) as i32 - wheel.signum() as i32 * (wheel != 0.0) as i32 } else { 0 };
+            let inp = bomba::Intent {
+                place: b_tap[1] || (active && is_key_pressed(KeyCode::F)) || (mouse_ok && is_mouse_button_pressed(MouseButton::Left)),
+                cycle: b_tap[2] as i32 + keys,
+                detonate: b_tap[3] || (active && is_key_pressed(KeyCode::G)) || (mouse_ok && is_mouse_button_pressed(MouseButton::Right)),
+            };
+            for v in bomba.play(&world, dt, &inp, &mut player, pos_before, my_id) {
+                send(v, &mut loopback);
+            }
+            if let Some(s) = bomba.msg.take() {
+                banner = Some((s, 2.0));
+            }
+        } else if matches!(ch, 0 | 5) {
+            bomba.block(&mut player, pos_before);
         }
         // COGUMAU: pisão (quem anda pelo player; o ENCANADOR pisa pelos próprios golpes) ou mordida de lado
         let feet = match ch {
@@ -1395,7 +1431,7 @@ async fn main() {
             (e, look.map(|l| (l - e).normalize()).unwrap_or(player.forward()))
         } else if let Some(c) = wolvie.camera(&world, &player, dt) {
             c
-        } else if niko.is_some() || mario.me.is_some() {
+        } else if niko.is_some() || mario.me.is_some() || bomba.me.is_some() {
             let fw = player.forward();
             let right = vec3(-fw.z, 0.0, fw.x).normalize_or_zero();
             let head = player.pos + up * 1.7;
@@ -1411,6 +1447,7 @@ async fn main() {
         let mut targets = npc_targets(&fighters, &villagers, &guests, &npcs, &urna, &mods, &kaiju, time);
         targets.extend(mario.target(&npcs));
         targets.extend(gumbas.targets(&npcs));
+        targets.extend(bomba.target(&npcs));
         if let Some(b) = bandido.as_mut() {
             let mut outs = Vec::new();
             if b.driving {
@@ -1570,6 +1607,7 @@ async fn main() {
                 b.hurt(mod_hurt * 3.0);
             }
             wolvie.damage(mod_hurt * 3.0, Vec3::ZERO);
+            bomba.hurt_me(mod_hurt * 3.0);
         }
         fx.shake = fx.shake.max(mod_shake);
         for (c, p) in mods.sfx.drain(..) {
@@ -1592,6 +1630,7 @@ async fn main() {
             actors::update_fighters(&mut fighters, &world, dt, time, &mut events);
             gumbas.think(&world, dt, &npcs);
             mario.think(&world, dt, time, &mut fighters, &gumbas.targets(&npcs), &mut npcs, &mut events);
+            bomba.think(&world, dt, time, &mut fighters, &mut npcs, &mut events);
             if (evento || ai_rage > 0.0) && !urna.charging {
                 urna.timer = urna.timer.min(0.35);
             }
@@ -1665,6 +1704,33 @@ async fn main() {
         zeppelin.tick(&world, &audio, dt, time, npcs.zeppelin(), eye, muted, in_club, &mut fx);
         mario.animate(&world, dt, is_host, &mut fx);
         gumbas.animate(dt, is_host);
+        let mut bodies: Vec<(u64, Vec3)> = remotes.iter().map(|(id, r)| (*id, r.pos)).collect();
+        bodies.push((my_id, player.pos));
+        for v in bomba.update(&world, dt, is_host, &fighters, &bodies, &mut fx) {
+            send(v, &mut loopback);
+        }
+        if is_host {
+            for (g, i, dmg, dir, at) in bomba.burn(&targets, &mut fighters, time, &mut events) {
+                if npc_hit(&mut npcs, &mut villagers, g, i, dmg, dir, at, &mut events) {
+                    let mut v = mp::shot(&urna::Plan { o: urna.root + up * 1.5, hit: urna.root + up * 1.5, r: 6.0, deflect: false });
+                    v["by"] = json!(2);
+                    send(v, &mut loopback);
+                }
+            }
+        }
+        if let Some(dir) = bomba.burn_me(player.pos) {
+            player.knock += (dir * 5.0 + up * 6.0) * wolvie.damage(40.0, dir);
+            steve.hurt(10.0);
+            if let Some(b) = bandido.as_mut().filter(|b| !b.driving) {
+                b.hurt(60.0);
+            }
+        }
+        for p in bomba.sounds.drain(..) {
+            play_at(&audio, &sfx.boom, p, eye, 1.1, muted, in_club);
+            if !in_club {
+                fx.shake = fx.shake.max((1.0 - p.distance(eye) / 40.0).max(0.0) * 0.6);
+            }
+        }
         for (c, p, v) in mario.sfx.drain(..) {
             play_at(&audio, &c, p, eye, v, muted, in_club);
         }
@@ -1760,6 +1826,7 @@ async fn main() {
                 s["kj"] = kaiju.snapshot();
                 s["mr"] = mario.snapshot();
                 s["gb"] = gumbas.snapshot();
+                s["bb"] = bomba.snapshot();
                 net.send(s.to_string());
                 ev_out.clear();
             }
@@ -1803,7 +1870,7 @@ async fn main() {
         prof.mark(prof::MISC);
         lab_info.render(time, eye, npcs.guard());
         let in_ring = remotes.values().map(|r| (r.name.as_str(), r.pos)).chain([(my_name.as_str(), player.pos)]);
-        arena_board.render(time, eye, &fighters, &npcs, mario.visible().then_some(mario.body.pos), urna.pos, in_ring);
+        arena_board.render(time, eye, &fighters, &npcs, mario.visible().then_some(mario.body.pos), bomba.visible().then_some(bomba.npc.pos), urna.pos, in_ring);
         places.render(time, eye);
         prof.mark(prof::LAB_RT);
         clear_background(sky);
@@ -1925,6 +1992,7 @@ async fn main() {
                 2 => gta::draw_remote(&mut opaque, r.pos, r.yaw, r.walk, moving),
                 6 => mario::draw_remote(&mut opaque, &mut trans, r.pos, r.yaw, r.walk, moving, r.vy, time),
                 7 => wolvie.draw_remote(&mut opaque, *rid, r.pos, r.yaw, r.walk, if moving { r.spd } else { 0.0 }, r.vy, time),
+                8 => bomba::draw_remote(&mut opaque, &mut trans, r.pos, r.yaw, r.walk, moving, time),
                 0 | 5 if r.av.as_deref().is_some_and(|a| uni.draw(&mut opaque, a, r.pos, r.yaw, if moving { r.spd } else { 0.0 }, r.vy.abs() > 1.5, time)) => {}
                 _ => {
                     let pose = Pose { walk: r.walk, walk_amt: if moving { 1.0 } else { 0.0 }, arm_l: -0.2, arm_r: -0.2, ..Default::default() };
@@ -1961,6 +2029,7 @@ async fn main() {
         zeppelin.draw(&mut opaque, &mut trans, &world, &mut labels, time, eye, npcs.zeppelin());
         mario.draw(&mut opaque, &mut trans, &mut labels, time, npcs.get(npc::MARIO, 0));
         gumbas.draw(&mut opaque, &npcs, eye);
+        bomba.draw(&mut opaque, &mut trans, &mut labels, time, npcs.get(npc::BOMBA, 0), (ch == 8).then(|| (player.pos, fw.x.atan2(fw.z), gta_walk, moving)));
         wolvie.draw(&mut opaque, &mut trans, time);
         let robots_dead: Vec<Option<f32>> = (0..extras::ROBOTS).map(|i| npcs.get(npc::ROBOT, i).filter(|d| !d.alive()).map(|d| d.t)).collect();
         lab.draw(&mut opaque, &mut trans, time, &mut labels, eye, &robots_dead);
@@ -2196,6 +2265,7 @@ async fn main() {
         }
         portals.hud(sw, sh);
         wolvie.hud(dt, sw, sh, &targets, |p| project(&vp, p), |s, x, y, z, c| text_centered(s, x, y, z, c, true), mobile);
+        bomba.hud(sw, sh, my_id, |s, x, y, z, c| text_centered(s, x, y, z, c, true));
 
         draw_text(&format!("URNA-MINE-VERINE  |  {} FPS  |  disparos da urna: {}", get_fps(), urna.shots), 12.0, sh - 80.0, 20.0, WHITE);
         let now_playing = if telao.live { format!("TELAO: {}", telao.title) } else { "house sintetizado 124 BPM (telao carregando...)".to_string() };
@@ -2231,6 +2301,12 @@ async fn main() {
                     "ESQ combo (direcao varia o golpe) | segura ESQ ou F pesado | S+F gancho (lanca) | F no ar mergulho | SHIFT+F tornado",
                     "E BOTE (trava: TAB/meio) | montado: ESQ no tempo do anel, F estocada, ESPACO solta | DIR defende (na hora reflete laser)",
                     "R FURIA com a barra cheia | fator de cura sozinho | C troca personagem | T chat | H ajuda",
+                ],
+                8 => [
+                    "BOMBADINHO: WASD anda | ESPACO pula | F ou ESQ solta bomba (gruda no grid, pavio 3s, explode em cruz)",
+                    "Q/E ou RODA troca: NORMAL, FOGO (+alcance), PERFURANTE (fura bloco), REMOTA, LINHA (fileira), GOSMA (gruda)",
+                    "G ou DIR detona as REMOTAS | anda contra a bomba = CHUTA | chama na bomba = reacao em cadeia",
+                    "chama para no bloco duro e quebra so o 1o bloco fraco | C troca personagem | T chat | H ajuda",
                 ],
                 _ if steve.creative => [
                     "CRIATIVO: WASD andar | ESPACO pular | 2x W ou CTRL corre | SHIFT agacha | 2x ESPACO voa (SHIFT desce)",
@@ -2307,7 +2383,7 @@ async fn main() {
                     text_centered(CHARS[i].1, r.x + r.w * 0.5, r.y + r.h * 0.86, (r.w / 14.0).min(15.0), Color::new(0.8, 0.8, 0.85, 1.0), false);
                 }
             }
-            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-7 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
+            text_centered(if mobile { "TOCA NUM PERSONAGEM" } else { "CLICA OU APERTA 1-8 | C FECHA" }, sw * 0.5, sh * 0.5 + (sh * 0.36).min(200.0) * 0.5 + 34.0, 20.0, WHITE, false);
             let qb = quality_button(sw, sh);
             draw_rectangle(qb.x, qb.y, qb.w, qb.h, Color::new(0.1, 0.1, 0.15, 0.9));
             draw_rectangle_lines(qb.x, qb.y, qb.w, qb.h, 2.0, Color::new(0.45, 1.0, 1.0, 1.0));
@@ -2393,6 +2469,7 @@ fn npc_hit(npcs: &mut npc::Npcs, villagers: &mut [Villager], g: u8, i: usize, dm
         npc::ZEPPELIN => ("ZEPELIM ABATIDO!!!", ORANGE),
         npc::MARIO => ("ENCANADOR ABATIDO!", ORANGE),
         npc::GUMBA => ("COGUMAU AMASSADO!", YELLOW),
+        npc::BOMBA => ("BOMBADINHO DESARMADO!", ORANGE),
         _ => ("A IA CAIU!!!", ORANGE),
     };
     events.push(Ev::Text { pos: at + up * 1.2, text: txt.into(), color: col, big: g >= npc::URNA && g != npc::GUMBA });

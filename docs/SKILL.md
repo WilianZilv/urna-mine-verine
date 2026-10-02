@@ -41,6 +41,8 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
 - (c) PLAY -> give the link and the controls below. Nothing to install.
   Play: https://urna-mine-verine.wilianzilv.workers.dev  (optional: https://urna-mine-verine.wilianzilv.workers.dev/?nome=SEUNOME). Controls: WASD walk, mouse look (click to capture), Space jump,
   Shift run, F fly, C character/skin menu, E inventory, T or Enter chat, H help, Esc release mouse.
+  Characters (C, keys 1-8): Steve survival/creative, skater, bandit, portal gun, ENCANADOR, WOLVERINE, BOMBADINHO
+  (key 8: grid bombs that blast in a cross; F/click drop, Q/E/wheel type: normal, fogo, perfurante, remota (G), linha, gosma).
   Phone: open the link in the browser landscape; left half = joystick, drag right half = look, on-screen buttons.
   Places: mod zone north of the lab (east), Game Hub corridor south of the lab; https://urna-mine-verine.wilianzilv.workers.dev/?hub=<id> spawns at an arch.
   Avenida dos Poderes (north of the plaza): CONGRESSO (west; vote laws that change the game: /leis, /lei <id>),
@@ -80,9 +82,9 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
 - https://urna-mine-verine.wilianzilv.workers.dev/hub — Hub docs as HTML; working demo game: https://urna-mine-verine.wilianzilv.workers.dev/hub/demo
 - https://urna-mine-verine.wilianzilv.workers.dev/hub-templates/ — copy-and-go game templates (canvas2d, three.js) with the SDK wired + manifest generator
 - https://urna-mine-verine.wilianzilv.workers.dev/api/world — live public world state (laws, stocks, TV, rich list) as JSON; widgets to embed: https://urna-mine-verine.wilianzilv.workers.dev/embed/
-- https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js — browser SDK for games (connect/session, events, exit; avatar/passport/presence/grant/spend)
+- https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-portal.js — browser SDK for games (connect/session, events, exit; avatar/passport/presence/grant/spend); add data-auto to the tag and other Urna players show up in a three.js game with zero code (any portal already gets a presence overlay from the Urna page; see "Presenca sem codigo" in /hub.txt)
 - https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-three.js and https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-avatar-canvas2d.js — render a player's avatar mod in three.js / 2D canvas
 - https://urna-mine-verine.wilianzilv.workers.dev/sdk/urna-hub.mjs — Node helper CLI: prepare/publish/unpublish a portal
 - https://urna-mine-verine.wilianzilv.workers.dev/api/passport?token=<session token> — player passport for games: avatar package, fictional wallet, items
 - https://urna-mine-verine.wilianzilv.workers.dev/api/mods and https://urna-mine-verine.wilianzilv.workers.dev/api/portals — public lists of mods and live portals (JSON)
-- https://urna-mine-verine.wilianzilv.workers.dev/universe.txt — avatar/presence/items across games (if it returns 404, it is not published yet: use /modding.txt + /hub.txt)
+- https://urna-mine-verine.wilianzilv.workers.dev/universe.txt — avatar/presence/items across games

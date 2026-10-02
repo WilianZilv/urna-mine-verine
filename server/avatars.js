@@ -10,6 +10,7 @@ const LOOKS = {
     bandido: { name: "Bandido", skin: "#a87458", hair: "#1c1c1c", eye: "#2a1a10", shirt: "#e8e8e8", sleeve: "#2a2a2a", pants: "#2e3a5c", shoes: "#3a2414", jacket: "#2a2a2a" },
     portal: { name: "Arma de Portal", skin: "#d8a27e", hair: "#3a2414", eye: "#3a5a2a", shirt: "#f2f2f2", sleeve: "#f08a24", pants: "#f08a24", shoes: "#5c5c5c" },
     wolverine: { name: "Wolverine", skin: "#c8946c", hair: "#f2c418", eye: "#f2f2f2", shirt: "#f2c418", sleeve: "#2a4fb8", glove: "#2a4fb8", pants: "#2a4fb8", shoes: "#1c2a5a", claws: "#d8dde4" },
+    bombadinho: { name: "Bombadinho", skin: "#d8a27e", hair: "#1c1c1c", eye: "#2ad8e8", shirt: "#c8e62a", sleeve: "#1f2a5c", glove: "#f08a24", pants: "#1f2a5c", shoes: "#1c1c1c", hat: "#f08a24" },
 };
 
 function model(L) {

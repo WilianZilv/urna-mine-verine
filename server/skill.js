@@ -46,6 +46,8 @@ Then ask ONLY what you truly need, in plain words, one question at a time, e.g. 
 - (c) PLAY -> give the link and the controls below. Nothing to install.
   Play: ${SITE}  (optional: ${SITE}/?nome=SEUNOME). Controls: WASD walk, mouse look (click to capture), Space jump,
   Shift run, F fly, C character/skin menu, E inventory, T or Enter chat, H help, Esc release mouse.
+  Characters (C, keys 1-8): Steve survival/creative, skater, bandit, portal gun, ENCANADOR, WOLVERINE, BOMBADINHO
+  (key 8: grid bombs that blast in a cross; F/click drop, Q/E/wheel type: normal, fogo, perfurante, remota (G), linha, gosma).
   Phone: open the link in the browser landscape; left half = joystick, drag right half = look, on-screen buttons.
   Places: mod zone north of the lab (east), Game Hub corridor south of the lab; ${SITE}/?hub=<id> spawns at an arch.
   Avenida dos Poderes (north of the plaza): CONGRESSO (west; vote laws that change the game: /leis, /lei <id>),

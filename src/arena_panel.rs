@@ -51,7 +51,7 @@ impl ArenaPanel {
 
     /// Redesenha a tela na render target (antes do passe 3D). Só perto, do lado da arena, e se mudou.
     #[allow(clippy::too_many_arguments)]
-    pub fn render<'a>(&mut self, time: f32, eye: Vec3, fighters: &[Fighter], npcs: &Npcs, mario: Option<Vec3>, urna: Vec3, players: impl Iterator<Item = (&'a str, Vec3)>) {
+    pub fn render<'a>(&mut self, time: f32, eye: Vec3, fighters: &[Fighter], npcs: &Npcs, mario: Option<Vec3>, bomba: Option<Vec3>, urna: Vec3, players: impl Iterator<Item = (&'a str, Vec3)>) {
         if eye.distance(center()) > 100.0 || eye.x < AX + 1.0 {
             return;
         }
@@ -75,6 +75,11 @@ impl ArenaPanel {
         if let (Some(p), Some(v)) = (mario, npcs.get(crate::npc::MARIO, 0)) {
             if in_arena(p.xz(), 0.0) {
                 rows.push(vida_row("MARIO", Color::new(1.0, 0.25, 0.2, 1.0), v));
+            }
+        }
+        if let (Some(p), Some(v)) = (bomba, npcs.get(crate::npc::BOMBA, 0)) {
+            if in_arena(p.xz(), 0.0) {
+                rows.push(vida_row("BOMBADINHO", Color::new(1.0, 0.55, 0.15, 1.0), v));
             }
         }
         rows.push(vida_row("GODZILHA", Color::new(0.45, 0.85, 1.0, 1.0), npcs.kaiju()));

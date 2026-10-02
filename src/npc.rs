@@ -19,6 +19,7 @@ pub const MODS: u8 = 8;
 pub const KAIJU: u8 = 9;
 pub const ZEPPELIN: u8 = 10;
 pub const MARIO: u8 = 11;
+pub const BOMBA: u8 = 12;
 pub const GUMBA: u8 = 13;
 
 #[derive(Clone, Copy)]
@@ -95,7 +96,7 @@ impl Npcs {
                 vec![Vida::new(1500.0, 90.0)],
                 vec![Vida::new(3000.0, 180.0)],
                 vec![Vida::new(260.0, 45.0)],
-                Vec::new(),
+                vec![Vida::new(320.0, 40.0)],
                 vec![Vida::new(15.0, 12.0); crate::gumba::N],
             ],
         }
